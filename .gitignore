@@ -27,3 +27,8 @@ msmacro.events
 # Project specifics
 # (Your recordings live under $HOME/.local/share/msmacro/records; not in this tree)
 records/
+
+# Frontend
+webui/node_modules/
+webui/dist/
+

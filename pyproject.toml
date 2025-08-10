@@ -1,20 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "msmacro"
-version = "0.1.0"
-description = "Raspberry Pi HID keyboard bridge, recorder, and player"
-authors = [{ name = "MS Macro" }]
-requires-python = ">=3.9"
+version = "0.2.0"
+description = "Raspberry Pi HID keyboard bridge/recorder with daemon + web UI"
+requires-python = ">=3.11"
 dependencies = [
-  "evdev>=1.7.1",
+  "evdev",
+  "aiohttp"
 ]
 
-[project.scripts]
-msmacro = "msmacro.cli:main"
+[tool.setuptools.packages.find]
+include = ["msmacro*"]
 
 [tool.setuptools]
-packages = ["msmacro"]
 include-package-data = true
