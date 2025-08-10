@@ -1,0 +1,16 @@
+[Unit]
+Description=MS Macro Web UI
+After=msmacro.service network-online.target
+Wants=msmacro.service network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/opt/msmacro-app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=MSMACRO_RECDIR=/home/bxiao/.local/share/msmacro/records
+# Optional: pin the port/host here
+ExecStart=/opt/msmacro-app/.venv/bin/python -m msmacro.webapp --host 0.0.0.0 --port 8787
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

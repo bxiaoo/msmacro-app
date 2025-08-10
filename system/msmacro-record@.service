@@ -1,0 +1,12 @@
+[Unit]
+Description=MS Macro on-demand recorder (%i)
+After=multi-user.target pikb-gadget.service
+Requires=pikb-gadget.service
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/msmacro record --stop-hotkey %i
+# Example: systemctl start msmacro-record@LALT+Q
+
+[Install]
+WantedBy=multi-user.target

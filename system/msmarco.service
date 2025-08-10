@@ -1,0 +1,13 @@
+[Unit]
+Description=MS Macro live bridge
+After=multi-user.target pikb-gadget.service
+Requires=pikb-gadget.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/msmacro live
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.build/
+dist/
+build/
+
+# Virtual env
+.venv/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Runtime artifacts
+*.log
+/run/
+*.sock
+msmacro.events
+*_play.json
+
+# Project specifics
+# (Your recordings live under $HOME/.local/share/msmacro/records; not in this tree)
+records/
