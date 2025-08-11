@@ -9,7 +9,8 @@ from .handlers import (
 
 def make_app() -> web.Application:
     app = web.Application()
-    # API
+
+    # --- API routes ---
     app.add_routes([
         web.get("/api/status", api_status),
         web.post("/api/record/start", api_record_start),
@@ -21,31 +22,64 @@ def make_app() -> web.Application:
         web.get("/api/events", api_events),
     ])
 
-    # Static frontend (built React app lives here)
-    static_dir = Path(__file__).with_suffix("").parent / "static"
+    # --- Static frontend (Vite build) ---
+    static_dir = Path(__file__).with_name("static")
     static_dir.mkdir(parents=True, exist_ok=True)
-    app.add_routes([web.static("/", str(static_dir), show_index=True)])
+    index_html = static_dir / "index.html"
 
-    # Fallback / -> index.html (if exists)
-    async def index(_: web.Request):
-        idx = static_dir / "index.html"
-        if idx.exists():
-            return web.FileResponse(idx)
-        # minimal fallback
-        return web.Response(text="<h1>MS Macro Web UI</h1><p>Build the frontend to populate static/</p>", content_type="text/html")
+    # 1) Serve the root as index.html
+    async def index(_request: web.Request):
+        if index_html.exists():
+            return web.FileResponse(index_html)
+        return web.Response(
+            text="<h1>MS Macro Web UI</h1><p>Build the frontend to populate static/</p>",
+            content_type="text/html"
+        )
+    app.router.add_get("/", index)
 
-    app.add_routes([web.get("/", index)])
+    # 2) Serve built assets (Vite puts hashed files under /assets)
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.router.add_static("/assets", str(assets_dir), follow_symlinks=True, show_index=False)
+
+    # Optional common files (serve if present)
+    for name in ("favicon.ico", "manifest.webmanifest", "robots.txt"):
+        p = static_dir / name
+        if p.exists():
+            app.router.add_get(f"/{name}", lambda req, _p=p: web.FileResponse(_p))
+
+    # 3) SPA fallback: for any non-API GET that would 404, serve index.html
+    @web.middleware
+    async def spa_fallback(request: web.Request, handler):
+        try:
+            return await handler(request)
+        except web.HTTPNotFound:
+            if request.method != "GET":
+                raise
+            if request.path.startswith("/api"):
+                raise
+            # If asset requested under /assets and missing, keep 404
+            if request.path.startswith("/assets/"):
+                raise
+            if index_html.exists():
+                return web.FileResponse(index_html)
+            raise
+
+    app.middlewares.append(spa_fallback)
+
     return app
+
 
 def main(host="0.0.0.0", port=8787):
     app = make_app()
     try:
         web.run_app(app, host=host, port=port)
     except OSError as e:
-        if getattr(e, "errno", None) == 98:
+        if getattr(e, "errno", None) == 98:  # EADDRINUSE
             print(f"[web] Port {port} already in use. Is msmacro-web service running?")
         else:
             raise
+
 
 if __name__ == "__main__":
     import argparse
