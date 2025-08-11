@@ -15,19 +15,24 @@ export default function App(){
     const refresh = ()=> getStatus().then(st=>{
         setMode(st.mode)
         setFiles(st.files||[])
+        // Only auto-select first file if no file is currently selected AND there are files
         if(st.files && st.files.length && !selected){
             setSelected(st.files[0].name)
         }
+        // If selected file no longer exists in the list, clear selection
+        if(selected && st.files && !st.files.find(f => f.name === selected)) {
+            setSelected(null)
+        }
     }).catch(()=>{})
 
-    useEffect(()=>{ refresh(); const t=setInterval(refresh, 3000); return ()=>clearInterval(t) },[])
+    useEffect(()=>{ refresh(); const t=setInterval(refresh, 3000); return ()=>clearInterval(t) },[selected]) // Add selected as dependency
 
     return (
-        <div className="min-h-screen bg-gray-100 p-6">
-            <div className="max-w-7xl mx-auto">
+        <div className="app-container">
+            <div className="app-content">
                 {/* Header */}
-                <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <div className="header">
+                    <h1 className="main-title">
                         MS Macro <ModeBadge mode={mode} />
                     </h1>
                 </div>
@@ -36,14 +41,14 @@ export default function App(){
                 <PostRecordBanner visible={mode==='POSTRECORD'} onAfter={refresh} />
 
                 {/* Controls */}
-                <div className="mb-6">
+                <div className="controls-section">
                     <Controls selected={selected} onAfter={refresh} />
                 </div>
 
                 {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Files Table - Takes 2/3 width on large screens */}
-                    <div className="lg:col-span-2">
+                <div className="main-grid">
+                    {/* Files Table */}
+                    <div className="files-section">
                         <FilesTable
                             files={files}
                             selected={selected}
@@ -52,8 +57,8 @@ export default function App(){
                         />
                     </div>
 
-                    {/* Events Panel - Takes 1/3 width on large screens */}
-                    <div className="lg:col-span-1">
+                    {/* Events Panel */}
+                    <div className="events-section">
                         <EventsPanel onMode={setMode} />
                     </div>
                 </div>

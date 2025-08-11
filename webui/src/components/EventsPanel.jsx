@@ -19,17 +19,15 @@ export default function EventsPanel({ onMode }){
             }catch(e){}
         }
         return ()=> es.close()
-    },[])
+    },[onMode])
 
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Live Events</h3>
+        <div className="card events-card">
+            <div className="events-header">
+                <h3 className="events-title">Live Events</h3>
             </div>
-            <div className="p-4">
-                <div className="bg-gray-50 rounded-md p-4 h-64 overflow-y-auto">
-                    <pre ref={pre} className="font-mono text-sm text-gray-700 whitespace-pre-wrap" />
-                </div>
+            <div className="events-content">
+                <pre ref={pre} className="events-display" />
             </div>
         </div>
     )
