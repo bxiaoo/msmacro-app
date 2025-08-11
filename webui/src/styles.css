@@ -1,4 +1,56 @@
-.badge{padding:.2rem .5rem;border-radius:.5rem;background:#efefef}
-.events{max-height:260px;overflow:auto;background:#fafafa;border:1px solid #eee;padding:.5rem}
-.table-fixed td, .table-fixed th{white-space:nowrap}
-.postrec{background:#fff7e6;border:1px solid #ffd591;border-radius:.5rem;padding:.75rem}
+/* Import Tailwind CSS for the modern styling */
+@import 'https://cdn.tailwindcss.com/3.4.0/tailwind.min.css';
+
+/* Keep your original badge styles as fallback if needed */
+.badge{
+    padding:.2rem .5rem;
+    border-radius:.5rem;
+    background:#efefef
+}
+
+/* Custom animations for recording state */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .5;
+    }
+}
+
+@keyframes ping {
+    75%, 100% {
+        transform: scale(2);
+        opacity: 0;
+    }
+}
+
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-ping {
+    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Ensure proper scrolling for events */
+.events {
+    max-height: 260px;
+    overflow: auto;
+}
+
+/* Ensure table is responsive */
+.table-fixed td, .table-fixed th {
+    white-space: nowrap;
+}
+
+/* Custom focus styles for better accessibility */
+input:focus, button:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Smooth transitions for interactive elements */
+button, input, .cursor-pointer {
+    transition: all 0.2s ease-in-out;
+}

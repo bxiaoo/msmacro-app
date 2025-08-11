@@ -23,16 +23,41 @@ export default function App(){
     useEffect(()=>{ refresh(); const t=setInterval(refresh, 3000); return ()=>clearInterval(t) },[])
 
     return (
-        <>
-            <h1>MS Macro <ModeBadge mode={mode}/></h1>
+        <div className="min-h-screen bg-gray-100 p-6">
+            <div className="max-w-7xl mx-auto">
+                {/* Header */}
+                <div className="mb-6">
+                    <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                        MS Macro <ModeBadge mode={mode} />
+                    </h1>
+                </div>
 
-            <PostRecordBanner visible={mode==='POSTRECORD'} onAfter={refresh} />
-            <Controls selected={selected} onAfter={refresh} />
+                {/* Post Record Banner */}
+                <PostRecordBanner visible={mode==='POSTRECORD'} onAfter={refresh} />
 
-            <div className="grid">
-                <FilesTable files={files} selected={selected} setSelected={setSelected} onAfter={refresh}/>
-                <EventsPanel onMode={setMode}/>
+                {/* Controls */}
+                <div className="mb-6">
+                    <Controls selected={selected} onAfter={refresh} />
+                </div>
+
+                {/* Main Content Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Files Table - Takes 2/3 width on large screens */}
+                    <div className="lg:col-span-2">
+                        <FilesTable
+                            files={files}
+                            selected={selected}
+                            setSelected={setSelected}
+                            onAfter={refresh}
+                        />
+                    </div>
+
+                    {/* Events Panel - Takes 1/3 width on large screens */}
+                    <div className="lg:col-span-1">
+                        <EventsPanel onMode={setMode} />
+                    </div>
+                </div>
             </div>
-        </>
+        </div>
     )
 }
