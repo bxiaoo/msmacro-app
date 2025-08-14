@@ -1,3 +1,5 @@
+print("DEBUG: cli.py module is being imported and executed...")
+
 import argparse
 import asyncio
 import json
@@ -410,6 +412,7 @@ def build_parser():
 
 
 def main(argv=None):
+    print("DEBUG: cli.py main() function has started.")
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)

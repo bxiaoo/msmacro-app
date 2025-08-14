@@ -6,8 +6,10 @@ Wants=msmacro.service network-online.target
 
 [Service]
 Type=simple
+WorkingDirectory=/opt/msmacro-app
 Environment=PATH=/opt/msmacro-app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Environment=MSMACRO_RECDIR=/home/bxiao/.local/share/msmacro/records
+Environment=MSMACRO_SOCKET=/run/user/1000/msmacro.sock
 ExecStart=/opt/msmacro-app/.venv/bin/python -m msmacro.web.server --host 0.0.0.0 --port 8787
 Restart=always
 RestartSec=1
