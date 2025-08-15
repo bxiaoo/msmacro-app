@@ -69,6 +69,17 @@ NAME_TO_ECODE = {
     "Y": ecodes.KEY_Y, "Z": ecodes.KEY_Z,
 }
 
+NAME_TO_ECODE.update({
+    "LCTL":    ecodes.KEY_LEFTCTRL,
+    "RCTL":    ecodes.KEY_RIGHTCTRL,
+    "CTRL":    ecodes.KEY_LEFTCTRL,   # prefer left by default
+    "CONTROL": ecodes.KEY_LEFTCTRL,
+    "LMETA":   ecodes.KEY_LEFTMETA,
+    "RMETA":   ecodes.KEY_RIGHTMETA,
+    "LWIN":    ecodes.KEY_LEFTMETA,   # optional Windows-key aliases
+    "RWIN":    ecodes.KEY_RIGHTMETA,
+})
+
 # ---- helpers ----
 
 def is_modifier(ecode: int) -> bool:

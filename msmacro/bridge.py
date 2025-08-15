@@ -1,186 +1,286 @@
+# /opt/msmacro-app/msmacro/bridge.py
+from __future__ import annotations
+
 import asyncio
+import contextlib
+import time
+from dataclasses import dataclass
+from typing import Dict, Optional, Set, Tuple
+
 from evdev import InputDevice, ecodes
+
 from .hidio import HIDWriter
-from .recorder import Recorder
-from .keymap import is_modifier, mod_bit, usage_from_ecode, parse_hotkey
+from .keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
+from .events import emit  # if you don't use SSE events, you can comment out emit() calls
+
+
+@dataclass(frozen=True)
+class Chord:
+    mod_ecode: int
+    key_ecode: int
+    key_usage: int
+
+
+def _parse_chord(spec: str) -> Chord:
+    mod_ec, key_ec = parse_hotkey(spec)
+    return Chord(mod_ecode=mod_ec, key_ecode=key_ec, key_usage=usage_from_ecode(key_ec))
+
 
 class Bridge:
     """
-    BRIDGE:
-      LALT+R -> "RECORD"
-      LALT+Q -> "STOP"
-      (optional) extra choices (e.g. LALT+S/P/D) → returns the choice label
-    RECORD:
-      LALT+Q -> stop recording, return actions
+    Live keyboard bridge:
+      - Forwards events from /dev/input event device to HID gadget.
+      - Detects chords (stop, record, optional extras) using press→release.
+      - Suppresses ONLY the active chord keys while armed (to avoid leakage).
+
+    Returns from run_bridge():
+      - "RECORD" if record chord fired (press→release)
+      - <label> for any extra hotkey (if provided)
+      - None if cancelled by daemon (e.g., to start PLAY)
     """
 
-    def __init__(self, evdev_path: str, hidg_path: str,
-                 stop_hotkey: str = "LALT+Q",
-                 record_hotkey: str = "LALT+R",
-                 grab: bool = True,
-                 extra_hotkeys: dict[str,str] | None = None):
-        self.dev = InputDevice(evdev_path)
-        self.w = HIDWriter(hidg_path)
+    def __init__(
+        self,
+        evdev_path: str,
+        hidg_path: str,
+        *,
+        stop_hotkey: str,
+        record_hotkey: Optional[str] = None,
+        grab: bool = True,
+        extra_hotkeys: Optional[Dict[str, str]] = None,  # spec -> label
+    ):
+        self.evdev_path = evdev_path
+        self.hidg_path = hidg_path
         self.grab = grab
 
-        self.modmask = 0
-        self.down = set()
-        self.rec = Recorder()
+        self._hid = HIDWriter(hidg_path)
+        self._modmask: int = 0
+        self._down: Set[int] = set()
+        self._suppress_codes: Set[int] = set()  # kernel key codes to suppress while a chord is armed
 
-        # main hotkeys
-        self.stop_mod_ecode, self.stop_key_ecode = parse_hotkey(stop_hotkey)
-        self.stop_key_usage = usage_from_ecode(self.stop_key_ecode)
-        self.rec_mod_ecode,  self.rec_key_ecode  = parse_hotkey(record_hotkey)
-        self.rec_key_usage  = usage_from_ecode(self.rec_key_ecode)
+        # chords
+        self._stop = _parse_chord(stop_hotkey)
+        self._stop_armed = False
 
-        # optional extra hotkeys: {"LALT+S":"CHOICE_SAVE", ...}
-        self.extra = {}
+        self._record: Optional[Chord] = _parse_chord(record_hotkey) if record_hotkey else None
+        self._record_armed = False
+
+        self._extras: Dict[Tuple[int, int], str] = {}     # (mod_ec, key_usage) -> label
+        self._extra_armed: Dict[Tuple[int, int], bool] = {}
         if extra_hotkeys:
             for spec, label in extra_hotkeys.items():
-                mod_ec, key_ec = parse_hotkey(spec)
-                self.extra[(mod_ec, usage_from_ecode(key_ec))] = label
+                ch = _parse_chord(spec)
+                key = (ch.mod_ecode, ch.key_usage)
+                self._extras[key] = label
+                self._extra_armed[key] = False
 
-        self._stopping_armed = False
-        self._record_armed = False
-        self._armed_extra: tuple[int,int,str] | None = None
+    # ---------------- helpers ----------------
 
-    def _hot_active(self, mod_ecode, key_usage) -> bool:
-        mod_down = (self.modmask & mod_bit(mod_ecode)) != 0
-        return mod_down and (key_usage in self.down)
+    def _active(self, chord: Chord) -> bool:
+        if not chord:
+            return False
+        mod_down = (self._modmask & mod_bit(chord.mod_ecode)) != 0
+        key_down = chord.key_usage in self._down
+        return mod_down and key_down
 
-    def _extra_active(self):
-        for (m_ec, u), label in self.extra.items():
-            if self._hot_active(m_ec, u):
-                return (m_ec, u, label)
-        return None
+    def _update_state(self, code: int, val: int):
+        """Return (is_mod, usage, is_down). Update internal modmask/_down."""
+        if val == 2:  # repeat
+            return False, None, False
+        is_down = (val == 1)
+        if is_modifier(code):
+            bit = mod_bit(code)
+            if is_down:
+                self._modmask |= bit
+            else:
+                self._modmask &= (~bit) & 0xFF
+            return True, None, is_down
+        usage = usage_from_ecode(code)
+        if is_down:
+            self._down.add(usage)
+        else:
+            self._down.discard(usage)
+        return False, usage, is_down
 
-    def _send_filtered(self):
-        keys = set(self.down)
-        modm = self.modmask & 0xFF
-        # strip chords only while active
-        if self._hot_active(self.stop_mod_ecode, self.stop_key_usage):
-            keys.discard(self.stop_key_usage)
-            modm &= (~mod_bit(self.stop_mod_ecode)) & 0xFF
-        if self._hot_active(self.rec_mod_ecode, self.rec_key_usage):
-            keys.discard(self.rec_key_usage)
-            modm &= (~mod_bit(self.rec_mod_ecode)) & 0xFF
-        e = self._extra_active()
-        if e:
-            m_ec, u, _ = e
-            keys.discard(u)
-            modm &= (~mod_bit(m_ec)) & 0xFF
-        self.w.send(modm, {k for k in keys if k})
+    def _send(self):
+        self._hid.send(self._modmask, self._down)
 
-    async def run_bridge(self) -> str:
-        """Return 'RECORD', 'STOP' or an extra choice label (if configured)."""
-        if self.grab:
-            try: self.dev.grab()
-            except: pass
-        self._stopping_armed = False
-        self._record_armed = False
-        self._armed_extra = None
+    # ---------------- live bridge ----------------
 
+    async def run_bridge(self):
+        dev = InputDevice(self.evdev_path)
         try:
-            async for ev in self.dev.async_read_loop():
-                if ev.type != ecodes.EV_KEY: continue
+            if self.grab:
+                with contextlib.suppress(Exception):
+                    dev.grab()
+
+            # ensure clean state on gadget
+            self._modmask = 0
+            self._down.clear()
+            self._suppress_codes.clear()
+            self._send()
+
+            with contextlib.suppress(NameError):
+                emit("BRIDGE_START", device=self.evdev_path)
+
+            async for ev in dev.async_read_loop():
+                if ev.type != ecodes.EV_KEY:
+                    continue
                 code, val = ev.code, ev.value
-                if val == 2: continue
-                is_down = (val == 1)
 
-                stop_prev = self._hot_active(self.stop_mod_ecode, self.stop_key_usage)
-                rec_prev  = self._hot_active(self.rec_mod_ecode,  self.rec_key_usage)
-                extra_prev = self._extra_active()
+                prev_stop = self._active(self._stop)
+                prev_rec = self._active(self._record) if self._record else False
 
-                if is_modifier(code):
-                    bit = mod_bit(code)
-                    if is_down: self.modmask |= bit
-                    else:       self.modmask &= (~bit) & 0xFF
+                is_mod, usage, is_down = self._update_state(code, val)
+
+                # arm chords on first full press (mod+key down)
+                curr_stop = self._active(self._stop)
+                if (not self._stop_armed) and (not prev_stop) and curr_stop:
+                    self._stop_armed = True
+                    self._suppress_codes.update({self._stop.mod_ecode, self._stop.key_ecode})
+
+                if self._record:
+                    curr_rec = self._active(self._record)
+                    if (not self._record_armed) and (not prev_rec) and curr_rec:
+                        self._record_armed = True
+                        self._suppress_codes.update({self._record.mod_ecode, self._record.key_ecode})
                 else:
-                    usage = usage_from_ecode(code)
-                    if is_down: self.down.add(usage)
-                    else:       self.down.discard(usage)
+                    curr_rec = False
 
-                stop_curr = self._hot_active(self.stop_mod_ecode, self.stop_key_usage)
-                rec_curr  = self._hot_active(self.rec_mod_ecode,  self.rec_key_usage)
-                extra_curr = self._extra_active()
+                # extras: arm/disarm; no suppression (avoid over-suppression bugs)
+                for (mod_ec, key_usage), _label in self._extras.items():
+                    armed = self._extra_armed[(mod_ec, key_usage)]
+                    mod_down = (self._modmask & mod_bit(mod_ec)) != 0
+                    key_down = (key_usage in self._down)
+                    curr = mod_down and key_down
+                    if (not armed) and curr:
+                        self._extra_armed[(mod_ec, key_usage)] = True
+                    elif armed and (not curr) and (code in (mod_ec, ecodes.KEY_S, ecodes.KEY_P, ecodes.KEY_D)) and (val == 0):
+                        # fire in the return path below
+                        pass
 
-                # STOP: arm on activation, act on release
-                if (not self._stopping_armed) and (not stop_prev) and stop_curr:
-                    self._stopping_armed = True
-                    self._send_filtered(); continue
-                if self._stopping_armed and (not stop_curr) and (code in (self.stop_mod_ecode, self.stop_key_ecode)) and (val == 0):
-                    self.w.all_up(); return "STOP"
+                # forward unless this is a chord key we are suppressing
+                if code not in self._suppress_codes:
+                    self._send()
 
-                # RECORD
-                if (not self._record_armed) and (not rec_prev) and rec_curr:
-                    self._record_armed = True
-                    self._send_filtered(); continue
-                if self._record_armed and (not rec_curr) and (code in (self.rec_mod_ecode, self.rec_key_ecode)) and (val == 0):
-                    self.w.all_up(); return "RECORD"
+                # fire stop on release edge
+                if self._stop_armed and (not curr_stop) and (code in (self._stop.mod_ecode, self._stop.key_ecode)) and (val == 0):
+                    self._stop_armed = False
+                    self._suppress_codes.difference_update({self._stop.mod_ecode, self._stop.key_ecode})
+                    # clean to gadget
+                    self._modmask = 0
+                    self._down.clear()
+                    self._send()
+                    with contextlib.suppress(NameError):
+                        emit("BRIDGE_STOP")
+                    return None
 
-                # EXTRA
-                if (self._armed_extra is None) and (extra_prev is None) and (extra_curr is not None):
-                    self._armed_extra = extra_curr
-                    self._send_filtered(); continue
-                if self._armed_extra and (extra_curr is None) and (code in (self._armed_extra[0],) or usage_from_ecode(code)==self._armed_extra[1]) and (val == 0):
-                    _, _, label = self._armed_extra
-                    self.w.all_up(); return label
+                # fire record on release edge
+                if self._record and self._record_armed and (not curr_rec) and (code in (self._record.mod_ecode, self._record.key_ecode)) and (val == 0):
+                    self._record_armed = False
+                    self._suppress_codes.difference_update({self._record.mod_ecode, self._record.key_ecode})
+                    self._send()
+                    with contextlib.suppress(NameError):
+                        emit("RECORD_REQUEST")
+                    return "RECORD"
 
-                self._send_filtered()
+                # extras: fire on release edge
+                for (mod_ec, key_usage), label in self._extras.items():
+                    armed = self._extra_armed[(mod_ec, key_usage)]
+                    mod_down = (self._modmask & mod_bit(mod_ec)) != 0
+                    key_down = (key_usage in self._down)
+                    curr = mod_down and key_down
+                    if armed and (not curr) and (val == 0) and (code == mod_ec or usage == key_usage):
+                        self._extra_armed[(mod_ec, key_usage)] = False
+                        self._send()
+                        with contextlib.suppress(NameError):
+                            emit("CHOICE", label=label)
+                        return label
+
+        except asyncio.CancelledError:
+            raise
         finally:
-            try: self.dev.ungrab()
-            except: pass
-            try: self.dev.close()
-            except: pass
-            self.w.all_up()
+            # leave clean and ungrab
+            with contextlib.suppress(Exception):
+                self._modmask = 0
+                self._down.clear()
+                self._send()
+            with contextlib.suppress(Exception):
+                if self.grab:
+                    dev.ungrab()
+            with contextlib.suppress(Exception):
+                dev.close()
+
+    # ---------------- recording ----------------
 
     async def run_record(self):
-        """Return list of actions; forwards live during record."""
-        if self.grab:
-            try: self.dev.grab()
-            except: pass
-        self.rec.start()
-        self._stopping_armed = False
+        """
+        Record every key down/up (including modifiers 224..231) until STOP chord releases.
+        Forward everything live to HID gadget, but never leak the STOP chord to target.
+        Returns a list of {"t": seconds, "type": "down"/"up", "usage": int}.
+        """
+        dev = InputDevice(self.evdev_path)
+        actions = []
         try:
-            async for ev in self.dev.async_read_loop():
-                if ev.type != ecodes.EV_KEY: continue
+            if self.grab:
+                with contextlib.suppress(Exception):
+                    dev.grab()
+
+            self._modmask = 0
+            self._down.clear()
+            self._suppress_codes.clear()
+            self._send()
+
+            with contextlib.suppress(NameError):
+                emit("RECORD_LOOP_START", device=self.evdev_path)
+
+            t0 = time.monotonic()
+            stop_armed = False
+
+            async for ev in dev.async_read_loop():
+                if ev.type != ecodes.EV_KEY:
+                    continue
                 code, val = ev.code, ev.value
-                if val == 2: continue
-                is_down = (val == 1)
+                if val == 2:
+                    continue
 
-                stop_prev = self._hot_active(self.stop_mod_ecode, self.stop_key_usage)
+                prev_stop = self._active(self._stop)
+                is_mod, usage, is_down = self._update_state(code, val)
+                curr_stop = self._active(self._stop)
+                if (not stop_armed) and (not prev_stop) and curr_stop:
+                    stop_armed = True
+                    self._suppress_codes.update({self._stop.mod_ecode, self._stop.key_ecode})
 
-                if is_modifier(code):
-                    bit = mod_bit(code)
-                    if is_down: self.modmask |= bit
-                    else:       self.modmask &= (~bit) & 0xFF
-                    usage = usage_from_ecode(code)
-                else:
-                    usage = usage_from_ecode(code)
-                    if is_down: self.down.add(usage)
-                    else:       self.down.discard(usage)
+                rec_usage = usage_from_ecode(code) if is_mod else usage
+                t = round(time.monotonic() - t0, 6)
 
-                stop_curr = self._hot_active(self.stop_mod_ecode, self.stop_key_usage)
+                if code not in self._suppress_codes:
+                    self._send()
 
-                # record all keys except while a chord is active
-                if not self._hot_active(self.stop_mod_ecode, self.stop_key_usage) and \
-                   not self._hot_active(self.rec_mod_ecode,  self.rec_key_usage):
-                    if not is_modifier(code):
-                        if is_down: self.rec.on_down(usage)
-                        else:       self.rec.on_up(usage)
+                if rec_usage is not None and (code not in self._suppress_codes):
+                    actions.append({
+                        "t": t,
+                        "type": "down" if is_down else "up",
+                        "usage": int(rec_usage),
+                    })
 
-                if (not self._stopping_armed) and (not stop_prev) and stop_curr:
-                    self._stopping_armed = True
-                    self._send_filtered(); continue
-                if self._stopping_armed and (not stop_curr) and (code in (self.stop_mod_ecode, self.stop_key_ecode)) and (val == 0):
+                if stop_armed and (not curr_stop) and (code in (self._stop.mod_ecode, self._stop.key_ecode)) and (val == 0):
                     break
 
-                self._send_filtered()
+        except asyncio.CancelledError:
+            # daemon cancelled to stop recording via IPC
+            pass
         finally:
-            try: self.dev.ungrab()
-            except: pass
-            try: self.dev.close()
-            except: pass
-            self.w.all_up()
+            with contextlib.suppress(Exception):
+                self._modmask = 0
+                self._down.clear()
+                self._send()
+            with contextlib.suppress(Exception):
+                if self.grab:
+                    dev.ungrab()
+            with contextlib.suppress(Exception):
+                dev.close()
 
-        return self.rec.actions
+        with contextlib.suppress(NameError):
+            emit("RECORD_LOOP_STOP", count=len(actions))
+        return actions
