@@ -1,101 +1,126 @@
-# /opt/msmacro-app/msmacro/player.py
+# Fixed player.py with better stop event handling and timing
+
 from __future__ import annotations
 
 import asyncio
 import json
 import random
-import time
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from .hidio import HIDWriter
+
+from .humanJitter import HumanJitter
 
 # HID usage IDs for modifier keys (Left/Right Ctrl, Shift, Alt, GUI)
 MOD_USAGES = set(range(224, 232))  # 224..231
 
 
-def _clamp_nonneg(x: float) -> float:
-    return x if x > 0 else 0.0
-
-
 class Player:
     """
     Replays a recorded keyboard sequence to the HID gadget.
-
-    Recording formats supported:
-      - Events: {"t": <sec>, "type": "down"/"up", "usage": <int>}
-        wrapped as {"t0": 0, "events": [...] }  OR a bare list [ ... ]
-      - Actions: {"usage": <int>, "press": <sec>, "dur": <sec>}
-        wrapped as {"t0": 0, "actions": [...] } OR a bare list [ ... ]
-
-    Timing:
-      - speed > 1.0  -> faster (press & durations are divided by speed)
-      - jitter_time  -> +/- fraction of t_press (per event, re-sampled each loop)
-      - jitter_hold  -> +/- fraction of dur (per event, re-sampled each loop)
-      - min_hold_s   -> minimum hold per key
-      - min_repeat_same_key_s -> minimum time between two presses of the SAME key
-                                 (enforced inside a loop AND across loop boundaries)
-      - loop         -> number of repetitions; <= 0 means infinite
-      - stop_event   -> external cancel handle; immediate all-up on stop
     """
 
-    def __init__(self, hidg_path: str):
+    def __init__(self, hidg_path: Union[str, Path]) -> None:
         self.w = HIDWriter(hidg_path)
 
-    # ----------------- loading & normalization -----------------
-
+    # ---------------- utils ----------------
     @staticmethod
-    def _load(path: str) -> Dict[str, Any]:
-        data = json.loads(Path(path).read_text())
+    def _load(path: Union[str, Path]) -> Dict[str, Any]:
+        p = Path(path)
+        data = json.loads(p.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             if "events" in data:
-                ev = data["events"] or []
-                assert isinstance(ev, list)
-                return {"mode": "events", "events": ev}
+                return {"mode": "events", "events": list(data["events"] or [])}
             if "actions" in data:
-                ac = data["actions"] or []
-                assert isinstance(ac, list)
-                return {"mode": "actions", "actions": ac}
-        if isinstance(data, list):
-            # try to detect
-            if data and isinstance(data[0], dict) and {"t", "type", "usage"}.issubset(data[0].keys()):
+                return {"mode": "actions", "actions": list(data["actions"] or [])}
+            # Unknown dict shape; try to guess
+            if data.get("type") in ("down", "up") and "usage" in data and "t" in data:
+                return {"mode": "events", "events": [data]}
+            raise TypeError("Unknown recording dict shape.")
+        elif isinstance(data, list):
+            # Heuristic: items with key 't' => events, else actions
+            if data and isinstance(data[0], dict) and "t" in data[0]:
                 return {"mode": "events", "events": data}
-            return {"mode": "actions", "actions": data}
-        raise ValueError("Unknown recording format")
+            else:
+                return {"mode": "actions", "actions": data}
+        else:
+            raise TypeError("Recording JSON must be dict or list.")
 
     @staticmethod
     def _events_to_actions(events: List[Dict[str, Any]]) -> List[Dict[str, float]]:
         """
-        Convert a down/up event stream into press/dur actions.
-        Unmatched downs are ignored (final all_up will clear them).
+        Turn down/up pairs into sequential actions.
         """
-        down_t: Dict[int, float] = {}
-        out: List[Dict[str, float]] = []
-        # Ensure chronological order
-        for e in sorted(events, key=lambda x: float(x.get("t", 0.0))):
-            usage = int(e["usage"])
-            typ = str(e["type"])
-            t = float(e["t"])
-            if typ == "down":
-                down_t[usage] = t
-            elif typ == "up":
-                t0 = down_t.pop(usage, None)
-                if t0 is not None and t >= t0:
-                    out.append({"usage": usage, "press": t0, "dur": t - t0})
-        return out
+        # actions: List[Dict[str, float]] = []
+        # down_time: Dict[int, float] = {}
+        # cursor = 0.0
 
-    @staticmethod
-    def _jitter(base: float, frac: float) -> float:
-        """Symmetric +/- jitter around base; tiny extra noise to de-correlate."""
-        if frac <= 0 or base <= 0:
-            return 0.0
-        return random.uniform(-frac, +frac) * base + random.uniform(-0.001, 0.001)
+        # for ev in sorted(events, key=lambda e: float(e.get("t", 0.0))):
+        #     t = float(ev.get("t", 0.0))
+        #     typ = str(ev.get("type", "")).lower()
+        #     usage = int(ev.get("usage", -1))
+        #     if usage < 0:
+        #         continue
+
+        #     if typ in ("down", "press"):
+        #         down_time[usage] = t
+        #     elif typ in ("up", "release"):
+        #         t0 = down_time.pop(usage, None)
+        #         if t0 is None:
+        #             # unmatched up; treat as a tap with minimal duration
+        #             press_delay = max(0.0, t - cursor)
+        #             dur = 0.010  # 10ms default
+        #         else:
+        #             press_delay = max(0.0, t0 - cursor)
+        #             dur = max(0.001, t - t0)  # At least 1ms
+        #         actions.append({"usage": usage, "press": press_delay, "dur": dur})
+        #         cursor = t
+
+        # # any residual downs -> synthesize small taps at end
+        # for usage, t0 in down_time.items():
+        #     press_delay = max(0.0, t0 - cursor)
+        #     actions.append({"usage": int(usage), "press": press_delay, "dur": 0.010})
+        #     cursor = t0 + 0.010
+
+        # return actions
+        evs = sorted(events or [], key=lambda e: float(e.get("t", 0.0)))
+        if not evs:
+            return []
+
+        t0 = float(evs[0].get("t", 0.0))  # base time
+        down_at: Dict[int, float] = {}
+        actions: List[Dict[str, float]] = []
+
+        for ev in evs:
+            t_abs = float(ev.get("t", 0.0))
+            t = t_abs - t0  # seconds since start
+            typ = str(ev.get("type", "")).lower()
+            usage = int(ev.get("usage", -1))
+            if usage < 0:
+                continue
+
+            if typ in ("down", "press"):
+                down_at[usage] = t
+            elif typ in ("up", "release"):
+                t_down = down_at.pop(usage, None)
+                if t_down is None:
+                    # unmatched up => synthesize a short tap ending at t
+                    t_down = max(0.0, t - 0.001)
+                dur = max(0.0, t - t_down)
+                actions.append({"usage": usage, "press": t_down, "dur": dur})
+
+        # Close any residual downs as tiny taps
+        for usage, t_down in down_at.items():
+            actions.append({"usage": usage, "press": t_down, "dur": 0.010})
+
+        actions.sort(key=lambda a: (a["press"], a["usage"]))
+        return actions
 
     @staticmethod
     async def _sleep_or_stop(delay: float, stop_event: Optional[asyncio.Event]) -> bool:
         """
-        Sleep cooperatively for 'delay' seconds.
+        Sleep cooperatively for 'delay' seconds, checking stop_event frequently.
         Returns True if interrupted by stop_event, False otherwise.
         """
         if delay <= 0:
@@ -103,153 +128,230 @@ class Player:
         if not stop_event:
             await asyncio.sleep(delay)
             return False
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=delay)
-            return True
-        except asyncio.TimeoutError:
-            return False
+        
+        # Check stop event frequently (every 10ms) for responsive stopping
+        check_interval = 0.010  # 10ms
+        elapsed = 0.0
+        
+        while elapsed < delay:
+            if stop_event.is_set():
+                return True
+            
+            sleep_time = min(check_interval, delay - elapsed)
+            await asyncio.sleep(sleep_time)
+            elapsed += sleep_time
+            
+        return False
 
-    # ----------------- main playback -----------------
-
+    # ---------------- core playback ----------------
     async def play(
         self,
-        path: str,
+        path: Union[str, Path],
         *,
         speed: float = 1.0,
         jitter_time: float = 0.0,
         jitter_hold: float = 0.0,
-        min_hold_s: float = 0.083,
-        min_repeat_same_key_s: float = 0.134,
+        min_hold_s: float = 0.001,  # Reduced to 1ms minimum
+        min_repeat_same_key_s: float = 0.010,  # Reduced to 10ms minimum
         loop: int = 1,
         stop_event: Optional[asyncio.Event] = None,
     ) -> bool:
         """
         Returns True if playback completed fully; False if interrupted.
-        Supports repeating the recording `loop` times; if loop <= 0, repeats forever.
         """
         loaded = self._load(path)
-        if loaded["mode"] == "events":
-            base_actions = self._events_to_actions(loaded["events"])
-        else:
-            base_actions = loaded["actions"]
+        # if loaded["mode"] == "events":
+        #     base_actions = self._events_to_actions(loaded["events"])
+        # else:
+        #     base_actions = loaded["actions"]
 
-        if not base_actions:
+        # if not base_actions:
+        #     self.w.all_up()
+        #     return True
+
+        # # Apply speed factor properly
+        # # When speed > 1.0, everything should be faster (shorter delays)
+        # # When speed < 1.0, everything should be slower (longer delays)
+        # actions: List[Dict[str, float]] = []
+        # for a in base_actions:
+        #     usage = int(a["usage"])
+        #     press = float(a.get("press", 0.0))
+        #     dur = float(a.get("dur", 0.010))
+            
+        #     # Apply speed factor (divide by speed to make faster when speed > 1)
+        #     if speed > 0:
+        #         press = press / speed
+        #         dur = dur / speed
+            
+        #     actions.append({"usage": usage, "press": press, "dur": dur})
+
+        # # Key state
+        # modmask: int = 0
+        # down_keys: set[int] = set()
+        # last_up_time: Dict[int, float] = {}
+        # now = 0.0  # virtual time within the loop
+
+        if loaded["mode"] == "events":
+            abs_actions = self._events_to_actions(loaded["events"])
+        else:
+            # recorder already stores seconds since t0 for actions
+            abs_actions = loaded["actions"]
+
+        if not abs_actions:
             self.w.all_up()
             return True
 
-        # Normalize press/dur for speed; keep no jitter yet
-        norm_actions: List[Dict[str, float]] = []
-        for a in base_actions:
-            usage = int(a["usage"])
-            press = float(a["press"]) / max(1e-6, speed)
-            dur = float(a["dur"]) / max(1e-6, speed)
-            dur = max(min_hold_s, _clamp_nonneg(dur))
-            norm_actions.append({"usage": usage, "press": _clamp_nonneg(press), "dur": dur})
+        # 2) Apply speed: faster => divide timeline & holds
+        inv_speed = 1.0 / speed if speed and speed > 0 else 1.0
 
-        # Track the last press time **globally** for each usage across loops
-        global_last_press: Dict[int, float] = defaultdict(lambda: -1e9)
+        scaled = [{
+            "usage": int(a["usage"]),
+            "press_at": max(0.0, float(a.get("press", 0.0)) * inv_speed),   # absolute on the scaled timeline
+            "dur":     max(0.0, float(a.get("dur",   0.0)) * inv_speed),
+        } for a in abs_actions]
 
-        def build_loop_schedule(offset: float) -> Tuple[List[Tuple[float, bool, int]], float, Dict[int, float]]:
-            """
-            Build one loop worth of events (with fresh jitter), shifted by `offset`.
-            Ensures min_repeat per usage against both local last press and global_last_press.
-            Returns (events, loop_end_time, last_press_this_loop)
-            """
-            last_press_local: Dict[int, float] = defaultdict(lambda: -1e-9)
-            press_times: List[Tuple[float, float, int]] = []
+        # 2) Jitter per keystroke (independent), with same-key gap enforcement
+        #    - press jitter anchor: time since previous press of the same key; if none, 40ms anchor
+        #    - hold jitter anchor: the action's own duration
+        last_press_of_key: Dict[int, float] = {}
+        last_up_time: Dict[int, float] = {}
 
-            for a in norm_actions:
-                usage = a["usage"]
-                # Jitter per loop so each pass looks slightly different
-                t_press = max(0.0, a["press"] + self._jitter(a["press"], jitter_time))
-                dur = max(min_hold_s, max(0.0, a["dur"] + self._jitter(a["dur"], jitter_hold)))
+        hj = HumanJitter(
+            factor_time=jitter_time,
+            factor_hold=jitter_hold,
+            drift_strength=0.90,
+            drift_ratio=0.35,
+            time_floor_s=0.040,
+            time_soft_s=0.200,
+            abs_cap_time_s=0.012,
+        )
 
-                # Enforce min-repeat on the SAME key (do not apply to modifiers)
-                if usage not in MOD_USAGES:
-                    t_press = max(
-                        t_press,
-                        last_press_local[usage] + min_repeat_same_key_s,
-                        (global_last_press[usage] + min_repeat_same_key_s) - offset,
-                    )
-                last_press_local[usage] = t_press
+        jittered = []
+        for a in scaled:
+            u = a["usage"]
+            press_at = a["press_at"]
+            dur = a["dur"]
 
-                press_times.append((t_press, dur, usage))
+            # press jitter
+            press_anchor = max(0.040, press_at - last_press_of_key.get(u, -1e9))  # seconds
+            press_at += hj.time_jitter(u, press_anchor)
+            if press_at < 0.0:
+                press_at = 0.0
 
-            # Convert press/dur into down/up with absolute times
-            events: List[Tuple[float, bool, int]] = []
-            loop_end = 0.0
-            for t_press, dur, usage in press_times:
-                t_down = offset + t_press
-                t_up = t_down + dur
-                events.append((t_down, True, usage))
-                events.append((t_up, False, usage))
-                if t_up > loop_end:
-                    loop_end = t_up
+            # hold jitter with floor
+            hold = max(min_hold_s, dur + hj.hold_jitter(u, dur))
 
-            events.sort(key=lambda x: x[0])
-            return events, loop_end, last_press_local
+            # same-key spacing: ensure next press >= last_up + min_repeat
+            earliest_for_key = last_up_time.get(u, -1e9) + min_repeat_same_key_s
+            if press_at < earliest_for_key:
+                press_at = earliest_for_key
+            
+            release_at = press_at + hold
 
-        # ---- Playback over loops ----
-        played_fully = True
-        t0 = time.monotonic()
-        current_offset = 0.0
-        loop_count = 0
-        infinite = loop <= 0
+            jittered.append({"usage": u, "press_at": press_at, "release_at": release_at})
 
-        while infinite or loop_count < loop:
-            # Allow stop between loops immediately
+            last_press_of_key[u] = press_at
+            last_up_time[u] = release_at  # for spacing of the NEXT press of this key
+
+        # 3) Build a unified event timeline (press & release), sorted by time
+        events: List[Tuple[float, str, int]] = []
+        for x in jittered:
+            events.append((x["press_at"],   "down", x["usage"]))
+            events.append((x["release_at"], "up",   x["usage"]))
+        events.sort(key=lambda t: (t[0], 0 if t[1] == "down" else 1, t[2]))  # if same time: down before up
+
+        # 4) Run (stop-responsive); supports overlaps by updating HID state at each event
+        def iter_loops():
+            return range(loop) if loop > 0 else iter(int, 1)
+
+        for _ in iter_loops():
             if stop_event and stop_event.is_set():
-                played_fully = False
-                break
+                self.w.all_up(); return False
 
-            # Fresh jitter every loop
-            events, loop_end, last_press_local = build_loop_schedule(current_offset)
-
-            # Play this loop
+            now = 0.0
             modmask = 0
             down_keys: set[int] = set()
-            now_rel = lambda: time.monotonic() - t0
-
-            for t_abs, is_down, usage in events:
-                if stop_event and stop_event.is_set():
-                    self.w.all_up()
-                    played_fully = False
-                    break
-
-                # Wait until it is time for this event (interruptible)
-                remain = max(0.0, t_abs - now_rel())
-                if await self._sleep_or_stop(remain, stop_event):
-                    self.w.all_up()
-                    played_fully = False
-                    break
-
-                # Apply the change
-                if usage in MOD_USAGES:
-                    bit = 1 << (usage - 224)
-                    if is_down:
-                        modmask |= bit
-                    else:
-                        modmask &= (~bit) & 0xFF
-                else:
-                    if is_down:
-                        down_keys.add(usage)
-                    else:
-                        down_keys.discard(usage)
-
-                self.w.send(modmask, down_keys)
-
-            # Ensure all-up between loops (prevents stuck keys)
             self.w.all_up()
 
-            if not played_fully:
-                break
+            for t, kind, usage in events:
+                wait = max(0.0, t - now)
+                if await self._sleep_or_stop(wait, stop_event):
+                    self.w.all_up(); return False
+                now = t
 
-            # Update global last press timestamps using this loop's local presses
-            for u, lp in last_press_local.items():
-                global_last_press[u] = current_offset + lp
+                if kind == "down":
+                    if usage in MOD_USAGES:
+                        modmask |= (1 << (usage - 224))
+                    else:
+                        down_keys.add(usage)
+                    self.w.send(modmask, down_keys)
+                else:
+                    if usage in MOD_USAGES:
+                        modmask &= (~(1 << (usage - 224))) & 0xFF
+                    else:
+                        down_keys.discard(usage)
+                    self.w.send(modmask, down_keys)
 
-            # Next loop starts right after this one
-            current_offset = loop_end
-            loop_count += 1
+            # loop boundary: ensure all keys up
+            self.w.all_up()
 
-        return played_fully
+        return True
+
+    # ---------------- playlist wrapper ----------------
+    async def play_playlist(
+        self,
+        selections: Iterable[Union[str, Path]],
+        *,
+        loop: int = 1,
+        speed: float = 1.0,
+        jitter_time: float = 0.0,
+        jitter_hold: float = 0.0,
+        min_hold_s: float = 0.001,
+        min_repeat_same_key_s: float = 0.010,
+        stop_event: Optional[asyncio.Event] = None,
+    ) -> bool:
+        """
+        Randomly pick ONE recording from 'selections' per loop and play it.
+        """
+        paths: List[str] = []
+        for s in selections or []:
+            sp = str(s)
+            if not sp.endswith(".json") and not Path(sp).exists():
+                sp = sp + ".json"
+            if Path(sp).exists():
+                paths.append(sp)
+        if not paths:
+            self.w.all_up()
+            return True
+
+        def iter_loops():
+            if loop <= 0:
+                while True:
+                    yield
+            else:
+                for _ in range(loop):
+                    yield
+
+        for _ in iter_loops():
+            if stop_event and stop_event.is_set():
+                self.w.all_up()
+                return False
+                
+            pick = random.choice(paths)
+            ok = await self.play(
+                pick,
+                speed=speed,
+                jitter_time=jitter_time,
+                jitter_hold=jitter_hold,
+                min_hold_s=min_hold_s,
+                min_repeat_same_key_s=min_repeat_same_key_s,
+                loop=1,
+                stop_event=stop_event,
+            )
+            if not ok:
+                return False
+
+        return True
+
+
+__all__ = ["Player"]

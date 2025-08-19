@@ -3,66 +3,57 @@ import { getStatus } from './api.js'
 import ModeBadge from './components/ModeBadge.jsx'
 import Controls from './components/Controls.jsx'
 import PostRecordBanner from './components/PostRecordBanner.jsx'
-import FilesTable from './components/FilesTable.jsx'
+import FileBrowser from './components/files/FileBrowser.jsx'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
 
 export default function App(){
-    const [mode,setMode]=useState('...')
-    const [files,setFiles]=useState([])
-    const [selected,setSelected]=useState(null)
+  const [mode, setMode] = useState('...')
+  const [selected, setSelected] = useState([]) // kept for Controls
 
-    const refresh = ()=> getStatus().then(st=>{
-        setMode(st.mode)
-        setFiles(st.files||[])
-        // Only auto-select first file if no file is currently selected AND there are files
-        if(st.files && st.files.length && !selected){
-            setSelected(st.files[0].name)
-        }
-        // If selected file no longer exists in the list, clear selection
-        if(selected && st.files && !st.files.find(f => f.name === selected)) {
-            setSelected(null)
-        }
-    }).catch(()=>{})
+  // Keep mode fresh (and anything else status provides that Controls/Banner need)
+  const refresh = () => getStatus().then(st => {
+    setMode(st.mode)
+  }).catch(() => {})
 
-    useEffect(()=>{ refresh(); const t=setInterval(refresh, 3000); return ()=>clearInterval(t) },[selected]) // Add selected as dependency
+  useEffect(() => {
+    refresh()
+    const t = setInterval(refresh, 2000)
+    return () => clearInterval(t)
+  }, [])
 
-    return (
-        <div className="app-container">
-            <div className="app-content">
-                {/* Header */}
-                <div className="header">
-                    <h1 className="main-title">
-                        MS Macro <ModeBadge mode={mode} />
-                    </h1>
-                </div>
+  // Bridge selection coming from FileBrowser → Controls
+  useEffect(() => {
+    const onSel = (e) => { if (Array.isArray(e.detail)) setSelected(e.detail) }
+    document.addEventListener('files:selection:set', onSel)
+    return () => document.removeEventListener('files:selection:set', onSel)
+  }, [])
 
-                {/* Post Record Banner */}
-                <PostRecordBanner visible={mode==='POSTRECORD'} onAfter={refresh} />
-
-                {/* Controls */}
-                <div className="controls-section">
-                    <Controls selected={selected} onAfter={refresh} />
-                </div>
-
-                {/* Main Content Grid */}
-                <div className="main-grid">
-                    {/* Files Table */}
-                    <div className="files-section">
-                        <FilesTable
-                            files={files}
-                            selected={selected}
-                            setSelected={setSelected}
-                            onAfter={refresh}
-                        />
-                    </div>
-
-                    {/* Events Panel */}
-                    <div className="events-section">
-                        <EventsPanel onMode={setMode} />
-                    </div>
-                </div>
-            </div>
+  return (
+    <div className="app-container">
+      <div className="app-content">
+        <div className="header">
+          <h1 className="main-title">
+            MS Macro <ModeBadge mode={mode} />
+          </h1>
         </div>
-    )
+
+        <PostRecordBanner visible={mode === 'POSTRECORD'} onAfter={refresh} />
+
+        <div className="controls-section">
+          <Controls selected={selected} onAfter={refresh} />
+        </div>
+
+        <div className="main-grid">
+          <div className="files-section">
+            {/* New modular browser with folder accordions & actions */}
+            <FileBrowser />
+          </div>
+          <div className="events-section">
+            <EventsPanel onMode={setMode} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }

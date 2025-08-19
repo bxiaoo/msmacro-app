@@ -1,8 +1,43 @@
-import { stopRecord } from '../api.js'
+import { saveLast, previewLast, discardLast } from '../api.js'
 import { useState } from 'react'
 
 export default function PostRecordBanner({ visible, onAfter }){
     const [name,setName]=useState("")
+    const [busy, setBusy] = useState(false);
+
+    const handleSave = async () => {
+      if (!name.trim()) return;             // backend also validates
+      setBusy(true);
+      try {
+        await saveLast(name.trim());
+        setName("");
+        onAfter?.();
+      } finally {
+        setBusy(false);
+      }
+    };
+  
+    const handlePlayOnce = async () => {
+      setBusy(true);
+      try {
+        // you can pass speed/jitter if you expose UI controls:
+        await previewLast({ speed: 1.0 });
+        onAfter?.(); // refresh status if you want
+      } finally {
+        setBusy(false);
+      }
+    };
+  
+    const handleDiscard = async () => {
+      setBusy(true);
+      try {
+        await discardLast();
+        onAfter?.();
+      } finally {
+        setBusy(false);
+      }
+    };
+
     if(!visible) return null
 
     return (
@@ -20,20 +55,24 @@ export default function PostRecordBanner({ visible, onAfter }){
                             className="postrecord-input"
                         />
                         <button
-                            onClick={() => stopRecord('save', name.trim() || null).then(() => { setName(""); onAfter(); })}
+                            onClick={handleSave}
                             className="btn btn-save"
+                            disabled={busy || !name.trim()}
+                            title={!name.trim() ? "Enter a name to enable Save" : ""}
                         >
                             💾 Save
                         </button>
                         <button
-                            onClick={() => stopRecord('play_now').then(onAfter)}
+                            onClick={handlePlayOnce}
                             className="btn btn-play-once"
+                            disabled={busy}
                         >
                             ▶️ Play Once
                         </button>
                         <button
                             className="btn btn-discard"
-                            onClick={() => stopRecord('discard').then(onAfter)}
+                            onClick={handleDiscard}
+                            disabled={busy}
                         >
                             🗑️ Discard
                         </button>

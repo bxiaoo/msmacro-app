@@ -8,14 +8,20 @@ export default function EventsPanel({ onMode }){
         es.onmessage = (m)=>{
             try{
                 const obj = JSON.parse(m.data)
-                if(obj.event==='MODE' && onMode) onMode(obj.mode)
 
-                // Create formatted event entry
+                // server now sends {type:"mode"} and {type:"files"} events
+                const evtType = obj.type || obj.event
+                if(evtType === 'mode' && onMode){
+                    onMode(obj.mode)
+                }
+
                 const timestamp = new Date().toISOString().split('T')[1].split('.')[0]
                 const eventLine = `${timestamp} ${JSON.stringify(obj)}\n`
 
-                pre.current.textContent += eventLine
-                pre.current.scrollTop = pre.current.scrollHeight
+                if(pre.current){
+                    pre.current.textContent += eventLine
+                    pre.current.scrollTop = pre.current.scrollHeight
+                }
             }catch(e){}
         }
         return ()=> es.close()

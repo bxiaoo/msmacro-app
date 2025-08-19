@@ -558,3 +558,30 @@ body {
     border-radius: 0.5rem;
     padding: 0.75rem;
 }
+
+/* Accordion (top-level folders) */
+.group-row { background:#f8fafc; }
+.group-name { display:flex; align-items:center; gap:.5rem; cursor:pointer; user-select:none; font-weight:600; }
+.group-caret { display:inline-block; transition: transform .15s ease; }
+.group-caret.open { transform: rotate(90deg); }
+.group-icon { opacity:.85; }
+.group-meta { margin-left:.25rem; color:#6b7280; font-weight:500; }
+
+/* Nested subfolders */
+.folder-row { background:#fafafa; }
+.folder-name { display:flex; align-items:center; gap:.5rem; cursor:pointer; user-select:none; }
+.folder-caret { display:inline-block; transition: transform .15s ease; }
+.folder-caret.open { transform: rotate(90deg); }
+.folder-icon { opacity:.8 }
+.folder-label { font-weight:600 }
+.folder-meta { margin-left:.25rem; color:#6b7280; font-size:.9em; }
+
+/* Columns / selection */
+.col-check { width:42px; text-align:center; }
+.files-table tr.selected td { background:#eff6ff; }
+.file-name { display:flex; align-items:center; gap:.5rem; }
+.file-icon { opacity:.8 }
+.file-label { word-break:break-all; }
+
+/* Visual separators between groups */
+tbody + tbody .group-row td { border-top: 2px solid #e5e7eb; }

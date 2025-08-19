@@ -1,90 +1,94 @@
+from __future__ import annotations
+
+import os
 from pathlib import Path
 from aiohttp import web
 
-from ..config import SETTINGS
 from .handlers import (
-    api_status, api_record_start, api_record_stop, api_play, api_stop,
-    api_rename, api_delete, api_events
+    api_status,
+    api_list_files,
+    api_events,
+    api_record_start,
+    api_record_stop,
+    api_post_save,
+    api_post_preview,
+    api_post_discard,
+    api_play,
+    api_stop,
+    api_files_rename,
+    api_files_delete,
+    api_folders_delete,  # Added this import
 )
 
-def make_app() -> web.Application:
-    app = web.Application()
+# ---- Config ----
+STATIC_DIR = Path(os.environ.get("MSMACRO_WEB_STATIC", "/opt/msmacro-app/msmacro/web/static")).resolve()
+INDEX_FILE = STATIC_DIR / "index.html"
+WEB_HOST = os.environ.get("MSMACRO_WEB_HOST", "0.0.0.0")
+WEB_PORT = int(os.environ.get("MSMACRO_WEB_PORT", "8787"))
 
-    # --- API routes ---
+@web.middleware
+async def spa_fallback_mw(request: web.Request, handler):
+    # API paths go to handlers
+    if request.path.startswith("/api/"):
+        return await handler(request)
+
+    # Serve static if file exists
+    p = STATIC_DIR / request.path.lstrip("/")
+    if p.is_file():
+        return web.FileResponse(path=p)
+
+    # SPA fallback
+    if INDEX_FILE.is_file():
+        return web.FileResponse(path=INDEX_FILE)
+
+    return web.Response(status=404, text="not found")
+
+def make_app() -> web.Application:
+    app = web.Application(middlewares=[spa_fallback_mw])
+
+    # API Routes
     app.add_routes([
+        # Status and files
         web.get("/api/status", api_status),
+        web.get("/api/files", api_list_files),
+        web.get("/api/events", api_events),
+
+        # Recording
         web.post("/api/record/start", api_record_start),
         web.post("/api/record/stop", api_record_stop),
+
+        # PostRecord mode actions
+        web.post("/api/post/save", api_post_save),
+        web.post("/api/post/preview", api_post_preview),
+        web.post("/api/post/discard", api_post_discard),
+
+        # Playback
         web.post("/api/play", api_play),
         web.post("/api/stop", api_stop),
-        web.post("/api/files/rename", api_rename),
-        web.delete("/api/files/{name}", api_delete),
-        web.get("/api/events", api_events),
+
+        # File management
+        web.post("/api/files/rename", api_files_rename),
+        web.delete("/api/files/{name:.*}", api_files_delete),
+        
+        # Folder management
+        web.delete("/api/folders/{path:.*}", api_folders_delete),
+
+        # Health check
+        web.get("/api/ping", lambda r: web.json_response({"ok": True})),
     ])
 
-    # --- Static frontend (Vite build) ---
-    static_dir = Path(__file__).with_name("static")
-    static_dir.mkdir(parents=True, exist_ok=True)
-    index_html = static_dir / "index.html"
-
-    # 1) Serve the root as index.html
-    async def index(_request: web.Request):
-        if index_html.exists():
-            return web.FileResponse(index_html)
-        return web.Response(
-            text="<h1>MS Macro Web UI</h1><p>Build the frontend to populate static/</p>",
-            content_type="text/html"
-        )
-    app.router.add_get("/", index)
-
-    # 2) Serve built assets (Vite puts hashed files under /assets)
-    assets_dir = static_dir / "assets"
-    if assets_dir.exists():
-        app.router.add_static("/assets", str(assets_dir), follow_symlinks=True, show_index=False)
-
-    # Optional common files (serve if present)
-    for name in ("favicon.ico", "manifest.webmanifest", "robots.txt"):
-        p = static_dir / name
-        if p.exists():
-            app.router.add_get(f"/{name}", lambda req, _p=p: web.FileResponse(_p))
-
-    # 3) SPA fallback: for any non-API GET that would 404, serve index.html
-    @web.middleware
-    async def spa_fallback(request: web.Request, handler):
-        try:
-            return await handler(request)
-        except web.HTTPNotFound:
-            if request.method != "GET":
-                raise
-            if request.path.startswith("/api"):
-                raise
-            # If asset requested under /assets and missing, keep 404
-            if request.path.startswith("/assets/"):
-                raise
-            if index_html.exists():
-                return web.FileResponse(index_html)
-            raise
-
-    app.middlewares.append(spa_fallback)
+    # Static assets (optional redundancy)
+    if STATIC_DIR.exists():
+        app.router.add_static("/static/", str(STATIC_DIR), show_index=False)
 
     return app
 
-
-def main(host="0.0.0.0", port=8787):
+def main():
     app = make_app()
-    try:
-        web.run_app(app, host=host, port=port)
-    except OSError as e:
-        if getattr(e, "errno", None) == 98:  # EADDRINUSE
-            print(f"[web] Port {port} already in use. Is msmacro-web service running?")
-        else:
-            raise
-
+    print(f"Starting MSMacro web server on {WEB_HOST}:{WEB_PORT}")
+    print(f"Static dir: {STATIC_DIR}")
+    print(f"Index file: {INDEX_FILE}")
+    web.run_app(app, host=WEB_HOST, port=WEB_PORT)
 
 if __name__ == "__main__":
-    import argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8787)
-    args = ap.parse_args()
-    main(args.host, args.port)
+    main()
