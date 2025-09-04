@@ -28,12 +28,20 @@ export default function EventsPanel({ onMode }){
     },[onMode])
 
     return (
-        <div className="card events-card">
-            <div className="events-header">
-                <h3 className="events-title">Live Events</h3>
+        <div className="bg-white p-4 relative rounded-tl-[8px] rounded-tr-[8px] w-full max-h-[65vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex-shrink-0">
+                <h3 className="font-['Roboto:Bold',_sans-serif] font-bold text-[16px] text-gray-900">Live Events</h3>
             </div>
-            <div className="events-content">
-                <pre ref={pre} className="events-display" />
+            <div className="flex-1 min-h-0 bg-gray-100 overflow-y-auto">
+                <pre 
+                    ref={pre} 
+                    className="p-3 text-xs font-mono leading-tight text-gray-800 whitespace-pre-wrap overflow-x-auto overflow-y-auto h-full w-full break-words"
+                    style={{ 
+                        fontFamily: 'Monaco, Consolas, "Lucida Console", monospace',
+                        wordWrap: 'break-word',
+                        overflowWrap: 'break-word'
+                    }}
+                />
             </div>
         </div>
     )

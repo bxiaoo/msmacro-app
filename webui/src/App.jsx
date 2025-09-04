@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getStatus } from './api.js'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast } from './api.js'
 import ModeBadge from './components/ModeBadge.jsx'
 import Controls from './components/Controls.jsx'
 import PostRecordBanner from './components/PostRecordBanner.jsx'
@@ -7,13 +7,62 @@ import FileBrowser from './components/files/FileBrowser.jsx'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
 
+import { Header } from './components/Header.jsx'
+import { NavigationTabs } from './components/NavigationTabs.jsx'
+import { ActionButtonGroup } from './components/ActionButtonGroup.jsx'
+import { StateMessage } from './components/StateMessage.jsx'
+import { MacroList } from './components/files/MacroList.jsx'
+import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
+import { PostRecordingModal } from './components/PostRecordingModal.jsx'
+
 export default function App(){
+  const [activeTab, setActiveTab] = useState('botting')
+  const [isRecording, setIsRecording] = useState(false)
+  const [isPostRecording, setIsPostRecording] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [recordingStartTime, setRecordingStartTime] = useState(undefined)
+  const [playingStartTime, setPlayingStartTime] = useState(undefined)
+  const [playingMacroName, setPlayingMacroName] = useState('')
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [isDebugWindowOpen, setIsDebugWindowOpen] = useState(false)
+  const [debugLogs, setDebugLogs] = useState([])
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [playSettings, setPlaySettings] = useState({ speed: 1, jitter_time: 0.2, jitter_hold: 0.045, loop: 15 })
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
+  const [recordingName, setRecordingName] = useState('')
 
   // Keep mode fresh (and anything else status provides that Controls/Banner need)
   const refresh = () => getStatus().then(st => {
     setMode(st.mode)
+    if (st.mode === 'PLAYING') {
+      setIsPostRecording(false)
+      setIsRecording(false)
+      setIsPlaying(true)
+      if (!playingStartTime) {
+        setPlayingStartTime(Date.now())
+      }
+    } else if (st.mode === 'POSTRECORD') {
+      setIsPlaying(false)
+      setIsRecording(false)
+      setIsPostRecording(true)
+      setPlayingStartTime(undefined)
+      setRecordingStartTime(undefined)
+    } else if (st.mode === 'RECORDING') {
+      setIsPlaying(false)
+      setIsPostRecording(false)
+      setIsRecording(true)
+      if (!recordingStartTime) {
+        setRecordingStartTime(Date.now())
+      }
+    } else {
+      // IDLE or other states
+      setIsPlaying(false)
+      setIsRecording(false)
+      setIsPostRecording(false)
+      setPlayingStartTime(undefined)
+      setRecordingStartTime(undefined)
+    }
   }).catch(() => {})
 
   useEffect(() => {
@@ -29,29 +78,181 @@ export default function App(){
     return () => document.removeEventListener('files:selection:set', onSel)
   }, [])
 
+  /**
+   * delete event handle
+   * @param {folder id} folderId 
+   * @param {file id} fileId 
+   */
+  const handleDelete = (folderId, fileId) => {
+    console.log('handle delete folder/files')
+  }
+
+  /**
+   * rename folder/file or add group/folder
+   * @param {folder id for editing} folderId 
+   * @param {file id for editing} fileId 
+   */
+  const handleEdit = (folderId, fileId) => {
+    console.log('handle edit folder/file name')
+  }
+
+  /**
+   * start recording
+   */
+  const handleRecord = () => {
+    startRecord().then(refresh)
+  }
+
+  /**
+   * handle save recording
+   * @param {save name} name 
+   */
+  const handleSaveRecording = async (name) => {
+    if (!name?.trim()) return;
+    try {
+      await saveLast(name.trim());
+      setRecordingName('');
+      refresh();
+    } catch (e) {
+      console.error('Failed to save recording:', e);
+    }
+  }
+
+  /**
+   * handle play once after recording
+   */
+  const handlePlayOnce = async () => {
+    try {
+      await previewLast({ speed: playSettings.speed });
+      refresh();
+    } catch (e) {
+      console.error('Failed to play once:', e);
+    }
+  }
+
+  /**
+   * handle discard recording
+   */
+  const handleDiscardRecording = async () => {
+    try {
+      await discardLast();
+      setRecordingName('');
+      refresh();
+    } catch (e) {
+      console.error('Failed to discard recording:', e);
+    }
+  }
+
+  /**
+   * staring playing
+   */
+  const handlePlay = () => {
+    if (selected) play(selected, playSettings).then(refresh)
+  }
+
+  /**
+   * stop playing
+   */
+  const handleStop = () => {
+    try {
+      stop().then(refresh)
+    } catch (e) {
+      console.error('Failed to stop: ', e)
+    }
+  }
+
+  const handlePlaySetting = () => {
+      setIsDebugWindowOpen(false)
+      setIsSettingsModalOpen(!isSettingsModalOpen)
+      console.log('play setting open')
+  }
+
+  const handleDebug = () => {
+    setIsDebugWindowOpen(!isDebugWindowOpen)
+  }
+
+  const handleCloseModal = () => {
+    setIsSettingsModalOpen(false)
+    setIsDebugWindowOpen(false)
+  }
+
+
+  const canPlay = selected.length > 0 && !isRecording && !isPostRecording && !isPlaying
+
   return (
-    <div className="app-container">
-      <div className="app-content">
-        <div className="header">
+    <div className="">
+      <div className="">
+        {(isSettingsModalOpen || isDebugWindowOpen) && <div className='bg-gray-900/25 absolute w-full h-full z-20' onClick={handleCloseModal}></div>}
+        {/* <div className="header">
           <h1 className="main-title">
             MS Macro <ModeBadge mode={mode} />
           </h1>
-        </div>
+        </div> */}
+        <Header isActive={mode} onSettingsClick={handlePlaySetting} onDebugClick={handleDebug} isSettingsActive={isSettingsModalOpen} isDebugActive={isDebugWindowOpen} />
 
-        <PostRecordBanner visible={mode === 'POSTRECORD'} onAfter={refresh} />
+        {/* <PostRecordBanner visible={mode === 'POSTRECORD'} onAfter={refresh} />
 
         <div className="controls-section">
           <Controls selected={selected} onAfter={refresh} />
-        </div>
+        </div> */}
 
-        <div className="main-grid">
+        {/* <div className="main-grid">
           <div className="files-section">
-            {/* New modular browser with folder accordions & actions */}
             <FileBrowser />
           </div>
           <div className="events-section">
             <EventsPanel onMode={setMode} />
           </div>
+        </div> */}
+
+        <MacroList />
+
+
+
+        <div className='absolute bottom-0 w-full shadow-lg z-40'>
+          {isDebugWindowOpen && (
+            <EventsPanel onMode={setMode} />
+          )}
+
+                  {isPostRecording && (
+        <PostRecordingModal
+          isOpen={isPostRecording}
+          name={recordingName}
+          onNameChange={setRecordingName}
+        />
+      )}
+
+        {isSettingsModalOpen && !isPlaying && (
+        <PlaySettingsModal
+          isOpen={isSettingsModalOpen}
+          onClose={() => setIsSettingsModalOpen(false)}
+          settings={playSettings}
+          onSettingsChange={setPlaySettings}
+        />
+      )}
+
+          <StateMessage 
+            isPlaying={isPlaying} 
+            isRecording={isRecording} 
+            startTime={isPlaying ? playingStartTime : recordingStartTime} 
+            macroName={playingMacroName} 
+          />
+          <div className='bg-white'>
+          <ActionButtonGroup
+              onRecord={handleRecord}
+              onPlay={handlePlay}
+              isRecording={isRecording}
+              isPlaying={isPlaying}
+              isPostRecording={isPostRecording}
+              canPlay={canPlay}
+              onStop={handleStop}
+              onSave={handleSaveRecording}
+              onPlayOnce={handlePlayOnce}
+              onDiscard={handleDiscardRecording}
+              recordingName={recordingName}
+          />
+          </div>
+          <NavigationTabs activeTab='botting' onTabChange={setActiveTab} />
         </div>
       </div>
     </div>

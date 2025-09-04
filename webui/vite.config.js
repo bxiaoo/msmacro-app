@@ -1,18 +1,37 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'path'
+import tailwindcss from '@tailwindcss/vite'
 
-// Emit build directly into the Python static dir
 export default defineConfig({
-    plugins: [react()],
-    build: {
-        outDir: resolve(__dirname, '../msmacro/web/static'),
-        emptyOutDir: true
-    },
+    plugins: [tailwindcss(), react()],
     server: {
-        port: 5173,
+        port: 3000,
         proxy: {
-            '/api': 'http://localhost:8787'
+            // Proxy all /api requests to the mock backend during development
+            '/api': {
+                target: 'http://127.0.0.1:8787',
+                changeOrigin: true,
+                secure: false,
+                // Optional: log proxy requests for debugging
+                configure: (proxy, options) => {
+                    proxy.on('proxyReq', (proxyReq, req, res) => {
+                        console.log(`[PROXY] ${req.method} ${req.url} -> ${options.target}${req.url}`)
+                    })
+                }
+            }
+        }
+    },
+    build: {
+        // Output to the same directory structure as your real backend expects
+        outDir: '../msmacro/web/static',
+        emptyOutDir: true,
+        rollupOptions: {
+            output: {
+                // Keep the same asset naming convention
+                entryFileNames: 'assets/index-[hash].js',
+                chunkFileNames: 'assets/[name]-[hash].js',
+                assetFileNames: 'assets/[name]-[hash].[ext]'
+            }
         }
     }
 })
