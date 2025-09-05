@@ -42,6 +42,12 @@ class MockState:
             ("folder1/subfolder/nested_macro.json", 2048, 900),
             ("folder1/another_macro.json", 756, 5400),
             ("folder2/automation.json", 1337, 2700),
+            ("folder4/subfolder/nested_macro.json", 2048, 900),
+            ("folder5/another_macro.json", 756, 5400),
+            ("folder6/automation.json", 1337, 2700),
+            ("folder7/subfolder/nested_macro.json", 2048, 900),
+            ("folder7/another_macro.json", 756, 5400),
+            ("folder7/automation.json", 1337, 2700),
         ]
 
         for rel_path, size, offset in mock_files:

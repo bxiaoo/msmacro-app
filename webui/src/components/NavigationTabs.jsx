@@ -35,7 +35,7 @@ export function NavigationTabs({
     onTabChange
 }) {
     return (
-        <div className='bg-white flex content-stretch w-full pb-5'>
+        <div className='bg-white flex content-stretch w-full pb-2'>
             <div className='w-full'>
             <TabItem 
                 Icon={Bot} 

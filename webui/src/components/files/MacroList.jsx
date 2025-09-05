@@ -116,17 +116,18 @@ export function MacroList(){
 
 
   return (
-    <div className="bg-gray-100 px-4 py-4 h-full">
-        <div className='flex flex-row justify-between px-1'>
+    <div className="bg-gray-100 min-h-full">
+      <div className="px-4 py-4">
+        {/* Header with search and delete button - Scrolls with content */}
+        <div className='flex flex-row justify-between px-1 mb-4'>
           <div className="w-full max-w-sm">
             <Input type='text' placeholder='Search...' value={filter} onChange={(e) => setFilter(e.target.value)} />
           </div>
           <ActionButton Icon={Trash2} onClick={deleteSelected} active={false} disabled={!selected.length} />
         </div>
 
-      <div className="relative shrink-0 w-full">
-        <div className="relative size-full">
-          <div className="box-border content-stretch flex flex-col gap-3 items-start justify-start py-0 relative w-full">
+        {/* Content area */}
+        <div className="flex flex-col gap-3 w-full">
             {filter ? (
               // Filtered view - show matching files directly
               visibleFiles && visibleFiles.length ? visibleFiles.map((file,i)=> (
@@ -199,7 +200,6 @@ export function MacroList(){
                 ))}
               </>
             )}
-          </div>
         </div>
       </div>
     </div>

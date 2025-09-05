@@ -180,80 +180,79 @@ export default function App(){
   const canPlay = selected.length > 0 && !isRecording && !isPostRecording && !isPlaying
 
   return (
-    <div className="">
-      <div className="">
-        {(isSettingsModalOpen || isDebugWindowOpen) && <div className='bg-gray-900/25 absolute w-full h-full z-20' onClick={handleCloseModal}></div>}
-        {/* <div className="header">
-          <h1 className="main-title">
-            MS Macro <ModeBadge mode={mode} />
-          </h1>
-        </div> */}
-        <Header isActive={mode} onSettingsClick={handlePlaySetting} onDebugClick={handleDebug} isSettingsActive={isSettingsModalOpen} isDebugActive={isDebugWindowOpen} />
+    <div className="h-screen flex flex-col relative">
+      {/* Global overlay for modals */}
+      {(isSettingsModalOpen || isDebugWindowOpen) && (
+        <div className='bg-gray-900/25 absolute inset-0 z-20' onClick={handleCloseModal}></div>
+      )}
 
-        {/* <PostRecordBanner visible={mode === 'POSTRECORD'} onAfter={refresh} />
-
-        <div className="controls-section">
-          <Controls selected={selected} onAfter={refresh} />
-        </div> */}
-
-        {/* <div className="main-grid">
-          <div className="files-section">
-            <FileBrowser />
-          </div>
-          <div className="events-section">
-            <EventsPanel onMode={setMode} />
-          </div>
-        </div> */}
-
+      {/* Main content area - Scrollable (includes header and macro list) */}
+      <div className="flex-1 overflow-y-auto">
+        <Header 
+          isActive={mode} 
+          onSettingsClick={handlePlaySetting} 
+          onDebugClick={handleDebug} 
+          isSettingsActive={isSettingsModalOpen} 
+          isDebugActive={isDebugWindowOpen} 
+        />
         <MacroList />
+      </div>
 
-
-
-        <div className='absolute bottom-0 w-full shadow-lg z-40'>
-          {isDebugWindowOpen && (
+      {/* Bottom section - Fixed at bottom with proper stacking */}
+      <div className='relative z-30 shadow-lg'>
+        {/* Debug panel - appears above the main bottom section */}
+        {isDebugWindowOpen && (
+          <div className="border-t border-gray-200">
             <EventsPanel onMode={setMode} />
-          )}
-
-                  {isPostRecording && (
-        <PostRecordingModal
-          isOpen={isPostRecording}
-          name={recordingName}
-          onNameChange={setRecordingName}
-        />
-      )}
-
-        {isSettingsModalOpen && !isPlaying && (
-        <PlaySettingsModal
-          isOpen={isSettingsModalOpen}
-          onClose={() => setIsSettingsModalOpen(false)}
-          settings={playSettings}
-          onSettingsChange={setPlaySettings}
-        />
-      )}
-
-          <StateMessage 
-            isPlaying={isPlaying} 
-            isRecording={isRecording} 
-            startTime={isPlaying ? playingStartTime : recordingStartTime} 
-            macroName={playingMacroName} 
-          />
-          <div className='bg-white'>
-          <ActionButtonGroup
-              onRecord={handleRecord}
-              onPlay={handlePlay}
-              isRecording={isRecording}
-              isPlaying={isPlaying}
-              isPostRecording={isPostRecording}
-              canPlay={canPlay}
-              onStop={handleStop}
-              onSave={handleSaveRecording}
-              onPlayOnce={handlePlayOnce}
-              onDiscard={handleDiscardRecording}
-              recordingName={recordingName}
-          />
           </div>
-          <NavigationTabs activeTab='botting' onTabChange={setActiveTab} />
+        )}
+
+        {/* Post-recording modal - appears above action buttons */}
+        {isPostRecording && (
+          <PostRecordingModal
+            isOpen={isPostRecording}
+            name={recordingName}
+            onNameChange={setRecordingName}
+          />
+        )}
+
+        {/* Settings modal - appears above action buttons */}
+        {isSettingsModalOpen && !isPlaying && (
+          <PlaySettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            settings={playSettings}
+            onSettingsChange={setPlaySettings}
+          />
+        )}
+
+        {/* State message */}
+        <StateMessage 
+          isPlaying={isPlaying} 
+          isRecording={isRecording} 
+          startTime={isPlaying ? playingStartTime : recordingStartTime} 
+          macroName={playingMacroName} 
+        />
+
+        {/* Action buttons */}
+        <div className='bg-white border-t border-gray-200'>
+          <ActionButtonGroup
+            onRecord={handleRecord}
+            onPlay={handlePlay}
+            isRecording={isRecording}
+            isPlaying={isPlaying}
+            isPostRecording={isPostRecording}
+            canPlay={canPlay}
+            onStop={handleStop}
+            onSave={handleSaveRecording}
+            onPlayOnce={handlePlayOnce}
+            onDiscard={handleDiscardRecording}
+            recordingName={recordingName}
+          />
         </div>
+
+        {/* Navigation tabs */}
+        <NavigationTabs activeTab='botting' onTabChange={setActiveTab} />
       </div>
     </div>
   )
