@@ -1,14 +1,14 @@
 import asyncio, json, os, pathlib
 from contextlib import suppress
 
-async def start_server(path, handler, *, mode=0o666):
+async def start_server(path, handler, *, mode=0o600):
     p = pathlib.Path(path)
     if p.exists():
         with suppress(FileNotFoundError):
             p.unlink()
     p.parent.mkdir(parents=True, exist_ok=True)
     server = await asyncio.start_unix_server(lambda r, w: _serve_one(r, w, handler), path=path)
-    os.chmod(path, mode)  # simple: any local user can control; tighten if needed
+    os.chmod(path, mode)  # owner-only access for security
     return server
 
 async def _serve_one(reader, writer, handler):

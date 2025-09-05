@@ -8,7 +8,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
-from .hidio import HIDWriter
+from ..io.hidio import HIDWriter
 
 from .humanJitter import HumanJitter
 

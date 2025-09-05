@@ -1,4 +1,3 @@
-print("DEBUG: cli.py module is being imported and executed...")
 
 import argparse
 import asyncio
@@ -9,13 +8,13 @@ from pathlib import Path
 
 from evdev import InputDevice, ecodes
 
-from .config import SETTINGS
-from .keyboard import find_keyboard_event
-from .bridge import Bridge
-from .player import Player
-from .keymap import is_modifier, mod_bit, usage_from_ecode, parse_hotkey
+from .utils.config import SETTINGS
+from .io.keyboard import find_keyboard_event
+from .core.bridge import Bridge
+from .core.player import Player
+from .utils.keymap import is_modifier, mod_bit, usage_from_ecode, parse_hotkey
 from .daemon import run_daemon
-from .ipc import send
+from .io.ipc import send
 
 
 # ---------- helpers for non-daemon hotkey stop during local playback ----------
@@ -412,7 +411,6 @@ def build_parser():
 
 
 def main(argv=None):
-    print("DEBUG: cli.py main() function has started.")
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)

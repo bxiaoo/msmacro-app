@@ -5,8 +5,8 @@ import contextlib
 from pathlib import Path
 from aiohttp import web
 
-from ..config import SETTINGS
-from ..ipc import send
+from ..utils.config import SETTINGS
+from ..io.ipc import send
 from .validation import safe_record_path
 
 # ---------- helpers ----------

@@ -11,6 +11,11 @@ def _build_report(modmask: int, keys: Iterable[int]) -> bytes:
 
 class HIDWriter:
     def __init__(self, path: str = "/dev/hidg0"):
+        # Validate that this looks like a HID gadget device
+        if not path.startswith("/dev/hidg"):
+            raise ValueError(f"Path '{path}' does not appear to be a HID gadget device")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"HID gadget device '{path}' not found")
         self.fd = os.open(path, os.O_WRONLY | os.O_CLOEXEC)
     def send(self, modmask: int, keys: set[int]):
         os.write(self.fd, _build_report(modmask, sorted(keys)))

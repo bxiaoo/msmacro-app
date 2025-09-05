@@ -9,9 +9,9 @@ from typing import Dict, Optional, Set, Tuple
 
 from evdev import InputDevice, ecodes
 
-from .hidio import HIDWriter
-from .keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
-from .events import emit  # if you don't use SSE events, you can comment out emit() calls
+from ..io.hidio import HIDWriter
+from ..utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
+from ..utils.events import emit  # if you don't use SSE events, you can comment out emit() calls
 
 
 @dataclass(frozen=True)

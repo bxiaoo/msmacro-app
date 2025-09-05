@@ -12,14 +12,14 @@ from typing import Optional, Dict, Any, List
 
 from evdev import InputDevice, ecodes
 
-from .config import SETTINGS
-from .keyboard import find_keyboard_event
-from .bridge import Bridge
-from .player import Player
-from .recorder import Recorder, list_recordings_recursive, resolve_record_path
-from .ipc import start_server
-from .keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
-from .hidio import HIDWriter
+from .utils.config import SETTINGS
+from .io.keyboard import find_keyboard_event
+from .core.bridge import Bridge
+from .core.player import Player
+from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
+from .io.ipc import start_server
+from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
+from .io.hidio import HIDWriter
 
 try:
     from .events import emit  # type: ignore
@@ -28,53 +28,12 @@ except Exception:  # pragma: no cover
         return
 
 
-def _setup_logger() -> logging.Logger:
-    lvl_name = (getattr(SETTINGS, "log_level", None) or os.environ.get("MSMACRO_LOGLEVEL", "INFO")).upper()
-    level = getattr(logging, lvl_name, logging.INFO)
-    logger = logging.getLogger("msmacro.daemon")
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        handler.setFormatter(logging.Formatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S"))
-        logger.addHandler(handler)
-    logger.setLevel(level)
-    return logger
+from .core.logging_setup import setup_logger
+
+log = setup_logger()
 
 
-log = _setup_logger()
-
-
-def _events_to_actions(events: List[Dict[str, Any]]) -> List[Dict[str, float]]:
-    """Convert raw keyboard events to action format with press/duration."""
-    actions: List[Dict[str, float]] = []
-    down_time: Dict[int, float] = {}
-    cursor = 0.0
-    
-    for ev in sorted(events, key=lambda e: float(e.get("t", 0.0))):
-        try:
-            t = float(ev.get("t", 0.0))
-            typ = str(ev.get("type", "")).lower()
-            usage = int(ev.get("usage", 0))
-        except (KeyError, ValueError, TypeError):
-            continue
-            
-        if typ in ("down", "press"):
-            down_time[usage] = t
-        elif typ in ("up", "release"):
-            t0 = down_time.pop(usage, None)
-            if t0 is not None:
-                press = max(0.0, t0 - cursor)
-                dur = max(0.0, t - t0)
-                actions.append({"usage": usage, "press": press, "dur": dur})
-                cursor = t
-    
-    # Handle any keys still held down
-    for usage, t0 in down_time.items():
-        press = max(0.0, t0 - cursor)
-        actions.append({"usage": int(usage), "press": press, "dur": 0.05})
-        cursor = t0 + 0.05
-    
-    return actions
+from .core.event_utils import events_to_actions as _events_to_actions
 
 class MacroDaemon:
     def __init__(self, evdev_path: Optional[str] = None):
