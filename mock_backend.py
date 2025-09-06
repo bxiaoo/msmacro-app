@@ -26,6 +26,7 @@ class MockState:
         self.tree = []
         self.clients = set()  # SSE clients
         self.playback_task = None
+        self.current_playing_file = None
 
         # Build initial tree
         self._rebuild_tree()
@@ -141,7 +142,8 @@ async def api_status(request: web.Request) -> web.Response:
         "keyboard": "/dev/input/event0",
         "have_last_actions": mock_state.have_last_actions,
         "files": mock_state.files,
-        "tree": mock_state.tree
+        "tree": mock_state.tree,
+        "current_playing_file": mock_state.current_playing_file
     }
     return json_response(status_data)
 
@@ -336,18 +338,35 @@ async def api_play(request: web.Request) -> web.Response:
     mock_state.mode = "PLAYING"
     await broadcast_event("mode", {"mode": mock_state.mode})
 
-    # Simulate playback in background
+    # Simulate playback in background with file progression
     async def simulate_playback():
         try:
-            play_duration = max(1.0, (2.0 / speed) * loop * len(names))  # Mock duration
-            await asyncio.sleep(play_duration)
+            # Shuffle files to match daemon behavior
+            shuffled_names = names.copy()
+            random.shuffle(shuffled_names)
+            
+            file_duration = max(1.0, 2.0 / speed)  # Time per file
+            
+            for _ in range(loop):
+                for file_name in shuffled_names:
+                    if mock_state.mode != "PLAYING":
+                        break
+                    
+                    # Set current playing file with full path for consistency
+                    mock_state.current_playing_file = f"/mock/records/{file_name}"
+                    await asyncio.sleep(file_duration)
+                
+                if mock_state.mode != "PLAYING":
+                    break
 
-            # Only change mode back if still playing (not stopped manually)
+            # Clear current file and reset mode when done
+            mock_state.current_playing_file = None
             if mock_state.mode == "PLAYING":
                 mock_state.mode = old_mode
                 await broadcast_event("mode", {"mode": mock_state.mode})
         except asyncio.CancelledError:
             # Playback was cancelled
+            mock_state.current_playing_file = None
             if mock_state.mode == "PLAYING":
                 mock_state.mode = old_mode
                 await broadcast_event("mode", {"mode": mock_state.mode})
@@ -368,6 +387,8 @@ async def api_stop(request: web.Request) -> web.Response:
         if mock_state.playback_task and not mock_state.playback_task.done():
             mock_state.playback_task.cancel()
 
+        # Clear current playing file
+        mock_state.current_playing_file = None
         mock_state.mode = "BRIDGE"
         await broadcast_event("mode", {"mode": mock_state.mode})
         return json_response({"ok": True, "stopped": "playback"})

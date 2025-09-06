@@ -1,9 +1,5 @@
 import { useEffect, useState } from 'react'
 import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast } from './api.js'
-import ModeBadge from './components/ModeBadge.jsx'
-import Controls from './components/Controls.jsx'
-import PostRecordBanner from './components/PostRecordBanner.jsx'
-import FileBrowser from './components/files/FileBrowser.jsx'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
 
@@ -42,6 +38,11 @@ export default function App(){
       if (!playingStartTime) {
         setPlayingStartTime(Date.now())
       }
+      // Update playing file name from backend
+      if (st.current_playing_file) {
+        const fileName = st.current_playing_file.split('/').pop().replace('.json', '');
+        setPlayingMacroName(fileName);
+      }
     } else if (st.mode === 'POSTRECORD') {
       setIsPlaying(false)
       setIsRecording(false)
@@ -62,6 +63,7 @@ export default function App(){
       setIsPostRecording(false)
       setPlayingStartTime(undefined)
       setRecordingStartTime(undefined)
+      setPlayingMacroName('')
     }
   }).catch(() => {})
 
@@ -77,6 +79,7 @@ export default function App(){
     document.addEventListener('files:selection:set', onSel)
     return () => document.removeEventListener('files:selection:set', onSel)
   }, [])
+
 
   /**
    * delete event handle
@@ -147,7 +150,10 @@ export default function App(){
    * staring playing
    */
   const handlePlay = () => {
-    if (selected) play(selected, playSettings).then(refresh)
+    if (selected && selected.length > 0) {
+      // Backend will handle file shuffling and tracking
+      play(selected, playSettings).then(refresh);
+    }
   }
 
   /**

@@ -8,7 +8,7 @@ export function StateMessage({
     macroName,
     estimatedDuration = 60000
 }) {
-  const [remainingTime, setRemainingTime] = useState('00:00:00')
+  const [playingTime, setPlayingTime] = useState('00:00:00')
   const [recordedTime, setRecordedTime] = useState('00:00:00')
 
   useEffect(() => {
@@ -18,20 +18,14 @@ export function StateMessage({
       const elapsed = Date.now() - startTime;
       
       if (isPlaying) {
-        const remaining = Math.max(0, estimatedDuration - elapsed);
+        // Count playing time up (elapsed time)
+        const hours = Math.floor(elapsed / 3600000);
+        const minutes = Math.floor((elapsed % 3600000) / 60000);
+        const seconds = Math.floor((elapsed % 60000) / 1000);
         
-        const hours = Math.floor(remaining / 3600000);
-        const minutes = Math.floor((remaining % 3600000) / 60000);
-        const seconds = Math.floor((remaining % 60000) / 1000);
-        
-        setRemainingTime(
+        setPlayingTime(
           `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
         );
-
-        // Auto-stop when time runs out
-        if (remaining <= 0) {
-          clearInterval(interval);
-        }
       } else if (isRecording) {
         const hours = Math.floor(elapsed / 3600000);
         const minutes = Math.floor((elapsed % 3600000) / 60000);
@@ -44,7 +38,7 @@ export function StateMessage({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startTime, estimatedDuration, isPlaying, isRecording]);
+  }, [startTime, isPlaying, isRecording]);
 
   return (
     <div className="relative shrink-0 w-full" data-name="state msg">
@@ -63,7 +57,7 @@ export function StateMessage({
               </p>
             </div>
             <div className="font-['Roboto:Medium',_sans-serif] font-medium relative shrink-0 text-[14px] text-emerald-700" style={{ fontVariationSettings: "'wdth' 100" }}>
-              <p className="leading-[normal] text-nowrap whitespace-pre">Remain time: {remainingTime}</p>
+              <p className="leading-[normal] text-nowrap whitespace-pre">Playing time: {playingTime}</p>
             </div>
           </div>
         </div>}

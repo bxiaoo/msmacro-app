@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Playlist Progression</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .status { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>MSMacro UI Test - Playlist Progression</h1>
+    
+    <div class="status">
+        <h3>Current Status:</h3>
+        <div id="status">Loading...</div>
+    </div>
+    
+    <div class="status">
+        <h3>Test Actions:</h3>
+        <button onclick="testPlaylist()">Play 3-file Playlist</button>
+        <button onclick="testSingleFile()">Play Single File</button>
+        <button onclick="stopPlayback()">Stop</button>
+        <button onclick="checkStatus()">Check Status</button>
+    </div>
+    
+    <div class="status">
+        <h3>Expected Behavior:</h3>
+        <ul>
+            <li>Single file: Shows "Playing: filename"</li>
+            <li>Playlist: Shows "Playing: file1", then "Playing: file2", then "Playing: file3" (every ~3 seconds)</li>
+            <li>Speed setting affects progression timing</li>
+        </ul>
+    </div>
+
+    <script>
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                document.getElementById('status').innerHTML = `
+                    <strong>Mode:</strong> ${data.mode}<br>
+                    <strong>Files available:</strong> ${data.files?.length || 0}
+                `;
+            } catch (e) {
+                document.getElementById('status').innerText = 'Error: ' + e.message;
+            }
+        }
+        
+        async function testPlaylist() {
+            try {
+                const response = await fetch('/api/play', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        names: ['test_macro.json', 'login_sequence.json', 'quick_commands.json'],
+                        speed: 1.0,
+                        jitter_time: 0.0,
+                        jitter_hold: 0.0,
+                        loop: 1
+                    })
+                });
+                const data = await response.json();
+                alert('Started playlist: ' + JSON.stringify(data));
+                setTimeout(checkStatus, 500);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function testSingleFile() {
+            try {
+                const response = await fetch('/api/play', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        names: ['test_macro.json'],
+                        speed: 1.0,
+                        jitter_time: 0.0,
+                        jitter_hold: 0.0,
+                        loop: 1
+                    })
+                });
+                const data = await response.json();
+                alert('Started single file: ' + JSON.stringify(data));
+                setTimeout(checkStatus, 500);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function stopPlayback() {
+            try {
+                const response = await fetch('/api/stop', { method: 'POST' });
+                const data = await response.json();
+                alert('Stopped: ' + JSON.stringify(data));
+                setTimeout(checkStatus, 500);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        // Auto-refresh status
+        checkStatus();
+        setInterval(checkStatus, 2000);
+    </script>
+</body>
+</html>

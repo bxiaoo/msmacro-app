@@ -1,5 +1,6 @@
 import {Disc2, Bot, SquareStop, Save, Play, Trash2} from 'lucide-react'
 import { Button } from './ui/button'
+import { useRef } from 'react'
 
 export function ActionButtonGroup({
     onRecord,
@@ -14,6 +15,31 @@ export function ActionButtonGroup({
     onDiscard,
     recordingName
 }) {
+    // Use refs to track last play event times to prevent multiple rapid clicks
+    const lastPlayTimeRef = useRef(0)
+    const lastPlayOnceTimeRef = useRef(0)
+
+    // Debounced play handler - prevents multiple calls within 1 second
+    const handlePlay = () => {
+        const now = Date.now()
+        const timeSinceLastPlay = now - lastPlayTimeRef.current
+        
+        if (timeSinceLastPlay >= 1000) {
+            lastPlayTimeRef.current = now
+            onPlay?.()
+        }
+    }
+
+    // Debounced play once handler - prevents multiple calls within 1 second
+    const handlePlayOnce = () => {
+        const now = Date.now()
+        const timeSinceLastPlayOnce = now - lastPlayOnceTimeRef.current
+        
+        if (timeSinceLastPlayOnce >= 1000) {
+            lastPlayOnceTimeRef.current = now
+            onPlayOnce?.()
+        }
+    }
     if (isRecording) {
         return (
             <div className='content-stretch p-4 flex flex-col gap-4 items-start justify-start relative shrink-0 w-full'>
@@ -51,7 +77,7 @@ export function ActionButtonGroup({
                         </Button>
                     </div>
                     <div className='w-full'>
-                        <Button className='w-full' variant='play' onClick={onPlayOnce}>
+                        <Button className='w-full' variant='play' onClick={handlePlayOnce}>
                             <Play />
                             Play Once
                         </Button>
@@ -76,7 +102,7 @@ export function ActionButtonGroup({
                 </Button>
             </div>
             <div className='w-full'>
-                <Button className='w-full' onClick={onPlay} disabled={!canPlay}>
+                <Button className='w-full' onClick={handlePlay} disabled={!canPlay}>
                     <Bot />
                     Play
                 </Button>

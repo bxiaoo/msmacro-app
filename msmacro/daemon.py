@@ -43,6 +43,7 @@ class MacroDaemon:
         self._stop_event: Optional[asyncio.Event] = None
         self._last_actions: Optional[List[Dict[str, float]]] = None
         self._last_recorder: Optional[Recorder] = None
+        self._current_playing_file: Optional[str] = None
 
         self._runner_task: Optional[asyncio.Task] = None
         self._record_task: Optional[asyncio.Task] = None
@@ -661,12 +662,20 @@ class MacroDaemon:
                 for p in order:
                     if self._stop_event.is_set():
                         break
+                    
+                    # Track current playing file and emit event
+                    self._current_playing_file = p
+                    emit("PLAY_FILE_START", file=str(p))
+                    log.info("Now playing: %s", p)
+                    
                     ok = await player.play(
                         p, speed=speed, jitter_time=jt, jitter_hold=jh,
                         min_hold_s=getattr(SETTINGS, "min_hold_s", 0.010),
                         min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.050),
                         loop=1, stop_event=self._stop_event,
                     )
+                    
+                    emit("PLAY_FILE_END", file=str(p))
                     if not ok:  # Stopped by user
                         break
                 if self._stop_event.is_set():
@@ -677,6 +686,7 @@ class MacroDaemon:
             await self._stop_play_hotkeys()
             self._stop_event = None
             self._play_task = None
+            self._current_playing_file = None  # Clear current playing file
             self.mode = "BRIDGE"
             emit("MODE", mode=self.mode)
             emit("PLAY_END")
@@ -707,6 +717,7 @@ class MacroDaemon:
                     "keyboard": self.evdev_path,
                     "have_last_actions": bool(self._last_actions),
                     "files": [meta(n) for n in top_files],
+                    "current_playing_file": self._current_playing_file,
                 }
                 return resp
 

@@ -40,6 +40,51 @@ export function MacroList(){
     setSelected(next) // useEffect above emits the event
   }
 
+  // Handle folder selection - selects all files directly in folder (not subfolders)
+  const toggleFolderFiles = (folderRel)=>{
+    const allFiles = flattenFiles(tree)
+    // Get only files directly in this folder (not in subfolders)
+    const folderFiles = allFiles.filter(f => {
+      const filePath = f.rel
+      const folderPath = folderRel + '/'
+      return filePath.startsWith(folderPath) && !filePath.substring(folderPath.length).includes('/')
+    })
+    
+    const s = new Set(selected)
+    const folderFileRels = folderFiles.map(f => f.rel)
+    const allFolderFilesSelected = folderFileRels.length > 0 && folderFileRels.every(rel => s.has(rel))
+    
+    if (allFolderFilesSelected) {
+      // Unselect all files in this folder
+      folderFileRels.forEach(rel => s.delete(rel))
+    } else {
+      // Select all files in this folder
+      folderFileRels.forEach(rel => s.add(rel))
+    }
+    
+    setSelected(Array.from(s))
+  }
+
+  // Calculate folder checkbox state
+  const getFolderCheckboxState = (folderRel) => {
+    const allFiles = flattenFiles(tree)
+    // Get only files directly in this folder (not in subfolders)
+    const folderFiles = allFiles.filter(f => {
+      const filePath = f.rel
+      const folderPath = folderRel + '/'
+      return filePath.startsWith(folderPath) && !filePath.substring(folderPath.length).includes('/')
+    })
+    
+    if (folderFiles.length === 0) return { checked: false, indeterminate: false }
+    
+    const folderFileRels = folderFiles.map(f => f.rel)
+    const selectedCount = folderFileRels.filter(rel => selected.includes(rel)).length
+    
+    if (selectedCount === 0) return { checked: false, indeterminate: false }
+    if (selectedCount === folderFileRels.length) return { checked: true, indeterminate: false }
+    return { checked: false, indeterminate: true }
+  }
+
   // ----- Actions (unchanged) -----
   const doRenameFile = async (file)=>{
     const suggest = file.rel
@@ -170,14 +215,22 @@ export function MacroList(){
                   <div key={`g-${dir.rel}`} className="w-full">
                     <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
                       <div className="bg-gray-200 box-border content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] shrink-0 w-full">
-                        <MacroItem
-                          name={dir.name}
-                          type="folder"
-                          isExpanded={expandedTop.has(dir.rel)}
-                          onToggleExpand={() => toggleTop(dir.rel)}
-                          onEdit={() => doRenameFolder(dir)}
-                          onDelete={() => doDeleteFolder(dir, true)}
-                        />
+                        {(() => {
+                          const folderState = getFolderCheckboxState(dir.rel)
+                          return (
+                            <MacroItem
+                              name={dir.name}
+                              type="folder"
+                              checked={folderState.checked}
+                              indeterminate={folderState.indeterminate}
+                              isExpanded={expandedTop.has(dir.rel)}
+                              onCheckChange={() => toggleFolderFiles(dir.rel)}
+                              onToggleExpand={() => toggleTop(dir.rel)}
+                              onEdit={() => doRenameFolder(dir)}
+                              onDelete={() => doDeleteFolder(dir, true)}
+                            />
+                          )
+                        })()}
                         
                         {expandedTop.has(dir.rel) && (
                           <>
