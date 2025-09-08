@@ -131,6 +131,9 @@ class MacroDaemon:
             self._runner_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._runner_task
+                
+            # Add small delay to ensure device is fully released
+            await asyncio.sleep(0.05)
         self._runner_task = None
         log.debug("Bridge supervisor paused.")
 
@@ -246,6 +249,9 @@ class MacroDaemon:
     async def _play_hotkeys(self):
         """Listen for the stop chord while PLAYING and set self._stop_event."""
         stop_spec = getattr(SETTINGS, "stop_hotkey", "LCTRL+Q")
+        log.debug("PLAY hotkeys watcher starting (mode=%s, stop_event=%s)", 
+                  self.mode, self._stop_event is not None)
+        
         try:
             mod_ec, key_ec = parse_hotkey(stop_spec)
         except Exception:
@@ -257,6 +263,7 @@ class MacroDaemon:
 
         try:
             dev = InputDevice(self.evdev_path)
+            log.debug("PLAY hotkeys: Successfully opened device %s", self.evdev_path)
         except Exception as e:
             log.warning("PLAY hotkeys: cannot open %s: %s", self.evdev_path, e)
             return
@@ -289,6 +296,7 @@ class MacroDaemon:
                             log.debug("PLAY watcher: stop chord ARMED")
                         if armed and not mod_dn and not key_dn:
                             log.info("PLAY hotkey: STOP")
+                            log.debug("PLAY hotkey: Setting stop event (current mode=%s)", self.mode)
                             if self._stop_event:
                                 self._stop_event.set()
                                 log.info("Stop event SET")
@@ -303,6 +311,7 @@ class MacroDaemon:
                             log.debug("PLAY watcher: stop chord ARMED")
                         if armed and not mod_dn and not key_dn:
                             log.info("PLAY hotkey: STOP")
+                            log.debug("PLAY hotkey: Setting stop event (current mode=%s)", self.mode)
                             if self._stop_event:
                                 self._stop_event.set()
                                 log.info("Stop event SET")
@@ -320,19 +329,19 @@ class MacroDaemon:
             log.debug("PLAY hotkeys watcher stopped.")
 
     async def _start_play_hotkeys(self):
-        if getattr(self, "_play_task", None) and not self._play_task.done():
+        if getattr(self, "_play_hotkey_task", None) and not self._play_hotkey_task.done():
             return
         if self.mode != "PLAYING":
             return
-        self._play_task = asyncio.create_task(self._play_hotkeys())
+        self._play_hotkey_task = asyncio.create_task(self._play_hotkeys())
 
     async def _stop_play_hotkeys(self):
-        t = getattr(self, "_play_task", None)
+        t = getattr(self, "_play_hotkey_task", None)
         if t and not t.done():
             t.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await t
-        self._play_task = None
+        self._play_hotkey_task = None
 
 
     async def _start_post_hotkeys(self):
