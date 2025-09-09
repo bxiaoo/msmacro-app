@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, List
 from evdev import InputDevice, ecodes
 
 from .utils.config import SETTINGS
-from .io.keyboard import find_keyboard_event
+from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
 from .core.bridge import Bridge
 from .core.player import Player
 from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
@@ -37,7 +37,8 @@ from .core.event_utils import events_to_actions as _events_to_actions
 
 class MacroDaemon:
     def __init__(self, evdev_path: Optional[str] = None):
-        self.evdev_path = evdev_path or find_keyboard_event()
+        # Always Work™ device discovery: use safe version that doesn't raise SystemExit
+        self.evdev_path = evdev_path or find_keyboard_event_safe()
         self.mode = "BRIDGE"
 
         self._stop_event: Optional[asyncio.Event] = None
@@ -85,6 +86,18 @@ class MacroDaemon:
 
         async def runner():
             while True:
+                # Always Work™ device discovery: ensure we have a valid keyboard before starting bridge
+                if not self.evdev_path or not Path(self.evdev_path).exists():
+                    log.info("No keyboard device available, waiting for keyboard...")
+                    self.evdev_path = await find_keyboard_with_retry(max_retries=None, initial_delay=2.0)
+                    if self.evdev_path:
+                        log.info(f"Keyboard detected: {self.evdev_path}")
+                    else:
+                        # This shouldn't happen with infinite retries, but just in case
+                        log.error("Keyboard discovery failed unexpectedly")
+                        await asyncio.sleep(5)
+                        continue
+                
                 grab = (self.mode != "POSTRECORD")  # allow POSTRECORD hotkey watcher to read events
                 b = Bridge(
                     evdev_path=self.evdev_path,
@@ -103,9 +116,17 @@ class MacroDaemon:
                 except asyncio.CancelledError:
                     log.debug("Bridge.run_bridge() cancelled (pausing bridge).")
                     break
-                except Exception:
-                    log.exception("Bridge.run_bridge() crashed; retrying shortly.")
-                    await asyncio.sleep(0.2)
+                except Exception as e:
+                    # Check if it's a device-related error
+                    error_msg = str(e).lower()
+                    if any(keyword in error_msg for keyword in ["no such file", "device", "input", "permission denied"]):
+                        log.warning("Bridge.run_bridge() failed due to device issue: %s", e)
+                        log.info("Device may have been disconnected, invalidating current path")
+                        self.evdev_path = None  # Force device rediscovery
+                        await asyncio.sleep(1)
+                    else:
+                        log.exception("Bridge.run_bridge() crashed; retrying shortly.")
+                        await asyncio.sleep(0.2)
                     continue
 
                 if result == "RECORD":
@@ -142,7 +163,11 @@ class MacroDaemon:
     async def _post_hotkeys(self):
         """Listen for save/play/discard while in POSTRECORD."""
         if not self.evdev_path or not Path(self.evdev_path).exists():
-            self.evdev_path = find_keyboard_event()
+            self.evdev_path = await find_keyboard_with_retry(max_retries=10)
+        
+        if not self.evdev_path:
+            log.warning("POST hotkeys: No keyboard found after retries, disabling hotkey support")
+            return
 
         save_spec = getattr(SETTINGS, "post_save_hotkey", "LCTRL+S")
         play_spec = getattr(SETTINGS, "post_play_hotkey", "LCTRL+P")
@@ -259,7 +284,11 @@ class MacroDaemon:
 
         # Resolve keyboard device
         if not self.evdev_path or not Path(self.evdev_path).exists():
-            self.evdev_path = find_keyboard_event()
+            self.evdev_path = await find_keyboard_with_retry(max_retries=10)
+        
+        if not self.evdev_path:
+            log.warning("PLAY hotkeys: No keyboard found after retries, disabling hotkey support")
+            return
 
         try:
             dev = InputDevice(self.evdev_path)
@@ -366,7 +395,11 @@ class MacroDaemon:
             await self._pause_runner()
 
         if not self.evdev_path or not Path(self.evdev_path).exists():
-            self.evdev_path = find_keyboard_event()
+            self.evdev_path = await find_keyboard_with_retry(max_retries=10)
+        
+        if not self.evdev_path:
+            log.error("Recording: No keyboard found after retries, cannot record")
+            raise RuntimeError("No keyboard device available for recording")
 
         stop_spec = getattr(SETTINGS, "stop_hotkey", "LCTRL+Q")
         rec_spec = getattr(SETTINGS, "record_hotkey", "LCTRL+R")
