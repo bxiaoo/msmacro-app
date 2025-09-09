@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast } from './api.js'
+import { useApiAction } from './hooks/useApiAction.js'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
 
@@ -12,6 +13,7 @@ import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
 import { PostRecordingModal } from './components/PostRecordingModal.jsx'
 
 export default function App(){
+  const { executeAction, isPending } = useApiAction()
   const [activeTab, setActiveTab] = useState('botting')
   const [isRecording, setIsRecording] = useState(false)
   const [isPostRecording, setIsPostRecording] = useState(false)
@@ -103,47 +105,45 @@ export default function App(){
    * start recording
    */
   const handleRecord = () => {
-    startRecord().then(refresh)
+    executeAction('record', () => startRecord(), refresh)
   }
 
   /**
    * handle save recording
    * @param {save name} name 
    */
-  const handleSaveRecording = async (name) => {
+  const handleSaveRecording = (name) => {
     if (!name?.trim()) return;
-    try {
-      await saveLast(name.trim());
-      setRecordingName('');
-      refresh();
-    } catch (e) {
-      console.error('Failed to save recording:', e);
-    }
+    executeAction('save', 
+      () => saveLast(name.trim()), 
+      () => {
+        setRecordingName('');
+        refresh();
+      }
+    )
   }
 
   /**
    * handle play once after recording
    */
-  const handlePlayOnce = async () => {
-    try {
-      await previewLast({ speed: playSettings.speed });
-      refresh();
-    } catch (e) {
-      console.error('Failed to play once:', e);
-    }
+  const handlePlayOnce = () => {
+    executeAction('playOnce', 
+      () => previewLast({ speed: playSettings.speed }), 
+      refresh
+    )
   }
 
   /**
    * handle discard recording
    */
-  const handleDiscardRecording = async () => {
-    try {
-      await discardLast();
-      setRecordingName('');
-      refresh();
-    } catch (e) {
-      console.error('Failed to discard recording:', e);
-    }
+  const handleDiscardRecording = () => {
+    executeAction('discard', 
+      () => discardLast(), 
+      () => {
+        setRecordingName('');
+        refresh();
+      }
+    )
   }
 
   /**
@@ -151,8 +151,10 @@ export default function App(){
    */
   const handlePlay = () => {
     if (selected && selected.length > 0) {
-      // Backend will handle file shuffling and tracking
-      play(selected, playSettings).then(refresh);
+      executeAction('play', 
+        () => play(selected, playSettings), 
+        refresh
+      );
     }
   }
 
@@ -160,11 +162,7 @@ export default function App(){
    * stop playing
    */
   const handleStop = () => {
-    try {
-      stop().then(refresh)
-    } catch (e) {
-      console.error('Failed to stop: ', e)
-    }
+    executeAction('stop', () => stop(), refresh)
   }
 
   const handlePlaySetting = () => {
@@ -183,7 +181,7 @@ export default function App(){
   }
 
 
-  const canPlay = selected.length > 0 && !isRecording && !isPostRecording && !isPlaying
+  const canPlay = selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play')
 
   return (
     <div className="h-screen flex flex-col relative">
@@ -254,6 +252,7 @@ export default function App(){
             onPlayOnce={handlePlayOnce}
             onDiscard={handleDiscardRecording}
             recordingName={recordingName}
+            isPending={isPending}
           />
         </div>
 

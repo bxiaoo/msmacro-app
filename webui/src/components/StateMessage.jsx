@@ -12,30 +12,36 @@ export function StateMessage({
   const [recordedTime, setRecordedTime] = useState('00:00:00')
 
   useEffect(() => {
+    // Reset timers when states change
+    if (!isPlaying && !isRecording) {
+      setPlayingTime('00:00:00');
+      setRecordedTime('00:00:00');
+      return;
+    }
+
     if (!startTime) return;
     
-    const interval = setInterval(() => {
+    // Update immediately to avoid delay
+    const updateTime = () => {
       const elapsed = Date.now() - startTime;
+      const hours = Math.floor(elapsed / 3600000);
+      const minutes = Math.floor((elapsed % 3600000) / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      
+      const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
       
       if (isPlaying) {
-        // Count playing time up (elapsed time)
-        const hours = Math.floor(elapsed / 3600000);
-        const minutes = Math.floor((elapsed % 3600000) / 60000);
-        const seconds = Math.floor((elapsed % 60000) / 1000);
-        
-        setPlayingTime(
-          `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-        );
+        setPlayingTime(timeString);
       } else if (isRecording) {
-        const hours = Math.floor(elapsed / 3600000);
-        const minutes = Math.floor((elapsed % 3600000) / 60000);
-        const seconds = Math.floor((elapsed % 60000) / 1000);
-        
-        setRecordedTime(
-          `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-        );
+        setRecordedTime(timeString);
       }
-    }, 1000);
+    };
+
+    // Update immediately
+    updateTime();
+    
+    // Then set interval for continuous updates
+    const interval = setInterval(updateTime, 1000);
 
     return () => clearInterval(interval);
   }, [startTime, isPlaying, isRecording]);
