@@ -27,11 +27,11 @@ export default function App(){
   const [isDesktop, setIsDesktop] = useState(false)
   const [playSettings, setPlaySettings] = useState({ 
     speed: 1, 
-    jitter_time: 0.2, 
-    jitter_hold: 0.045, 
+    jitter_time: 0.5, 
+    jitter_hold: 0.5, 
     loop: 15,
-    ignore_keys: ['', '', ''], // Up to 3 keys that can be ignored
-    ignore_tolerance: 0.1 // How often keys should be ignored (0-1, where 0.1 = 10%)
+    ignore_keys: ['s', '', ''], // Up to 3 keys that can be ignored
+    ignore_tolerance: 0.15 // How often keys should be ignored (0-1, where 0.1 = 10%)
   })
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
