@@ -18,13 +18,13 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
   };
 
   return (
-    <div className="bg-white relative rounded-tl-[8px] rounded-tr-[8px] shrink-0 w-full" data-name="setting">
-      <div className="relative size-full">
-        <div className="flex flex-col gap-6 px-6 py-6 w-full">
-          <h2 className="text-lg font-semibold text-foreground">
+    <div className="bg-white relative rounded-tl-[8px] rounded-tr-[8px] shrink-0 w-full flex flex-col border border-gray-200" data-name="setting">
+      <div className="relative flex-1 min-h-0">
+        <div className="flex flex-col gap-4 px-4 w-full h-full max-h-[60vh] min-h-[240px] overflow-y-auto">
+          <h2 className="text-lg font-semibold pt-4 z-20 text-foreground sticky top-0 bg-white pb-2 border-b border-gray-100">
             Play Settings
           </h2>
-          <div className="space-y-4 w-full">
+          <div className="space-y-4 w-full pb-4">
             <NumberInput
               label="Speed"
               value={settings.speed}
@@ -33,7 +33,7 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
               min={1}
               className="w-48"
             />
-            <div className="grid grid-cols-2 gap-4 w-full">
+            <div className="flex gap-4 w-full">
               <NumberInput
                 label="Jitter time"
                 value={settings.jitter_time}
@@ -59,7 +59,7 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
             />
             
             {/* Randomization Settings */}
-            <div className="space-y-4 pt-4 border-t border-gray-200">
+            <div className="space-y-3 pt-3 border-t border-gray-200">
               <h3 className="text-md font-medium text-foreground">
                 Keystroke Randomization
               </h3>
@@ -74,24 +74,23 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
                 className="w-48"
               />
               
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">
                   Keys to Ignore (up to 3)
                 </label>
-                <div className="flex gap-1">
+                <div className="flex gap-2">
                   {[0, 1, 2].map((index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <Input
-                        placeholder="e.g., 'a', 'space', 'ctrl'"
-                        value={(settings.ignore_keys || ['', '', ''])[index]}
-                        onChange={(e) => updateIgnoreKey(index, e.target.value)}
-                        className="w-full bg-gray-100"
-                      />
-                    </div>
+                    <Input
+                      key={index}
+                      placeholder={`Key ${index + 1}`}
+                      value={(settings.ignore_keys || ['', '', ''])[index]}
+                      onChange={(e) => updateIgnoreKey(index, e.target.value)}
+                      className="w-full bg-gray-100 text-sm"
+                    />
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Enter key names like 'a', 'space', 'enter', 'ctrl', 'shift', etc.
+                <p className="text-xs text-muted-foreground leading-tight">
+                  Examples: 'a', 'space', 'enter', 'ctrl', 'shift'
                 </p>
               </div>
             </div>

@@ -220,21 +220,21 @@ export default function App(){
 
         {/* Post-recording modal - appears above action buttons */}
         {isPostRecording && (
-          <PostRecordingModal
-            isOpen={isPostRecording}
-            name={recordingName}
-            onNameChange={setRecordingName}
-          />
+            <PostRecordingModal
+              isOpen={isPostRecording}
+              name={recordingName}
+              onNameChange={setRecordingName}
+            />
         )}
 
         {/* Settings modal - appears above action buttons */}
         {isSettingsModalOpen && !isPlaying && (
-          <PlaySettingsModal
-            isOpen={isSettingsModalOpen}
-            onClose={() => setIsSettingsModalOpen(false)}
-            settings={playSettings}
-            onSettingsChange={setPlaySettings}
-          />
+            <PlaySettingsModal
+              isOpen={isSettingsModalOpen}
+              onClose={() => setIsSettingsModalOpen(false)}
+              settings={playSettings}
+              onSettingsChange={setPlaySettings}
+            />
         )}
 
         {/* State message */}
