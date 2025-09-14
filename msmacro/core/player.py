@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from ..io.hidio import HIDWriter
-from ..utils.keymap import HID_USAGE, NAME_TO_ECODE, usage_from_ecode
-from evdev import ecodes
 
 from .humanJitter import HumanJitter
 
@@ -33,41 +31,50 @@ class Player:
             return set()
         
         ignore_usages = set()
+        
+        # Direct key name to HID usage mapping for common keys
+        key_to_usage = {
+            # Letters (HID usage 4-29)
+            'A': 4, 'B': 5, 'C': 6, 'D': 7, 'E': 8, 'F': 9, 'G': 10, 'H': 11, 'I': 12, 'J': 13,
+            'K': 14, 'L': 15, 'M': 16, 'N': 17, 'O': 18, 'P': 19, 'Q': 20, 'R': 21, 'S': 22,
+            'T': 23, 'U': 24, 'V': 25, 'W': 26, 'X': 27, 'Y': 28, 'Z': 29,
+            
+            # Numbers (HID usage 30-39)
+            '1': 30, '2': 31, '3': 32, '4': 33, '5': 34, '6': 35, '7': 36, '8': 37, '9': 38, '0': 39,
+            
+            # Special keys
+            'ENTER': 40, 'RETURN': 40,
+            'ESCAPE': 41, 'ESC': 41,
+            'BACKSPACE': 42,
+            'TAB': 43,
+            'SPACE': 44,
+            'MINUS': 45, '-': 45,
+            'EQUAL': 46, '=': 46,
+            
+            # Function keys
+            'F1': 58, 'F2': 59, 'F3': 60, 'F4': 61, 'F5': 62, 'F6': 63,
+            'F7': 64, 'F8': 65, 'F9': 66, 'F10': 67, 'F11': 68, 'F12': 69,
+            
+            # Navigation
+            'RIGHT': 79, 'LEFT': 80, 'DOWN': 81, 'UP': 82,
+            'INSERT': 73, 'HOME': 74, 'PAGEUP': 75, 'DELETE': 76, 'END': 77, 'PAGEDOWN': 78,
+            
+            # Modifiers (HID usage 224-231)
+            'CTRL': 224, 'LCTRL': 224, 'RCTRL': 228,
+            'SHIFT': 225, 'LSHIFT': 225, 'RSHIFT': 229,
+            'ALT': 226, 'LALT': 226, 'RALT': 230,
+            'SUPER': 227, 'LSUPER': 227, 'RSUPER': 231, 'CMD': 227, 'WIN': 227,
+        }
+        
         for key_name in ignore_keys:
             if not key_name or not key_name.strip():
                 continue
                 
-            key_name = key_name.strip().upper()
+            key_name_upper = key_name.strip().upper()
             
-            # Try direct lookup in NAME_TO_ECODE first
-            if key_name in NAME_TO_ECODE:
-                ecode = NAME_TO_ECODE[key_name]
-                usage = usage_from_ecode(ecode)
-                if usage:
-                    ignore_usages.add(usage)
-                continue
-            
-            # Try common lowercase aliases
-            common_mappings = {
-                'SPACE': ecodes.KEY_SPACE,
-                'ENTER': ecodes.KEY_ENTER,
-                'RETURN': ecodes.KEY_ENTER,
-                'TAB': ecodes.KEY_TAB,
-                'ESCAPE': ecodes.KEY_ESC,
-                'ESC': ecodes.KEY_ESC,
-                'BACKSPACE': ecodes.KEY_BACKSPACE,
-                'DELETE': ecodes.KEY_DELETE,
-                'UP': ecodes.KEY_UP,
-                'DOWN': ecodes.KEY_DOWN,
-                'LEFT': ecodes.KEY_LEFT,
-                'RIGHT': ecodes.KEY_RIGHT,
-            }
-            
-            if key_name in common_mappings:
-                ecode = common_mappings[key_name]
-                usage = usage_from_ecode(ecode)
-                if usage:
-                    ignore_usages.add(usage)
+            if key_name_upper in key_to_usage:
+                usage = key_to_usage[key_name_upper]
+                ignore_usages.add(usage)
         
         return ignore_usages
 
@@ -262,15 +269,23 @@ class Player:
         # 2) Apply keystroke ignore randomization
         ignore_usages = self._parse_ignore_keys(ignore_keys)
         if ignore_usages and ignore_tolerance > 0:
+            original_count = len(scaled)
             filtered_scaled = []
+            ignored_count = 0
             for a in scaled:
                 usage = a["usage"]
                 # Apply ignore randomization if this key is in the ignore list
                 if usage in ignore_usages and random.random() < ignore_tolerance:
                     # Skip this keystroke (ignore it)
+                    ignored_count += 1
                     continue
                 filtered_scaled.append(a)
             scaled = filtered_scaled
+            print(f"🎲 Keystroke randomization: ignored {ignored_count}/{original_count} actions")
+            print(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
+        elif ignore_keys or ignore_tolerance > 0:
+            print(f"🎲 Keystroke randomization: no filtering applied")
+            print(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
 
         # 3) Jitter per keystroke (independent), with same-key gap enforcement
         #    - press jitter anchor: time since previous press of the same key; if none, 40ms anchor
