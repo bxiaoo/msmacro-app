@@ -97,6 +97,8 @@ async function API(path, opts = {}) {
       jitter_time: opts.jitter_time || 0.0,
       jitter_hold: opts.jitter_hold || 0.0,
       loop: opts.loop || 1,
+      ignore_keys: opts.ignore_keys || [],
+      ignore_tolerance: opts.ignore_tolerance || 0.0,
     };
     
     return API("/api/play", {
