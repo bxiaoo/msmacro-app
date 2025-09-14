@@ -22,7 +22,7 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
       <div className="relative flex-1 min-h-0">
         <div className="flex flex-col gap-4 px-4 w-full h-full max-h-[60vh] min-h-[240px] overflow-y-auto">
           <h2 className="text-lg font-semibold pt-4 z-20 text-foreground sticky top-0 bg-white pb-2 border-b border-gray-100">
-            Play Settings
+            Rotation Settings
           </h2>
           <div className="space-y-4 w-full pb-4">
             <NumberInput

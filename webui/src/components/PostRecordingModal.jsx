@@ -10,7 +10,7 @@ export function PostRecordingModal({
       <div className="relative size-full">
         <div className="box-border content-stretch flex flex-col gap-4 items-start justify-start pb-2 pt-6 px-4 relative w-full">
           <div className="font-['Roboto:Bold',_sans-serif] font-bold leading-[0] relative shrink-0 text-[18px] text-gray-900 w-full" style={{ fontVariationSettings: "'wdth' 100" }}>
-            <p className="leading-[normal]">Rotation setting</p>
+            <p className="leading-[normal]">Post record</p>
           </div>
           
           {/* Input Section */}
