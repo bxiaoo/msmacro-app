@@ -1,4 +1,5 @@
 import { NumberInput } from "./ui/number-input";
+import { Input } from "./ui/input";
 
 export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange }) {
   if (!isOpen) return null;
@@ -8,6 +9,12 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
       ...settings,
       [key]: value
     });
+  };
+
+  const updateIgnoreKey = (index, value) => {
+    const newIgnoreKeys = [...(settings.ignore_keys || ['', '', ''])];
+    newIgnoreKeys[index] = value;
+    updateSetting('ignore_keys', newIgnoreKeys);
   };
 
   return (
@@ -50,6 +57,44 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
               min={1}
               className="w-48"
             />
+            
+            {/* Randomization Settings */}
+            <div className="space-y-4 pt-4 border-t border-gray-200">
+              <h3 className="text-md font-medium text-foreground">
+                Keystroke Randomization
+              </h3>
+              
+              <NumberInput
+                label="Ignore Tolerance"
+                value={settings.ignore_tolerance || 0.1}
+                onChange={(value) => updateSetting('ignore_tolerance', value)}
+                step={0.05}
+                min={0}
+                max={1}
+                className="w-48"
+              />
+              
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-foreground">
+                  Keys to Ignore (up to 3)
+                </label>
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Input
+                        placeholder="e.g., 'a', 'space', 'ctrl'"
+                        value={(settings.ignore_keys || ['', '', ''])[index]}
+                        onChange={(e) => updateIgnoreKey(index, e.target.value)}
+                        className="w-full bg-gray-100"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Enter key names like 'a', 'space', 'enter', 'ctrl', 'shift', etc.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

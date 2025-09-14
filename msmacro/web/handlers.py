@@ -136,7 +136,9 @@ async def api_post_preview(request: web.Request):
         resp = await _daemon("preview_last",
                             speed=float(body.get("speed", 1.0)),
                             jitter_time=float(body.get("jitter_time", 0.0)),
-                            jitter_hold=float(body.get("jitter_hold", 0.0)))
+                            jitter_hold=float(body.get("jitter_hold", 0.0)),
+                            ignore_keys=body.get("ignore_keys", []),
+                            ignore_tolerance=float(body.get("ignore_tolerance", 0.0)))
         return _json(resp)
     except Exception as e:
         return _json({"error": str(e)}, 500)
@@ -162,6 +164,8 @@ async def api_play(request: web.Request):
     jitter_time = float(body.get("jitter_time", 0.0))
     jitter_hold = float(body.get("jitter_hold", 0.0))
     loop = int(body.get("loop", 1))
+    ignore_keys = body.get("ignore_keys", [])
+    ignore_tolerance = float(body.get("ignore_tolerance", 0.0))
 
     # Handle playlist (multiple files)
     if "names" in body:
@@ -176,6 +180,8 @@ async def api_play(request: web.Request):
                 jitter_time=jitter_time,
                 jitter_hold=jitter_hold,
                 loop=loop,
+                ignore_keys=ignore_keys,
+                ignore_tolerance=ignore_tolerance,
             )
             return _json(resp)
         except Exception as e:
@@ -191,7 +197,9 @@ async def api_play(request: web.Request):
                            speed=speed, 
                            jitter_time=jitter_time, 
                            jitter_hold=jitter_hold, 
-                           loop=loop)
+                           loop=loop,
+                           ignore_keys=ignore_keys,
+                           ignore_tolerance=ignore_tolerance)
         return _json(resp)
     except Exception as e:
         return _json({"error": str(e)}, 500)

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from ..io.hidio import HIDWriter
+from ..utils.keymap import HID_USAGE, NAME_TO_ECODE, usage_from_ecode
+from evdev import ecodes
 
 from .humanJitter import HumanJitter
 
@@ -23,6 +25,51 @@ class Player:
 
     def __init__(self, hidg_path: Union[str, Path]) -> None:
         self.w = HIDWriter(hidg_path)
+
+    @staticmethod
+    def _parse_ignore_keys(ignore_keys: Optional[List[str]]) -> set[int]:
+        """Convert user-friendly key names to HID usage IDs for ignoring."""
+        if not ignore_keys:
+            return set()
+        
+        ignore_usages = set()
+        for key_name in ignore_keys:
+            if not key_name or not key_name.strip():
+                continue
+                
+            key_name = key_name.strip().upper()
+            
+            # Try direct lookup in NAME_TO_ECODE first
+            if key_name in NAME_TO_ECODE:
+                ecode = NAME_TO_ECODE[key_name]
+                usage = usage_from_ecode(ecode)
+                if usage:
+                    ignore_usages.add(usage)
+                continue
+            
+            # Try common lowercase aliases
+            common_mappings = {
+                'SPACE': ecodes.KEY_SPACE,
+                'ENTER': ecodes.KEY_ENTER,
+                'RETURN': ecodes.KEY_ENTER,
+                'TAB': ecodes.KEY_TAB,
+                'ESCAPE': ecodes.KEY_ESC,
+                'ESC': ecodes.KEY_ESC,
+                'BACKSPACE': ecodes.KEY_BACKSPACE,
+                'DELETE': ecodes.KEY_DELETE,
+                'UP': ecodes.KEY_UP,
+                'DOWN': ecodes.KEY_DOWN,
+                'LEFT': ecodes.KEY_LEFT,
+                'RIGHT': ecodes.KEY_RIGHT,
+            }
+            
+            if key_name in common_mappings:
+                ecode = common_mappings[key_name]
+                usage = usage_from_ecode(ecode)
+                if usage:
+                    ignore_usages.add(usage)
+        
+        return ignore_usages
 
     # ---------------- utils ----------------
     @staticmethod
@@ -155,6 +202,8 @@ class Player:
         min_repeat_same_key_s: float = 0.010,  # Reduced to 10ms minimum
         loop: int = 1,
         stop_event: Optional[asyncio.Event] = None,
+        ignore_keys: Optional[List[str]] = None,
+        ignore_tolerance: float = 0.0,
     ) -> bool:
         """
         Returns True if playback completed fully; False if interrupted.
@@ -210,7 +259,20 @@ class Player:
             "dur":     max(0.0, float(a.get("dur",   0.0)) * inv_speed),
         } for a in abs_actions]
 
-        # 2) Jitter per keystroke (independent), with same-key gap enforcement
+        # 2) Apply keystroke ignore randomization
+        ignore_usages = self._parse_ignore_keys(ignore_keys)
+        if ignore_usages and ignore_tolerance > 0:
+            filtered_scaled = []
+            for a in scaled:
+                usage = a["usage"]
+                # Apply ignore randomization if this key is in the ignore list
+                if usage in ignore_usages and random.random() < ignore_tolerance:
+                    # Skip this keystroke (ignore it)
+                    continue
+                filtered_scaled.append(a)
+            scaled = filtered_scaled
+
+        # 3) Jitter per keystroke (independent), with same-key gap enforcement
         #    - press jitter anchor: time since previous press of the same key; if none, 40ms anchor
         #    - hold jitter anchor: the action's own duration
         last_press_of_key: Dict[int, float] = {}
@@ -309,6 +371,8 @@ class Player:
         min_hold_s: float = 0.001,
         min_repeat_same_key_s: float = 0.010,
         stop_event: Optional[asyncio.Event] = None,
+        ignore_keys: Optional[List[str]] = None,
+        ignore_tolerance: float = 0.0,
     ) -> bool:
         """
         Randomly pick ONE recording from 'selections' per loop and play it.
@@ -347,6 +411,8 @@ class Player:
                 min_repeat_same_key_s=min_repeat_same_key_s,
                 loop=1,
                 stop_event=stop_event,
+                ignore_keys=ignore_keys,
+                ignore_tolerance=ignore_tolerance,
             )
             if not ok:
                 return False

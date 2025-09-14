@@ -25,7 +25,14 @@ export default function App(){
   const [isDebugWindowOpen, setIsDebugWindowOpen] = useState(false)
   const [debugLogs, setDebugLogs] = useState([])
   const [isDesktop, setIsDesktop] = useState(false)
-  const [playSettings, setPlaySettings] = useState({ speed: 1, jitter_time: 0.2, jitter_hold: 0.045, loop: 15 })
+  const [playSettings, setPlaySettings] = useState({ 
+    speed: 1, 
+    jitter_time: 0.2, 
+    jitter_hold: 0.045, 
+    loop: 15,
+    ignore_keys: ['', '', ''], // Up to 3 keys that can be ignored
+    ignore_tolerance: 0.1 // How often keys should be ignored (0-1, where 0.1 = 10%)
+  })
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
   const [recordingName, setRecordingName] = useState('')

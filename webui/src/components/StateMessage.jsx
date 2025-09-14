@@ -63,7 +63,7 @@ export function StateMessage({
               </p>
             </div>
             <div className="font-['Roboto:Medium',_sans-serif] font-medium relative shrink-0 text-[14px] text-emerald-700" style={{ fontVariationSettings: "'wdth' 100" }}>
-              <p className="leading-[normal] text-nowrap whitespace-pre">Playing time: {playingTime}</p>
+              <p className="leading-[normal] text-nowrap whitespace-pre">Rotating time: {playingTime}</p>
             </div>
           </div>
         </div>}

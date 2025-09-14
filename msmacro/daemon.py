@@ -608,7 +608,7 @@ class MacroDaemon:
         emit("MODE", mode=self.mode)
         await self._ensure_runner_started()
 
-    async def _preview_last_once(self, *, speed=1.0, jt=0.0, jh=0.0):
+    async def _preview_last_once(self, *, speed=1.0, jt=0.0, jh=0.0, ignore_keys=None, ignore_tolerance=0.0):
         """Play last actions once but return to POSTRECORD."""
         if not self._last_actions:
             log.warning("preview_last_once: no last actions")
@@ -622,7 +622,7 @@ class MacroDaemon:
 
         await self._stop_post_hotkeys()
         try:
-            await self._do_play(str(tmp), speed=speed, jt=jt, jh=jh, loop=1, restore_mode="POSTRECORD")
+            await self._do_play(str(tmp), speed=speed, jt=jt, jh=jh, loop=1, restore_mode="POSTRECORD", ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance)
         finally:
             # Always clean the temp file; also remove any legacy stray root file.
             with contextlib.suppress(Exception):
@@ -636,7 +636,7 @@ class MacroDaemon:
 
     # ---------- playback ----------
 
-    async def _do_play(self, path: str, *, speed=1.0, jt=0.0, jh=0.0, loop=1, restore_mode="BRIDGE"):
+    async def _do_play(self, path: str, *, speed=1.0, jt=0.0, jh=0.0, loop=1, restore_mode="BRIDGE", ignore_keys=None, ignore_tolerance=0.0):
         log.info("Playback starting: path=%s speed=%.3f jt=%.3f jh=%.3f loop=%s",
                  path, speed, jt, jh, loop)
 
@@ -661,6 +661,7 @@ class MacroDaemon:
                 min_hold_s=getattr(SETTINGS, "min_hold_s", 0.083),
                 min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.134),
                 loop=loop, stop_event=self._stop_event,
+                ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance,
             )
             log.info("Playback finished: ok=%s", ok)
         except asyncio.CancelledError:
@@ -680,7 +681,7 @@ class MacroDaemon:
             if self.mode == "POSTRECORD":
                 await self._start_post_hotkeys()
 
-    async def _do_play_selection(self, paths: List[str], *, speed=1.0, jt=0.0, jh=0.0, loop=1):
+    async def _do_play_selection(self, paths: List[str], *, speed=1.0, jt=0.0, jh=0.0, loop=1, ignore_keys=None, ignore_tolerance=0.0):
         """Play multiple recordings in random order."""
         log.info("Playlist starting: n=%d speed=%.3f jt=%.3f jh=%.3f loop=%s",
                  len(paths), speed, jt, jh, loop)
@@ -715,6 +716,7 @@ class MacroDaemon:
                         min_hold_s=getattr(SETTINGS, "min_hold_s", 0.010),
                         min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.050),
                         loop=1, stop_event=self._stop_event,
+                        ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance,
                     )
                     
                     emit("PLAY_FILE_END", file=str(p))
@@ -784,6 +786,8 @@ class MacroDaemon:
                     "jt": float(msg.get("jitter_time", 0.0)),
                     "jh": float(msg.get("jitter_hold", 0.0)),
                     "loop": int(msg.get("loop", 1)),
+                    "ignore_keys": msg.get("ignore_keys", []),
+                    "ignore_tolerance": float(msg.get("ignore_tolerance", 0.0)),
                 }
                 # asyncio.create_task(self._do_play(str(p), **kwargs))
                 self._play_task = asyncio.create_task(self._do_play(str(p), **kwargs))
@@ -805,6 +809,8 @@ class MacroDaemon:
                     "jt": float(msg.get("jitter_time", 0.0)),
                     "jh": float(msg.get("jitter_hold", 0.0)),
                     "loop": int(msg.get("loop", 1)),
+                    "ignore_keys": msg.get("ignore_keys", []),
+                    "ignore_tolerance": float(msg.get("ignore_tolerance", 0.0)),
                 }
                 self._play_task = asyncio.create_task(self._do_play_selection(paths, **kwargs))
                 return {"playlist": paths, **kwargs}
@@ -813,7 +819,9 @@ class MacroDaemon:
                 speed = float(msg.get("speed", 1.0))
                 jt = float(msg.get("jitter_time", 0.0))
                 jh = float(msg.get("jitter_hold", 0.0))
-                await self._preview_last_once(speed=speed, jt=jt, jh=jh)
+                ignore_keys = msg.get("ignore_keys", [])
+                ignore_tolerance = float(msg.get("ignore_tolerance", 0.0))
+                await self._preview_last_once(speed=speed, jt=jt, jh=jh, ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance)
                 return {"previewed": True}
 
             if cmd == "stop":
