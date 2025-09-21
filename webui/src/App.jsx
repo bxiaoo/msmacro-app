@@ -36,6 +36,7 @@ export default function App(){
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
   const [recordingName, setRecordingName] = useState('')
+  const [wakeLock, setWakeLock] = useState(null)
 
   // Keep mode fresh (and anything else status provides that Controls/Banner need)
   const refresh = () => getStatus().then(st => {
@@ -81,6 +82,44 @@ export default function App(){
     const t = setInterval(refresh, 2000)
     return () => clearInterval(t)
   }, [])
+
+  // Wake lock management for RECORDING mode
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          const lock = await navigator.wakeLock.request('screen')
+          setWakeLock(lock)
+          console.log('Wake lock acquired during recording')
+        }
+      } catch (err) {
+        console.error('Failed to acquire wake lock:', err)
+      }
+    }
+
+    const releaseWakeLock = async () => {
+      if (wakeLock) {
+        try {
+          await wakeLock.release()
+          setWakeLock(null)
+          console.log('Wake lock released')
+        } catch (err) {
+          console.error('Failed to release wake lock:', err)
+        }
+      }
+    }
+
+    if (mode === 'RECORDING') {
+      requestWakeLock()
+    } else {
+      releaseWakeLock()
+    }
+
+    // Cleanup function to release wake lock on unmount
+    return () => {
+      releaseWakeLock()
+    }
+  }, [mode, wakeLock])
 
   // Bridge selection coming from FileBrowser → Controls
   useEffect(() => {
