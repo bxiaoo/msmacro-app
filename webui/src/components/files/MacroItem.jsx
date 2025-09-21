@@ -2,7 +2,7 @@ import * as React from 'react'
 import {FileEdit, FolderEdit, Trash2, ChevronDown, Check} from 'lucide-react'
 import { ActionButton } from '../ui/action-button';
 
-function Checkbox({ checked, indeterminate, onChange }) {
+const Checkbox = React.memo(function Checkbox({ checked, indeterminate, onChange }) {
   return (
     <button 
       onClick={() => onChange?.(!checked)}
@@ -23,9 +23,9 @@ function Checkbox({ checked, indeterminate, onChange }) {
       </div>
     </button>
   );
-}
+})
 
-function FolderName({ name, isExpanded, onToggle }) {
+const FolderName = React.memo(function FolderName({ name, isExpanded, onToggle }) {
   return (
     <button 
       onClick={onToggle}
@@ -41,9 +41,9 @@ function FolderName({ name, isExpanded, onToggle }) {
       </div>
     </button>
   );
-}
+})
 
-function FileName({ name }) {
+const FileName = React.memo(function FileName({ name }) {
   return (
     <div className="basis-0 content-stretch flex gap-2.5 grow items-center justify-start min-h-px min-w-px relative shrink-0">
       <div className="font-['Roboto:Regular',_sans-serif] font-normal leading-[0] relative shrink-0 text-[16px] text-gray-900 text-nowrap" style={{ fontVariationSettings: "'wdth' 100" }}>
@@ -51,9 +51,9 @@ function FileName({ name }) {
       </div>
     </div>
   );
-}
+})
 
-export function MacroItem({ 
+export const MacroItem = React.memo(function MacroItem({ 
   name, 
   type = 'file',
   checked, 
@@ -88,4 +88,4 @@ export function MacroItem({
       </div>
     </div>
   );
-}
+})

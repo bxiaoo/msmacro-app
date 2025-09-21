@@ -17,7 +17,11 @@ export function MacroList(){
       const st = await getStatus()
       const items = Array.isArray(st?.tree) ? st.tree : []
       const t = buildTree(items)
-      setTree(t)
+      setTree(prevTree => {
+        // Only update if tree actually changed
+        if (JSON.stringify(prevTree) === JSON.stringify(t)) return prevTree
+        return t
+      })
       // prune selection to only existing files after refresh
       const all = new Set(flattenFiles(t).map(f=>f.rel))
       setSelected(prev => prev.filter(r => all.has(r)))
@@ -41,8 +45,7 @@ export function MacroList(){
   }
 
   // Handle folder selection - selects all files directly in folder (not subfolders)
-  const toggleFolderFiles = (folderRel)=>{
-    const allFiles = flattenFiles(tree)
+  const toggleFolderFiles = React.useCallback((folderRel)=>{
     // Get only files directly in this folder (not in subfolders)
     const folderFiles = allFiles.filter(f => {
       const filePath = f.rel
@@ -63,11 +66,13 @@ export function MacroList(){
     }
     
     setSelected(Array.from(s))
-  }
+  }, [allFiles, selected])
 
+  // Memoize flattened files for performance
+  const allFiles = React.useMemo(() => flattenFiles(tree), [tree])
+  
   // Calculate folder checkbox state
-  const getFolderCheckboxState = (folderRel) => {
-    const allFiles = flattenFiles(tree)
+  const getFolderCheckboxState = React.useCallback((folderRel) => {
     // Get only files directly in this folder (not in subfolders)
     const folderFiles = allFiles.filter(f => {
       const filePath = f.rel
@@ -83,7 +88,7 @@ export function MacroList(){
     if (selectedCount === 0) return { checked: false, indeterminate: false }
     if (selectedCount === folderFileRels.length) return { checked: true, indeterminate: false }
     return { checked: false, indeterminate: true }
-  }
+  }, [allFiles, selected])
 
   // ----- Actions (unchanged) -----
   const doRenameFile = async (file)=>{

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import EventsPanel from './components/EventsPanel.jsx'
@@ -36,13 +36,16 @@ export default function App(){
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
   const [recordingName, setRecordingName] = useState('')
-  const [wakeLock, setWakeLock] = useState(null)
-  const [noSleepVideo, setNoSleepVideo] = useState(null)
 
   // Keep mode fresh (and anything else status provides that Controls/Banner need)
-  const refresh = () => getStatus().then(st => {
-    setMode(st.mode)
-    if (st.mode === 'PLAYING') {
+  const refresh = useCallback(() => getStatus().then(st => {
+    const newMode = st.mode
+    setMode(prevMode => {
+      if (prevMode === newMode) return prevMode // Prevent unnecessary re-renders
+      return newMode
+    })
+    
+    if (newMode === 'PLAYING') {
       setIsPostRecording(false)
       setIsRecording(false)
       setIsPlaying(true)
@@ -54,13 +57,13 @@ export default function App(){
         const fileName = st.current_playing_file.split('/').pop().replace('.json', '');
         setPlayingMacroName(fileName);
       }
-    } else if (st.mode === 'POSTRECORD') {
+    } else if (newMode === 'POSTRECORD') {
       setIsPlaying(false)
       setIsRecording(false)
       setIsPostRecording(true)
       setPlayingStartTime(undefined)
       setRecordingStartTime(undefined)
-    } else if (st.mode === 'RECORDING') {
+    } else if (newMode === 'RECORDING') {
       setIsPlaying(false)
       setIsPostRecording(false)
       setIsRecording(true)
@@ -76,7 +79,7 @@ export default function App(){
       setRecordingStartTime(undefined)
       setPlayingMacroName('')
     }
-  }).catch(() => {})
+  }).catch(() => {}), [playingStartTime, recordingStartTime])
 
   useEffect(() => {
     refresh()
@@ -84,99 +87,6 @@ export default function App(){
     return () => clearInterval(t)
   }, [])
 
-  // Initialize NoSleep video element
-  useEffect(() => {
-    const createNoSleepVideo = () => {
-      const video = document.createElement('video')
-      
-      // WebM video data for a 1-second silent video
-      const webmData = 'data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHTEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHGTbuMU6uEElTDZ1OsggEXTbuMU6uEHFO7a1OsggG97AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmoCrXsYMPQkBNgIRMYXZmV0GETGF2ZkSJiEBEAAAAAAAAFlSua8yuAQAAAAAAAEPXgQFzxYgAAAAAAAAAAZyBACK1nIN1bmSIgQCGhVZfVlA5g4EBI+ODhAJiWgDglLCBArqBApqBAlPAgQFVsIRVuYEBElTDZ9Vzc9JjwItjxYgAAAAAAAAAAWfInweWjh4OEhH+jWEGH0IXBO+CDhAJAOAAAAgAApKyAP///xXW3g9DEHI7WZg6VcIE5v1lBgYXXXu9igwvX2aKYX1f0rNPU5xHKYNfJ5PTKJf3KmEBLIBAZ9Ai5QYPQg4uWI4y3bOJSgpnEuiJJCXbpWGENNW31QRAQHVBQi+'
-      
-      video.src = webmData
-      video.loop = true
-      video.muted = true
-      video.playsInline = true
-      video.style.position = 'fixed'
-      video.style.top = '-1px'
-      video.style.left = '-1px'
-      video.style.width = '1px'
-      video.style.height = '1px'
-      video.style.opacity = '0'
-      video.style.pointerEvents = 'none'
-      
-      setNoSleepVideo(video)
-    }
-
-    createNoSleepVideo()
-  }, [])
-
-  // Wake lock management for RECORDING mode
-  useEffect(() => {
-    const requestWakeLock = async () => {
-      try {
-        // Try modern Wake Lock API first (requires HTTPS)
-        if ('wakeLock' in navigator && location.protocol === 'https:') {
-          const lock = await navigator.wakeLock.request('screen')
-          setWakeLock(lock)
-          console.log('Wake lock acquired during recording')
-          return true
-        }
-      } catch (err) {
-        console.error('Failed to acquire wake lock:', err)
-      }
-      
-      // Fallback to video-based solution
-      if (noSleepVideo) {
-        try {
-          document.body.appendChild(noSleepVideo)
-          await noSleepVideo.play()
-          console.log('NoSleep video started during recording')
-          return true
-        } catch (err) {
-          console.error('Failed to start NoSleep video:', err)
-          // Video play failed, likely due to autoplay policy
-          // We'll need user interaction first
-          return false
-        }
-      }
-      return false
-    }
-
-    const releaseWakeLock = async () => {
-      // Release modern wake lock
-      if (wakeLock) {
-        try {
-          await wakeLock.release()
-          setWakeLock(null)
-          console.log('Wake lock released')
-        } catch (err) {
-          console.error('Failed to release wake lock:', err)
-        }
-      }
-      
-      // Stop video-based solution
-      if (noSleepVideo && document.body.contains(noSleepVideo)) {
-        try {
-          noSleepVideo.pause()
-          document.body.removeChild(noSleepVideo)
-          console.log('NoSleep video stopped')
-        } catch (err) {
-          console.error('Failed to stop NoSleep video:', err)
-        }
-      }
-    }
-
-    if (mode === 'RECORDING') {
-      requestWakeLock()
-    } else {
-      releaseWakeLock()
-    }
-
-    // Cleanup function to release wake lock on unmount
-    return () => {
-      releaseWakeLock()
-    }
-  }, [mode, wakeLock, noSleepVideo])
 
   // Bridge selection coming from FileBrowser → Controls
   useEffect(() => {
@@ -207,27 +117,15 @@ export default function App(){
   /**
    * start recording
    */
-  const handleRecord = () => {
-    // Enable NoSleep video on user interaction if needed
-    if (noSleepVideo && !document.body.contains(noSleepVideo)) {
-      try {
-        document.body.appendChild(noSleepVideo)
-        noSleepVideo.play().catch(() => {
-          // Video play will be attempted again when recording mode is detected
-        })
-      } catch (err) {
-        // Ignore errors here, fallback will handle it
-      }
-    }
-    
+  const handleRecord = useCallback(() => {
     executeAction('record', () => startRecord(), refresh)
-  }
+  }, [executeAction, refresh])
 
   /**
    * handle save recording
    * @param {save name} name 
    */
-  const handleSaveRecording = (name) => {
+  const handleSaveRecording = useCallback((name) => {
     if (!name?.trim()) return;
     executeAction('save', 
       () => saveLast(name.trim()), 
@@ -236,22 +134,22 @@ export default function App(){
         refresh();
       }
     )
-  }
+  }, [executeAction, refresh])
 
   /**
    * handle play once after recording
    */
-  const handlePlayOnce = () => {
+  const handlePlayOnce = useCallback(() => {
     executeAction('playOnce', 
       () => previewLast({ speed: playSettings.speed }), 
       refresh
     )
-  }
+  }, [executeAction, playSettings.speed, refresh])
 
   /**
    * handle discard recording
    */
-  const handleDiscardRecording = () => {
+  const handleDiscardRecording = useCallback(() => {
     executeAction('discard', 
       () => discardLast(), 
       () => {
@@ -259,44 +157,47 @@ export default function App(){
         refresh();
       }
     )
-  }
+  }, [executeAction, refresh])
 
   /**
    * staring playing
    */
-  const handlePlay = () => {
+  const handlePlay = useCallback(() => {
     if (selected && selected.length > 0) {
       executeAction('play', 
         () => play(selected, playSettings), 
         refresh
       );
     }
-  }
+  }, [executeAction, selected, playSettings, refresh])
 
   /**
    * stop playing
    */
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     executeAction('stop', () => stop(), refresh)
-  }
+  }, [executeAction, refresh])
 
-  const handlePlaySetting = () => {
+  const handlePlaySetting = useCallback(() => {
       setIsDebugWindowOpen(false)
       setIsSettingsModalOpen(!isSettingsModalOpen)
       console.log('play setting open')
-  }
+  }, [isSettingsModalOpen])
 
-  const handleDebug = () => {
+  const handleDebug = useCallback(() => {
     setIsDebugWindowOpen(!isDebugWindowOpen)
-  }
+  }, [isDebugWindowOpen])
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setIsSettingsModalOpen(false)
     setIsDebugWindowOpen(false)
-  }
+  }, [])
 
 
-  const canPlay = selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play')
+  const canPlay = useMemo(() => 
+    selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play'),
+    [selected.length, isRecording, isPostRecording, isPlaying, isPending]
+  )
 
   return (
     <div className="h-screen flex flex-col relative">
