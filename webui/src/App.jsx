@@ -37,6 +37,7 @@ export default function App(){
   const [selected, setSelected] = useState([]) // kept for Controls
   const [recordingName, setRecordingName] = useState('')
   const [wakeLock, setWakeLock] = useState(null)
+  const [noSleepVideo, setNoSleepVideo] = useState(null)
 
   // Keep mode fresh (and anything else status provides that Controls/Banner need)
   const refresh = () => getStatus().then(st => {
@@ -83,21 +84,66 @@ export default function App(){
     return () => clearInterval(t)
   }, [])
 
+  // Initialize NoSleep video element
+  useEffect(() => {
+    const createNoSleepVideo = () => {
+      const video = document.createElement('video')
+      
+      // WebM video data for a 1-second silent video
+      const webmData = 'data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHTEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHGTbuMU6uEElTDZ1OsggEXTbuMU6uEHFO7a1OsggG97AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmoCrXsYMPQkBNgIRMYXZmV0GETGF2ZkSJiEBEAAAAAAAAFlSua8yuAQAAAAAAAEPXgQFzxYgAAAAAAAAAAZyBACK1nIN1bmSIgQCGhVZfVlA5g4EBI+ODhAJiWgDglLCBArqBApqBAlPAgQFVsIRVuYEBElTDZ9Vzc9JjwItjxYgAAAAAAAAAAWfInweWjh4OEhH+jWEGH0IXBO+CDhAJAOAAAAgAApKyAP///xXW3g9DEHI7WZg6VcIE5v1lBgYXXXu9igwvX2aKYX1f0rNPU5xHKYNfJ5PTKJf3KmEBLIBAZ9Ai5QYPQg4uWI4y3bOJSgpnEuiJJCXbpWGENNW31QRAQHVBQi+'
+      
+      video.src = webmData
+      video.loop = true
+      video.muted = true
+      video.playsInline = true
+      video.style.position = 'fixed'
+      video.style.top = '-1px'
+      video.style.left = '-1px'
+      video.style.width = '1px'
+      video.style.height = '1px'
+      video.style.opacity = '0'
+      video.style.pointerEvents = 'none'
+      
+      setNoSleepVideo(video)
+    }
+
+    createNoSleepVideo()
+  }, [])
+
   // Wake lock management for RECORDING mode
   useEffect(() => {
     const requestWakeLock = async () => {
       try {
-        if ('wakeLock' in navigator) {
+        // Try modern Wake Lock API first (requires HTTPS)
+        if ('wakeLock' in navigator && location.protocol === 'https:') {
           const lock = await navigator.wakeLock.request('screen')
           setWakeLock(lock)
           console.log('Wake lock acquired during recording')
+          return true
         }
       } catch (err) {
         console.error('Failed to acquire wake lock:', err)
       }
+      
+      // Fallback to video-based solution
+      if (noSleepVideo) {
+        try {
+          document.body.appendChild(noSleepVideo)
+          await noSleepVideo.play()
+          console.log('NoSleep video started during recording')
+          return true
+        } catch (err) {
+          console.error('Failed to start NoSleep video:', err)
+          // Video play failed, likely due to autoplay policy
+          // We'll need user interaction first
+          return false
+        }
+      }
+      return false
     }
 
     const releaseWakeLock = async () => {
+      // Release modern wake lock
       if (wakeLock) {
         try {
           await wakeLock.release()
@@ -105,6 +151,17 @@ export default function App(){
           console.log('Wake lock released')
         } catch (err) {
           console.error('Failed to release wake lock:', err)
+        }
+      }
+      
+      // Stop video-based solution
+      if (noSleepVideo && document.body.contains(noSleepVideo)) {
+        try {
+          noSleepVideo.pause()
+          document.body.removeChild(noSleepVideo)
+          console.log('NoSleep video stopped')
+        } catch (err) {
+          console.error('Failed to stop NoSleep video:', err)
         }
       }
     }
@@ -119,7 +176,7 @@ export default function App(){
     return () => {
       releaseWakeLock()
     }
-  }, [mode, wakeLock])
+  }, [mode, wakeLock, noSleepVideo])
 
   // Bridge selection coming from FileBrowser → Controls
   useEffect(() => {
@@ -151,6 +208,18 @@ export default function App(){
    * start recording
    */
   const handleRecord = () => {
+    // Enable NoSleep video on user interaction if needed
+    if (noSleepVideo && !document.body.contains(noSleepVideo)) {
+      try {
+        document.body.appendChild(noSleepVideo)
+        noSleepVideo.play().catch(() => {
+          // Video play will be attempted again when recording mode is detected
+        })
+      } catch (err) {
+        // Ignore errors here, fallback will handle it
+      }
+    }
+    
     executeAction('record', () => startRecord(), refresh)
   }
 
