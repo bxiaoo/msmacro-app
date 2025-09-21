@@ -37,6 +37,9 @@ export function MacroList(){
     document.dispatchEvent(new CustomEvent('files:selection:set', { detail: selected }))
   }, [selected])
 
+  // Memoize flattened files for performance
+  const allFiles = React.useMemo(() => flattenFiles(tree), [tree])
+
   const toggleFile = (rel)=>{
     const s = new Set(selected)
     if(s.has(rel)) s.delete(rel); else s.add(rel)
@@ -67,9 +70,6 @@ export function MacroList(){
     
     setSelected(Array.from(s))
   }, [allFiles, selected])
-
-  // Memoize flattened files for performance
-  const allFiles = React.useMemo(() => flattenFiles(tree), [tree])
   
   // Calculate folder checkbox state
   const getFolderCheckboxState = React.useCallback((folderRel) => {

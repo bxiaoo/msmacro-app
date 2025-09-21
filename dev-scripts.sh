@@ -86,8 +86,17 @@ start_frontend() {
     FRONTEND_PID=$!
     cd ..
 
-    echo -e "${GREEN}✅ Frontend server started (PID: $FRONTEND_PID)${NC}"
-    echo $FRONTEND_PID > .frontend.pid
+    # Wait for frontend to be ready
+    sleep 3
+    
+    # Check if frontend is running
+    if curl -s "http://127.0.0.1:$FRONTEND_PORT" > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Frontend server started (PID: $FRONTEND_PID)${NC}"
+        echo $FRONTEND_PID > .frontend.pid
+    else
+        echo -e "${YELLOW}⏳ Frontend starting... (PID: $FRONTEND_PID)${NC}"
+        echo $FRONTEND_PID > .frontend.pid
+    fi
 }
 
 stop_services() {
