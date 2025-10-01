@@ -26,14 +26,34 @@ class SkillConfig:
     after_keys_seconds: float = 0.45
     frozen_rotation_during_casting: bool = False
     is_selected: bool = False
+    # Frontend-only UI state (not persisted to disk)
+    variant: str = "cd skill"
+    is_open: bool = False
+    is_enabled: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        """Convert to dictionary for JSON serialization (frontend format with camelCase)."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "keystroke": self.keystroke,
+            "cooldown": self.cooldown,
+            "afterKeyConstraints": self.after_key_constraints,
+            "key1": self.key1,
+            "key2": self.key2,
+            "key3": self.key3,
+            "afterKeysSeconds": self.after_keys_seconds,
+            "frozenRotationDuringCasting": self.frozen_rotation_during_casting,
+            "isSelected": self.is_selected,
+            # Frontend UI state
+            "variant": self.variant,
+            "isOpen": self.is_open,
+            "isEnabled": self.is_enabled,
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SkillConfig":
-        """Create SkillConfig from dictionary."""
+        """Create SkillConfig from dictionary (accepts both camelCase and snake_case)."""
         # Ensure ID exists
         if "id" not in data:
             data["id"] = str(uuid.uuid4())
@@ -42,7 +62,26 @@ class SkillConfig:
         if "cooldown_seconds" in data:
             data["cooldown"] = data.pop("cooldown_seconds")
 
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        # Convert camelCase from frontend to snake_case for dataclass
+        normalized = {}
+        for k, v in data.items():
+            # Map camelCase to snake_case
+            if k == "afterKeyConstraints":
+                normalized["after_key_constraints"] = v
+            elif k == "afterKeysSeconds":
+                normalized["after_keys_seconds"] = v
+            elif k == "frozenRotationDuringCasting":
+                normalized["frozen_rotation_during_casting"] = v
+            elif k == "isSelected":
+                normalized["is_selected"] = v
+            elif k == "isOpen":
+                normalized["is_open"] = v
+            elif k == "isEnabled":
+                normalized["is_enabled"] = v
+            else:
+                normalized[k] = v
+
+        return cls(**{k: v for k, v in normalized.items() if k in cls.__dataclass_fields__})
 
 
 class SkillManager:

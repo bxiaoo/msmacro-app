@@ -5,10 +5,9 @@ Handles skill cooldowns, trigger detection, and keystroke insertion.
 
 from __future__ import annotations
 
-import time
 import random
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
 
 from ..utils.keymap import name_to_usage
 from .skills import SkillConfig
@@ -286,14 +285,11 @@ class SkillInjector:
             self.update_skill_conditions(skill_id, pressed_keys, current_time)
 
         # Check each skill for injection
-        for skill_id, skill_state in self.skills.items():
+        for skill_id in self.skills.keys():
             if not self.can_inject_skill(skill_id, pressed_keys, current_time):
                 continue
 
             # Additional check: only inject if no other keys are pressed
-            # pressed_keys should be empty or only contain the skill's own key
-            skill_usage = self._get_usage_from_name(skill_state.config.keystroke)
-
             # Allow injection only if no keys are pressed
             if len(pressed_keys) == 0:
                 return self.cast_skill(skill_id, current_time)

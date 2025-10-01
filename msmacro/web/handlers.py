@@ -375,7 +375,9 @@ async def api_skills_list(request: web.Request):
     """List all skill configurations."""
     try:
         resp = await _daemon("list_skills")
-        return _json(resp)
+        # Extract skills array from response
+        skills = resp.get("skills", [])
+        return _json(skills)
     except Exception as e:
         return _json({"error": str(e)}, 500)
 
@@ -393,7 +395,9 @@ async def api_skills_save(request: web.Request):
 
     try:
         resp = await _daemon("save_skill", skill_data=body)
-        return _json(resp)
+        # Extract skill object from response
+        skill = resp.get("skill", {})
+        return _json(skill)
     except Exception as e:
         return _json({"error": str(e)}, 500)
 
@@ -411,7 +415,9 @@ async def api_skills_update(request: web.Request):
 
     try:
         resp = await _daemon("update_skill", skill_id=skill_id, skill_data=body)
-        return _json(resp)
+        # Extract skill object from response
+        skill = resp.get("skill", {})
+        return _json(skill)
     except Exception as e:
         return _json({"error": str(e)}, 500)
 
@@ -433,6 +439,8 @@ async def api_skills_selected(request: web.Request):
     """Get skills marked as selected for active use."""
     try:
         resp = await _daemon("get_selected_skills")
-        return _json(resp)
+        # Extract skills array from response
+        skills = resp.get("skills", [])
+        return _json(skills)
     except Exception as e:
         return _json({"error": str(e)}, 500)
