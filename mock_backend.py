@@ -27,9 +27,14 @@ class MockState:
         self.clients = set()  # SSE clients
         self.playback_task = None
         self.current_playing_file = None
+        self.skills = {}  # Mock skills storage
+        self.skill_counter = 0
 
         # Build initial tree
         self._rebuild_tree()
+
+        # Initialize with some sample skills
+        self._generate_mock_skills()
 
     def _generate_mock_files(self) -> List[Dict]:
         """Generate mock recording files."""
@@ -61,6 +66,54 @@ class MockState:
             })
 
         return files
+
+    def _generate_mock_skills(self):
+        """Generate some sample skills for testing."""
+        import uuid
+        sample_skills = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Fireball",
+                "keystroke": "f",
+                "cooldown": 15.0,
+                "after_key_constraints": False,
+                "key1": "",
+                "key2": "",
+                "key3": "",
+                "after_keys_seconds": 0.45,
+                "frozen_rotation_during_casting": False,
+                "is_selected": True
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Ice Blast",
+                "keystroke": "i",
+                "cooldown": 20.0,
+                "after_key_constraints": True,
+                "key1": "shift",
+                "key2": "ctrl",
+                "key3": "",
+                "after_keys_seconds": 0.6,
+                "frozen_rotation_during_casting": True,
+                "is_selected": False
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Lightning Strike",
+                "keystroke": "1",
+                "cooldown": 8.0,
+                "after_key_constraints": False,
+                "key1": "",
+                "key2": "",
+                "key3": "",
+                "after_keys_seconds": 0.3,
+                "frozen_rotation_during_casting": False,
+                "is_selected": True
+            }
+        ]
+
+        for skill in sample_skills:
+            self.skills[skill["id"]] = skill
 
     def _rebuild_tree(self):
         """Rebuild tree structure from files list."""
@@ -319,6 +372,15 @@ async def api_play(request: web.Request) -> web.Response:
 
     speed = body.get("speed", 1.0)
     loop = body.get("loop", 1)
+    active_skills = body.get("active_skills", [])
+
+    # Log skills for testing
+    if active_skills:
+        print(f"🎯 Playing with {len(active_skills)} active skills:")
+        for skill in active_skills:
+            print(f"   - {skill.get('name', 'Unknown')} (cooldown: {skill.get('cooldown', 0)}s)")
+    else:
+        print("🎯 Playing without skills")
 
     if mock_state.mode not in ("BRIDGE", "POSTRECORD"):
         return json_response({"error": f"Cannot play from mode {mock_state.mode}"}, 400)
@@ -616,11 +678,115 @@ def make_app() -> web.Application:
         # Folder management
         web.delete("/api/folders/{path:.*}", api_folders_delete),
 
+        # CD Skills management
+        web.get("/api/skills", api_skills_list),
+        web.post("/api/skills/save", api_skills_save),
+        web.put("/api/skills/{id}", api_skills_update),
+        web.delete("/api/skills/{id}", api_skills_delete),
+        web.get("/api/skills/selected", api_skills_selected),
+
         # Health check
         web.get("/api/ping", api_ping),
     ])
 
     return app
+
+# ============= Skills API Handlers =============
+
+async def api_skills_list(request: web.Request) -> web.Response:
+    """List all skills."""
+    skills_list = list(mock_state.skills.values())
+    return json_response(skills_list)
+
+async def api_skills_save(request: web.Request) -> web.Response:
+    """Save a new skill."""
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"error": "Invalid JSON"}, 400)
+
+    # Validate required fields
+    if not body.get("name") or not body.get("keystroke"):
+        return json_response({"error": "name and keystroke are required"}, 400)
+
+    # Generate new skill ID
+    import uuid
+    skill_id = str(uuid.uuid4())
+
+    # Create skill with defaults
+    skill = {
+        "id": skill_id,
+        "name": body.get("name"),
+        "keystroke": body.get("keystroke"),
+        "cooldown": float(body.get("cooldown", 10.0)),
+        "after_key_constraints": bool(body.get("afterKeyConstraints", False)),
+        "key1": body.get("key1", ""),
+        "key2": body.get("key2", ""),
+        "key3": body.get("key3", ""),
+        "after_keys_seconds": float(body.get("afterKeysSeconds", 0.45)),
+        "frozen_rotation_during_casting": bool(body.get("frozenRotationDuringCasting", False)),
+        "is_selected": bool(body.get("isSelected", False))
+    }
+
+    # Save skill
+    mock_state.skills[skill_id] = skill
+
+    # Broadcast update
+    await broadcast_event("skills", {"skills": list(mock_state.skills.values())})
+
+    return json_response(skill)
+
+async def api_skills_update(request: web.Request) -> web.Response:
+    """Update an existing skill."""
+    skill_id = request.match_info["id"]
+
+    if skill_id not in mock_state.skills:
+        return json_response({"error": "Skill not found"}, 404)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"error": "Invalid JSON"}, 400)
+
+    # Update skill
+    skill = mock_state.skills[skill_id].copy()
+    skill.update(body)
+
+    # Ensure boolean fields are properly converted
+    if "afterKeyConstraints" in body:
+        skill["after_key_constraints"] = bool(body["afterKeyConstraints"])
+    if "frozenRotationDuringCasting" in body:
+        skill["frozen_rotation_during_casting"] = bool(body["frozenRotationDuringCasting"])
+    if "isSelected" in body:
+        skill["is_selected"] = bool(body["isSelected"])
+    if "afterKeysSeconds" in body:
+        skill["after_keys_seconds"] = float(body["afterKeysSeconds"])
+
+    mock_state.skills[skill_id] = skill
+
+    # Broadcast update
+    await broadcast_event("skills", {"skills": list(mock_state.skills.values())})
+
+    return json_response(skill)
+
+async def api_skills_delete(request: web.Request) -> web.Response:
+    """Delete a skill."""
+    skill_id = request.match_info["id"]
+
+    if skill_id not in mock_state.skills:
+        return json_response({"error": "Skill not found"}, 404)
+
+    del mock_state.skills[skill_id]
+
+    # Broadcast update
+    await broadcast_event("skills", {"skills": list(mock_state.skills.values())})
+
+    return json_response({"success": True})
+
+async def api_skills_selected(request: web.Request) -> web.Response:
+    """Get all selected skills."""
+    selected_skills = [skill for skill in mock_state.skills.values() if skill.get("is_selected", False)]
+    return json_response(selected_skills)
 
 def main():
     """Run the mock server."""

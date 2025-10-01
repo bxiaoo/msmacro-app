@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from ..io.hidio import HIDWriter
+from ..utils.keymap import name_to_usage
 
 from .humanJitter import HumanJitter
+from .skill_injector import SkillInjector
 
 # HID usage IDs for modifier keys (Left/Right Ctrl, Shift, Alt, GUI)
 MOD_USAGES = set(range(224, 232))  # 224..231
@@ -32,48 +35,9 @@ class Player:
         
         ignore_usages = set()
         
-        # Direct key name to HID usage mapping for common keys
-        key_to_usage = {
-            # Letters (HID usage 4-29)
-            'A': 4, 'B': 5, 'C': 6, 'D': 7, 'E': 8, 'F': 9, 'G': 10, 'H': 11, 'I': 12, 'J': 13,
-            'K': 14, 'L': 15, 'M': 16, 'N': 17, 'O': 18, 'P': 19, 'Q': 20, 'R': 21, 'S': 22,
-            'T': 23, 'U': 24, 'V': 25, 'W': 26, 'X': 27, 'Y': 28, 'Z': 29,
-            
-            # Numbers (HID usage 30-39)
-            '1': 30, '2': 31, '3': 32, '4': 33, '5': 34, '6': 35, '7': 36, '8': 37, '9': 38, '0': 39,
-            
-            # Special keys
-            'ENTER': 40, 'RETURN': 40,
-            'ESCAPE': 41, 'ESC': 41,
-            'BACKSPACE': 42,
-            'TAB': 43,
-            'SPACE': 44,
-            'MINUS': 45, '-': 45,
-            'EQUAL': 46, '=': 46,
-            
-            # Function keys
-            'F1': 58, 'F2': 59, 'F3': 60, 'F4': 61, 'F5': 62, 'F6': 63,
-            'F7': 64, 'F8': 65, 'F9': 66, 'F10': 67, 'F11': 68, 'F12': 69,
-            
-            # Navigation
-            'RIGHT': 79, 'LEFT': 80, 'DOWN': 81, 'UP': 82,
-            'INSERT': 73, 'HOME': 74, 'PAGEUP': 75, 'DELETE': 76, 'END': 77, 'PAGEDOWN': 78,
-            
-            # Modifiers (HID usage 224-231)
-            'CTRL': 224, 'LCTRL': 224, 'RCTRL': 228,
-            'SHIFT': 225, 'LSHIFT': 225, 'RSHIFT': 229,
-            'ALT': 226, 'LALT': 226, 'RALT': 230,
-            'SUPER': 227, 'LSUPER': 227, 'RSUPER': 231, 'CMD': 227, 'WIN': 227,
-        }
-        
         for key_name in ignore_keys:
-            if not key_name or not key_name.strip():
-                continue
-                
-            key_name_upper = key_name.strip().upper()
-            
-            if key_name_upper in key_to_usage:
-                usage = key_to_usage[key_name_upper]
+            usage = name_to_usage(key_name)
+            if usage > 0:
                 ignore_usages.add(usage)
         
         return ignore_usages
@@ -211,6 +175,7 @@ class Player:
         stop_event: Optional[asyncio.Event] = None,
         ignore_keys: Optional[List[str]] = None,
         ignore_tolerance: float = 0.0,
+        skill_injector: Optional[SkillInjector] = None,
     ) -> bool:
         """
         Returns True if playback completed fully; False if interrupted.
@@ -356,6 +321,59 @@ class Player:
                     self.w.all_up(); return False
                 now = t
 
+                # Check for skill injection (only when no keys are pressed)
+                if skill_injector:
+                    current_time = time.time()
+
+                    # Check if rotation is frozen
+                    if skill_injector.should_freeze_rotation(current_time):
+                        # Skip this event if rotation is frozen
+                        continue
+
+                    # Check for skill injection when no keys are pressed
+                    current_keys_list = list(down_keys)
+
+                    # Try to inject skill (this checks all conditions)
+                    skill_cast_info = skill_injector.check_and_inject_skills(
+                        current_keys_list, current_time
+                    )
+
+                    if skill_cast_info:
+                        # A skill should be cast!
+                        skill_usage = skill_cast_info["usage"]
+                        pre_pause = skill_cast_info["pre_pause"]
+                        post_pause = skill_cast_info["post_pause"]
+                        press_duration = skill_cast_info["press_duration"]
+
+                        # Pre-pause (for frozen rotation)
+                        if pre_pause > 0:
+                            if await self._sleep_or_stop(pre_pause, stop_event):
+                                self.w.all_up(); return False
+
+                        # Press skill key
+                        if skill_usage in MOD_USAGES:
+                            modmask |= (1 << (skill_usage - 224))
+                        else:
+                            down_keys.add(skill_usage)
+                        self.w.send(modmask, down_keys)
+
+                        # Hold key
+                        if await self._sleep_or_stop(press_duration, stop_event):
+                            self.w.all_up(); return False
+
+                        # Release skill key
+                        if skill_usage in MOD_USAGES:
+                            modmask &= (~(1 << (skill_usage - 224))) & 0xFF
+                        else:
+                            down_keys.discard(skill_usage)
+                        self.w.send(modmask, down_keys)
+
+                        # Post-pause (for frozen rotation)
+                        if post_pause > 0:
+                            if await self._sleep_or_stop(post_pause, stop_event):
+                                self.w.all_up(); return False
+
+                # Process original event
                 if kind == "down":
                     if usage in MOD_USAGES:
                         modmask |= (1 << (usage - 224))
@@ -388,6 +406,7 @@ class Player:
         stop_event: Optional[asyncio.Event] = None,
         ignore_keys: Optional[List[str]] = None,
         ignore_tolerance: float = 0.0,
+        skill_injector: Optional[SkillInjector] = None,
     ) -> bool:
         """
         Randomly pick ONE recording from 'selections' per loop and play it.
@@ -428,6 +447,7 @@ class Player:
                 stop_event=stop_event,
                 ignore_keys=ignore_keys,
                 ignore_tolerance=ignore_tolerance,
+                skill_injector=skill_injector,
             )
             if not ok:
                 return False

@@ -1,57 +1,42 @@
-import { Bot, Keyboard} from 'lucide-react'
-
-function TabItem({
-    Icon, label, active = false, onClick
-}) {
+function TabItem({ label, active = false, onClick }) {
     return (
-        <button
-        onClick={onClick}
-        className="basis-0 w-full grow min-h-px min-w-px relative shrink-0"
+        <div
+            className="basis-0 box-border content-stretch flex gap-[10px] grow items-center justify-center min-h-px min-w-px p-[16px] relative shrink-0 cursor-pointer"
+            onClick={onClick}
         >
-        {active && (
-            <div aria-hidden="true" className="absolute border-[3px_0px_0px] border-blue-600 border-solid inset-0 pointer-events-none" />
-        )}
-        <div className="flex flex-col items-center relative size-full">
-            <div className="box-border content-stretch flex flex-col gap-2 items-center justify-start pb-2 pt-4 px-2 relative w-full">
-            <div className="relative shrink-0 size-5 flex items-center justify-center">
-                <Icon size={24} className={active ? 'text-blue-600' : 'text-gray-900'} />
-            </div>
-            <div 
-                className={`font-['Roboto:Bold',_sans-serif] font-normal leading-[0] relative shrink-0 text-[14px] text-nowrap ${
+            {active && (
+                <div aria-hidden="true" className="absolute border-[0px_0px_4px] border-blue-600 border-solid inset-0 pointer-events-none" />
+            )}
+            <p className={`font-['Roboto:Bold',_sans-serif] font-bold leading-[16px] relative shrink-0 text-[16px] text-nowrap whitespace-pre ${
                 active ? 'text-blue-600' : 'text-gray-900'
-                }`} 
-                style={{ fontVariationSettings: "'wdth' 100" }}
-            >
-                <p className="leading-[normal] whitespace-pre">{label}</p>
-            </div>
-            </div>
+            }`} style={{ fontVariationSettings: "'wdth' 100" }}>
+                {label}
+            </p>
         </div>
-        </button>
     )
 }
 
 export function NavigationTabs({
-    activeTab = 'botting',
+    activeTab = 'rotations',
     onTabChange
 }) {
     return (
-        <div className='bg-white flex content-stretch w-full pb-2'>
-            <div className='w-full'>
-            <TabItem 
-                Icon={Bot} 
-                label="Botting" 
-                active={activeTab === 'botting'}
-                onClick={() => onTabChange?.('botting')}
+        <div className="content-stretch flex items-center relative w-full" data-name="tab-bar">
+            <TabItem
+                label="Rotations"
+                active={activeTab === 'rotations'}
+                onClick={() => onTabChange?.('rotations')}
             />
-            </div>
-            <div className='w-full'>
-            <TabItem 
-                Icon={Keyboard} 
-                label="Macro" 
-                active={activeTab === 'macro'}
-                onClick={() => onTabChange?.('macro')}
+            <TabItem
+                label="CD skills"
+                active={activeTab === 'cd-skills'}
+                onClick={() => onTabChange?.('cd-skills')}
             />
-            </div>
+            <TabItem
+                label="Buffs"
+                active={activeTab === 'buffs'}
+                onClick={() => onTabChange?.('buffs')}
+            />
         </div>
     )
 }

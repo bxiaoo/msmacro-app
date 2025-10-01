@@ -166,6 +166,7 @@ async def api_play(request: web.Request):
     loop = int(body.get("loop", 1))
     ignore_keys = body.get("ignore_keys", [])
     ignore_tolerance = float(body.get("ignore_tolerance", 0.0))
+    active_skills = body.get("active_skills", [])
 
     # Handle playlist (multiple files)
     if "names" in body:
@@ -182,6 +183,7 @@ async def api_play(request: web.Request):
                 loop=loop,
                 ignore_keys=ignore_keys,
                 ignore_tolerance=ignore_tolerance,
+                active_skills=active_skills,
             )
             return _json(resp)
         except Exception as e:
@@ -192,14 +194,15 @@ async def api_play(request: web.Request):
     if not file:
         return _json({"error": "missing file or names"}, 400)
     try:
-        resp = await _daemon("play", 
-                           file=file, 
-                           speed=speed, 
-                           jitter_time=jitter_time, 
-                           jitter_hold=jitter_hold, 
+        resp = await _daemon("play",
+                           file=file,
+                           speed=speed,
+                           jitter_time=jitter_time,
+                           jitter_hold=jitter_hold,
                            loop=loop,
                            ignore_keys=ignore_keys,
-                           ignore_tolerance=ignore_tolerance)
+                           ignore_tolerance=ignore_tolerance,
+                           active_skills=active_skills)
         return _json(resp)
     except Exception as e:
         return _json({"error": str(e)}, 500)
@@ -364,3 +367,72 @@ async def api_events(request: web.Request):
         with contextlib.suppress(Exception):
             await resp.write_eof()
     return resp
+
+
+# ---------- CD Skills Management ----------
+
+async def api_skills_list(request: web.Request):
+    """List all skill configurations."""
+    try:
+        resp = await _daemon("list_skills")
+        return _json(resp)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)
+
+
+async def api_skills_save(request: web.Request):
+    """Save a new skill configuration."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _json({"error": "invalid json"}, 400)
+
+    # Validate required fields
+    if not body.get("name") or not body.get("keystroke"):
+        return _json({"error": "name and keystroke are required"}, 400)
+
+    try:
+        resp = await _daemon("save_skill", skill_data=body)
+        return _json(resp)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)
+
+
+async def api_skills_update(request: web.Request):
+    """Update an existing skill configuration."""
+    skill_id = request.match_info.get("id")
+    if not skill_id:
+        return _json({"error": "missing skill id"}, 400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return _json({"error": "invalid json"}, 400)
+
+    try:
+        resp = await _daemon("update_skill", skill_id=skill_id, skill_data=body)
+        return _json(resp)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)
+
+
+async def api_skills_delete(request: web.Request):
+    """Delete a skill configuration."""
+    skill_id = request.match_info.get("id")
+    if not skill_id:
+        return _json({"error": "missing skill id"}, 400)
+
+    try:
+        resp = await _daemon("delete_skill", skill_id=skill_id)
+        return _json(resp)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)
+
+
+async def api_skills_selected(request: web.Request):
+    """Get skills marked as selected for active use."""
+    try:
+        resp = await _daemon("get_selected_skills")
+        return _json(resp)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)

@@ -90,7 +90,7 @@ async function API(path, opts = {}) {
     if (!list.length) {
       throw new Error("playSelection expects a non-empty array or string");
     }
-    
+
     const payload = {
       names: list,
       speed: opts.speed || 1.0,
@@ -99,8 +99,9 @@ async function API(path, opts = {}) {
       loop: opts.loop || 1,
       ignore_keys: opts.ignore_keys || [],
       ignore_tolerance: opts.ignore_tolerance || 0.0,
+      active_skills: opts.active_skills || [],
     };
-    
+
     return API("/api/play", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -115,6 +116,35 @@ async function API(path, opts = {}) {
     return API("/api/stop", { method: "POST" });
   }
   
+  // ---------- CD Skills Management ----------
+  export function listSkills() {
+    return API("/api/skills");
+  }
+
+  export function saveSkill(skillData) {
+    return API("/api/skills/save", {
+      method: "POST",
+      body: JSON.stringify(skillData),
+    });
+  }
+
+  export function updateSkill(id, skillData) {
+    return API(`/api/skills/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(skillData),
+    });
+  }
+
+  export function deleteSkill(id) {
+    return API(`/api/skills/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
+
+  export function getSelectedSkills() {
+    return API("/api/skills/selected");
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

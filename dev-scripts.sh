@@ -162,20 +162,122 @@ test_api() {
     else
         echo -e "${RED}❌ /api/files${NC}"
     fi
+
+    # Test skills
+    if curl -s "$BASE_URL/api/skills" | grep -q "\["; then
+        echo -e "${GREEN}✅ /api/skills${NC}"
+    else
+        echo -e "${RED}❌ /api/skills${NC}"
+    fi
+}
+
+test_skills() {
+    echo -e "${YELLOW}Testing CD Skills CRUD operations...${NC}"
+
+    BASE_URL="http://127.0.0.1:$MOCK_PORT"
+
+    # Test 1: List skills
+    echo -e "${BLUE}📋 Testing skills list...${NC}"
+    SKILLS_RESPONSE=$(curl -s "$BASE_URL/api/skills")
+    if echo "$SKILLS_RESPONSE" | grep -q "Fireball"; then
+        echo -e "${GREEN}✅ Skills list working - found sample skills${NC}"
+        SKILL_COUNT=$(echo "$SKILLS_RESPONSE" | jq length 2>/dev/null || echo "unknown")
+        echo -e "   Found $SKILL_COUNT skills"
+    else
+        echo -e "${RED}❌ Skills list failed${NC}"
+        return 1
+    fi
+
+    # Test 2: Create new skill
+    echo -e "${BLUE}➕ Testing skill creation...${NC}"
+    NEW_SKILL_DATA='{"name":"Test Skill","keystroke":"t","cooldown":5.0,"afterKeyConstraints":false,"isSelected":true}'
+    CREATE_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "$NEW_SKILL_DATA" "$BASE_URL/api/skills/save")
+
+    if echo "$CREATE_RESPONSE" | grep -q "Test Skill"; then
+        echo -e "${GREEN}✅ Skill creation successful${NC}"
+        SKILL_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id' 2>/dev/null)
+        echo -e "   Created skill with ID: $SKILL_ID"
+    else
+        echo -e "${RED}❌ Skill creation failed${NC}"
+        echo "Response: $CREATE_RESPONSE"
+        return 1
+    fi
+
+    # Test 3: Update skill
+    echo -e "${BLUE}✏️  Testing skill update...${NC}"
+    UPDATE_DATA='{"name":"Updated Test Skill","cooldown":7.5}'
+    UPDATE_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$UPDATE_DATA" "$BASE_URL/api/skills/$SKILL_ID")
+
+    if echo "$UPDATE_RESPONSE" | grep -q "Updated Test Skill"; then
+        echo -e "${GREEN}✅ Skill update successful${NC}"
+    else
+        echo -e "${RED}❌ Skill update failed${NC}"
+        echo "Response: $UPDATE_RESPONSE"
+        return 1
+    fi
+
+    # Test 4: Get selected skills
+    echo -e "${BLUE}🎯 Testing selected skills...${NC}"
+    SELECTED_RESPONSE=$(curl -s "$BASE_URL/api/skills/selected")
+
+    if echo "$SELECTED_RESPONSE" | grep -q "\["; then
+        echo -e "${GREEN}✅ Selected skills endpoint working${NC}"
+        SELECTED_COUNT=$(echo "$SELECTED_RESPONSE" | jq length 2>/dev/null || echo "unknown")
+        echo -e "   Found $SELECTED_COUNT selected skills"
+    else
+        echo -e "${RED}❌ Selected skills failed${NC}"
+        return 1
+    fi
+
+    # Test 5: Delete skill
+    echo -e "${BLUE}🗑️  Testing skill deletion...${NC}"
+    DELETE_RESPONSE=$(curl -s -X DELETE "$BASE_URL/api/skills/$SKILL_ID")
+
+    if echo "$DELETE_RESPONSE" | grep -q "success"; then
+        echo -e "${GREEN}✅ Skill deletion successful${NC}"
+    else
+        echo -e "${RED}❌ Skill deletion failed${NC}"
+        echo "Response: $DELETE_RESPONSE"
+        return 1
+    fi
+
+    # Test 6: Test play with skills
+    echo -e "${BLUE}🎮 Testing play with skills integration...${NC}"
+    SELECTED_SKILLS=$(curl -s "$BASE_URL/api/skills/selected")
+    PLAY_DATA=$(jq -n --argjson skills "$SELECTED_SKILLS" '{
+        "names": ["test_macro.json"],
+        "speed": 1.0,
+        "loop": 1,
+        "active_skills": $skills
+    }')
+
+    PLAY_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "$PLAY_DATA" "$BASE_URL/api/play")
+
+    if echo "$PLAY_RESPONSE" | grep -q "ok"; then
+        echo -e "${GREEN}✅ Play with skills integration working${NC}"
+        echo -e "   Check server console for skill logging"
+    else
+        echo -e "${RED}❌ Play with skills failed${NC}"
+        echo "Response: $PLAY_RESPONSE"
+        return 1
+    fi
+
+    echo -e "${GREEN}🎉 All CD Skills tests passed!${NC}"
 }
 
 show_help() {
     echo "Usage: $0 [command]"
     echo
     echo "Commands:"
-    echo "  start     - Start both mock backend and frontend dev server"
-    echo "  stop      - Stop all development services"
-    echo "  backend   - Start only the mock backend"
-    echo "  frontend  - Start only the frontend dev server"
-    echo "  build     - Build frontend for production"
-    echo "  test      - Test mock API endpoints"
-    echo "  status    - Show status of development services"
-    echo "  help      - Show this help message"
+    echo "  start       - Start both mock backend and frontend dev server"
+    echo "  stop        - Stop all development services"
+    echo "  backend     - Start only the mock backend"
+    echo "  frontend    - Start only the frontend dev server"
+    echo "  build       - Build frontend for production"
+    echo "  test        - Test basic mock API endpoints"
+    echo "  test-skills - Test CD Skills CRUD operations and integration"
+    echo "  status      - Show status of development services"
+    echo "  help        - Show this help message"
 }
 
 show_status() {
@@ -243,6 +345,9 @@ case "$1" in
         ;;
     "test")
         test_api
+        ;;
+    "test-skills")
+        test_skills
         ;;
     "status")
         show_status

@@ -1,4 +1,4 @@
-import { Settings2, Bug } from "lucide-react";
+import { Settings2, Bug, Trash2 } from "lucide-react";
 import { ActionButton } from "./ui/action-button";
 import { clsx } from "clsx";
 
@@ -27,10 +27,12 @@ function AppTitle({active = false}) {
 
 
 
-export function Header({ 
+export function Header({
     isActive = false,
-  onSettingsClick, 
+  onSettingsClick,
   onDebugClick,
+  onDeleteSelected,
+  hasSelectedFiles = false,
   isSettingsActive = false,
   isDebugActive = false
 }) {
@@ -41,13 +43,19 @@ export function Header({
         <AppTitle active={isActive} />
       </div>
       <div className="content-stretch flex gap-1 items-center justify-start relative shrink-0">
-        <ActionButton 
-          Icon={Settings2} 
+        <ActionButton
+          Icon={Trash2}
+          onClick={onDeleteSelected}
+          active={false}
+          disabled={!hasSelectedFiles}
+        />
+        <ActionButton
+          Icon={Settings2}
           onClick={onSettingsClick}
           active={isSettingsActive}
         />
-        <ActionButton 
-          Icon={Bug} 
+        <ActionButton
+          Icon={Bug}
           onClick={onDebugClick}
           active={isDebugActive}
         />

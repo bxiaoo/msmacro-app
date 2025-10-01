@@ -1,15 +1,11 @@
 import * as React from 'react'
-import { Trash2 } from 'lucide-react'
 import { getStatus, renameFile, deleteFile, deleteFolder } from '../../api.js'
 import { buildTree, flattenFiles } from '../../hooks/useFileTree.js'
 import { dirname, basename, ensureJson, joinPath } from '../../utils/paths.js'
 import { MacroItem } from "./MacroItem";
-import { Input } from '../ui/input.jsx';
-import { ActionButton } from '../ui/action-button.jsx';
 
-export function MacroList(){
+export function MacroList({ onSelectedChange }){
   const [tree, setTree] = React.useState([])
-  const [filter, setFilter] = React.useState('')
   const [selected, setSelected] = React.useState([])
 
   const refresh = React.useCallback(async ()=>{
@@ -35,7 +31,8 @@ export function MacroList(){
   // 🔄 Emit selection to parent listeners (App → Controls) on every change
   React.useEffect(()=>{
     document.dispatchEvent(new CustomEvent('files:selection:set', { detail: selected }))
-  }, [selected])
+    onSelectedChange?.(selected)
+  }, [selected, onSelectedChange])
 
   // Memoize flattened files for performance
   const allFiles = React.useMemo(() => flattenFiles(tree), [tree])
@@ -142,14 +139,6 @@ export function MacroList(){
     await refresh()
   }
 
-  const deleteSelected = async ()=>{
-    if(!selected.length) return
-    if(!confirm(`Delete ${selected.length} file(s)?`)) return
-    for(const rel of selected){ await deleteFile(rel) }
-    setSelected([])
-    await refresh()
-  }
-
   const selSet = new Set(selected||[]);
   const [expandedTop, setExpandedTop] = React.useState(new Set())
 
@@ -157,107 +146,69 @@ export function MacroList(){
     const s = new Set(expandedTop); if(s.has(rel)) s.delete(rel); else s.add(rel); setExpandedTop(s);
   };
 
-  const visibleFiles = React.useMemo(()=>{
-    if(!filter) return null;
-    const q = filter.toLowerCase();
-    const dfs = (nodes)=> nodes.flatMap(n => n.type==='file' ? [n] : dfs(n.children||[]));
-    return dfs(tree).filter(f => f.rel.toLowerCase().includes(q));
-  }, [tree, filter]);
-
 
   return (
     <div className="bg-gray-100 min-h-full">
       <div className="px-4 py-4">
-        {/* Header with search and delete button - Scrolls with content */}
-        <div className='flex flex-row justify-between px-1 mb-4'>
-          <div className="w-full max-w-sm">
-            <Input type='text' placeholder='Search...' value={filter} onChange={(e) => setFilter(e.target.value)} />
-          </div>
-          <ActionButton Icon={Trash2} onClick={deleteSelected} active={false} disabled={!selected.length} />
-        </div>
-
         {/* Content area */}
         <div className="flex flex-col gap-3 w-full">
-            {filter ? (
-              // Filtered view - show matching files directly
-              visibleFiles && visibleFiles.length ? visibleFiles.map((file,i)=> (
-                <div key={`ff-${file.rel}-${i}`} className="w-full">
-                  <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
-                    <MacroItem
-                      name={file.name}
-                      type="file"
-                      checked={selSet.has(file.rel)}
-                      onCheckChange={() => toggleFile(file.rel)}
-                      onEdit={() => doRenameFile(file)}
-                      onDelete={() => doDeleteFile(file)}
-                    />
-                  </div>
-                </div>
-              )) : (
-                <div style={{ padding:'1rem 1.5rem', color:'#6b7280' }}>No matches.</div>
-              )
-            ) : (
-              // Regular tree view
-              <>
-                {/* Root files (none in most setups, but supported) */}
-                {tree.filter(n=>n.type==='file').map((file,i)=> (
-                  <div key={`rf-${file.rel}-${i}`} className="w-full">
-                    <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
-                      <MacroItem
-                        name={file.name}
-                        type="file"
-                        checked={selSet.has(file.rel)}
-                        onCheckChange={() => toggleFile(file.rel)}
-                        onEdit={() => doRenameFile(file)}
-                        onDelete={() => doDeleteFile(file)}
-                      />
-                    </div>
-                  </div>
-                ))}
+          {/* Root files (none in most setups, but supported) */}
+          {tree.filter(n=>n.type==='file').map((file,i)=> (
+            <div key={`rf-${file.rel}-${i}`} className="w-full">
+              <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
+                <MacroItem
+                  name={file.name}
+                  type="file"
+                  checked={selSet.has(file.rel)}
+                  onCheckChange={() => toggleFile(file.rel)}
+                  onEdit={() => doRenameFile(file)}
+                  onDelete={() => doDeleteFile(file)}
+                />
+              </div>
+            </div>
+          ))}
 
-                {/* Top-level folders */}
-                {tree.filter(n=>n.type==='dir').map((dir)=> (
-                  <div key={`g-${dir.rel}`} className="w-full">
-                    <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
-                      <div className="bg-gray-200 box-border content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] shrink-0 w-full">
-                        {(() => {
-                          const folderState = getFolderCheckboxState(dir.rel)
-                          return (
-                            <MacroItem
-                              name={dir.name}
-                              type="folder"
-                              checked={folderState.checked}
-                              indeterminate={folderState.indeterminate}
-                              isExpanded={expandedTop.has(dir.rel)}
-                              onCheckChange={() => toggleFolderFiles(dir.rel)}
-                              onToggleExpand={() => toggleTop(dir.rel)}
-                              onEdit={() => doRenameFolder(dir)}
-                              onDelete={() => doDeleteFolder(dir, true)}
-                            />
-                          )
-                        })()}
-                        
-                        {expandedTop.has(dir.rel) && (
-                          <>
-                            {(dir.children||[]).filter(c=>c.type==='file').map((file,i)=> (
-                              <MacroItem
-                                key={`f-${file.rel}-${i}`}
-                                name={file.name}
-                                type="file"
-                                checked={selSet.has(file.rel)}
-                                onCheckChange={() => toggleFile(file.rel)}
-                                onEdit={() => doRenameFile(file)}
-                                onDelete={() => doDeleteFile(file)}
-                              />
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
+          {/* Top-level folders */}
+          {tree.filter(n=>n.type==='dir').map((dir)=> (
+            <div key={`g-${dir.rel}`} className="w-full">
+              <div className="content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shrink-0 w-full">
+                <div className="bg-gray-200 box-border content-stretch flex flex-col items-start justify-start overflow-clip relative rounded-[4px] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] shrink-0 w-full">
+                  {(() => {
+                    const folderState = getFolderCheckboxState(dir.rel)
+                    return (
+                      <MacroItem
+                        name={dir.name}
+                        type="folder"
+                        checked={folderState.checked}
+                        indeterminate={folderState.indeterminate}
+                        isExpanded={expandedTop.has(dir.rel)}
+                        onCheckChange={() => toggleFolderFiles(dir.rel)}
+                        onToggleExpand={() => toggleTop(dir.rel)}
+                        onEdit={() => doRenameFolder(dir)}
+                        onDelete={() => doDeleteFolder(dir, true)}
+                      />
+                    )
+                  })()}
+
+                  {expandedTop.has(dir.rel) && (
+                    <>
+                      {(dir.children||[]).filter(c=>c.type==='file').map((file,i)=> (
+                        <MacroItem
+                          key={`f-${file.rel}-${i}`}
+                          name={file.name}
+                          type="file"
+                          checked={selSet.has(file.rel)}
+                          onCheckChange={() => toggleFile(file.rel)}
+                          onEdit={() => doRenameFile(file)}
+                          onDelete={() => doDeleteFile(file)}
+                        />
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

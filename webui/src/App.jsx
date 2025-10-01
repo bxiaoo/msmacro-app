@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast } from './api.js'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
@@ -9,12 +9,14 @@ import { NavigationTabs } from './components/NavigationTabs.jsx'
 import { ActionButtonGroup } from './components/ActionButtonGroup.jsx'
 import { StateMessage } from './components/StateMessage.jsx'
 import { MacroList } from './components/files/MacroList.jsx'
+import { CDSkills } from './components/CDSkills.jsx'
 import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
 import { PostRecordingModal } from './components/PostRecordingModal.jsx'
+import { NewSkillModal } from './components/NewSkillModal.jsx'
 
 export default function App(){
   const { executeAction, isPending } = useApiAction()
-  const [activeTab, setActiveTab] = useState('botting')
+  const [activeTab, setActiveTab] = useState('rotations')
   const [isRecording, setIsRecording] = useState(false)
   const [isPostRecording, setIsPostRecording] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -36,6 +38,10 @@ export default function App(){
   const [mode, setMode] = useState('...')
   const [selected, setSelected] = useState([]) // kept for Controls
   const [recordingName, setRecordingName] = useState('')
+  const [isNewSkillModalOpen, setIsNewSkillModalOpen] = useState(false)
+  const [editingSkill, setEditingSkill] = useState(null)
+  const [cdSkills, setCdSkills] = useState([])
+  const [skillsLoaded, setSkillsLoaded] = useState(false)
 
   // Keep mode fresh (and anything else status provides that Controls/Banner need)
   const refresh = useCallback(() => getStatus().then(st => {
@@ -93,6 +99,22 @@ export default function App(){
     const onSel = (e) => { if (Array.isArray(e.detail)) setSelected(e.detail) }
     document.addEventListener('files:selection:set', onSel)
     return () => document.removeEventListener('files:selection:set', onSel)
+  }, [])
+
+  // Load skills from backend
+  const loadSkills = useCallback(async () => {
+    try {
+      const skills = await listSkills()
+      setCdSkills(skills || [])
+      setSkillsLoaded(true)
+    } catch (error) {
+      console.error('Failed to load skills:', error)
+      setSkillsLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSkills()
   }, [])
 
 
@@ -164,12 +186,18 @@ export default function App(){
    */
   const handlePlay = useCallback(() => {
     if (selected && selected.length > 0) {
-      executeAction('play', 
-        () => play(selected, playSettings), 
+      // Get selected skills for injection during playback
+      const selectedSkills = cdSkills.filter(skill => skill.isSelected)
+
+      executeAction('play',
+        () => play(selected, {
+          ...playSettings,
+          active_skills: selectedSkills
+        }),
         refresh
       );
     }
-  }, [executeAction, selected, playSettings, refresh])
+  }, [executeAction, selected, playSettings, refresh, cdSkills])
 
   /**
    * stop playing
@@ -193,6 +221,110 @@ export default function App(){
     setIsDebugWindowOpen(false)
   }, [])
 
+  /**
+   * handle delete selected files
+   */
+  const handleDeleteSelected = useCallback(async () => {
+    if (!selected.length) return
+    if (!confirm(`Delete ${selected.length} file(s)?`)) return
+
+    executeAction('deleteSelected', async () => {
+      for (const rel of selected) {
+        await deleteFile(rel)
+      }
+      setSelected([])
+    }, refresh)
+  }, [selected, executeAction, refresh])
+
+  /**
+   * handle new skill modal actions
+   */
+  const handleOpenNewSkillModal = useCallback(() => {
+    setIsNewSkillModalOpen(true)
+  }, [])
+
+  const handleCloseNewSkillModal = useCallback(() => {
+    setIsNewSkillModalOpen(false)
+    setEditingSkill(null)
+  }, [])
+
+  const handleEditSkill = useCallback((skill) => {
+    setEditingSkill(skill)
+    setIsNewSkillModalOpen(true)
+  }, [])
+
+  const handleSaveNewSkill = useCallback(async ({ skillKey, cooldown, isEditing, skillId }) => {
+    try {
+      if (isEditing && skillId) {
+        // Update existing skill
+        const existingSkill = cdSkills.find(skill => skill.id === skillId)
+        if (existingSkill) {
+          const updatedSkill = {
+            ...existingSkill,
+            name: skillKey,
+            cooldown: cooldown
+          }
+          await updateSkill(skillId, updatedSkill)
+          setCdSkills(prev => prev.map(skill =>
+            skill.id === skillId ? updatedSkill : skill
+          ))
+        }
+      } else {
+        // Create new skill
+        const newSkill = {
+          name: skillKey,
+          keystroke: skillKey,
+          variant: "cd skill",
+          isOpen: false,
+          isEnabled: true,
+          isSelected: false,
+          afterKeyConstraints: false,
+          key1: "",
+          key2: "",
+          key3: "",
+          afterKeysSeconds: 0.45,
+          frozenRotationDuringCasting: false,
+          cooldown: cooldown
+        }
+        const savedSkill = await saveSkill(newSkill)
+        setCdSkills(prev => [...prev, savedSkill])
+      }
+    } catch (error) {
+      console.error('Failed to save skill:', error)
+    }
+
+    setIsNewSkillModalOpen(false)
+    setEditingSkill(null)
+  }, [cdSkills])
+
+  /**
+   * handle skill management functions
+   */
+  const updateSkillLocal = useCallback(async (id, updates) => {
+    try {
+      const existingSkill = cdSkills.find(skill => skill.id === id)
+      if (existingSkill) {
+        const updatedSkill = { ...existingSkill, ...updates }
+        await updateSkill(id, updatedSkill)
+        setCdSkills(prev => prev.map(skill =>
+          skill.id === id ? updatedSkill : skill
+        ))
+      }
+    } catch (error) {
+      console.error('Failed to update skill:', error)
+    }
+  }, [cdSkills])
+
+  const deleteSkill = useCallback(async (id) => {
+    if (confirm('Delete this skill?')) {
+      try {
+        await deleteSkillAPI(id)
+        setCdSkills(prev => prev.filter(skill => skill.id !== id))
+      } catch (error) {
+        console.error('Failed to delete skill:', error)
+      }
+    }
+  }, [])
 
   const canPlay = useMemo(() => 
     selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play'),
@@ -200,22 +332,43 @@ export default function App(){
   )
 
   return (
-    <div className="h-screen flex flex-col relative">
+    <div className="h-screen flex flex-col relative bg-gray-100">
       {/* Global overlay for modals */}
       {(isSettingsModalOpen || isDebugWindowOpen) && (
         <div className='bg-gray-900/25 absolute inset-0 z-20' onClick={handleCloseModal}></div>
       )}
 
-      {/* Main content area - Scrollable (includes header and macro list) */}
-      <div className="flex-1 overflow-y-auto">
-        <Header 
-          isActive={mode} 
-          onSettingsClick={handlePlaySetting} 
-          onDebugClick={handleDebug} 
-          isSettingsActive={isSettingsModalOpen} 
-          isDebugActive={isDebugWindowOpen} 
+      {/* Main content area - Scrollable (includes header, tabs, and macro list) */}
+      <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
+        <Header
+          isActive={mode}
+          onSettingsClick={handlePlaySetting}
+          onDebugClick={handleDebug}
+          onDeleteSelected={handleDeleteSelected}
+          hasSelectedFiles={selected.length > 0}
+          isSettingsActive={isSettingsModalOpen}
+          isDebugActive={isDebugWindowOpen}
         />
-        <MacroList />
+
+        {/* Navigation tabs */}
+        <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
+        {/* Tab Content */}
+        {activeTab === 'rotations' && <MacroList onSelectedChange={setSelected} />}
+        {activeTab === 'cd-skills' && (
+          <CDSkills
+            skills={cdSkills}
+            onOpenNewSkillModal={handleOpenNewSkillModal}
+            onEditSkill={handleEditSkill}
+            onUpdateSkill={updateSkillLocal}
+            onDeleteSkill={deleteSkill}
+          />
+        )}
+        {activeTab === 'buffs' && (
+          <div className="bg-gray-100 min-h-full flex items-center justify-center">
+            <p className="text-gray-500 text-lg">Buffs tab - Coming soon</p>
+          </div>
+        )}
       </div>
 
       {/* Bottom section - Fixed at bottom with proper stacking */}
@@ -246,6 +399,14 @@ export default function App(){
             />
         )}
 
+        {/* New skill modal - appears above action buttons */}
+        <NewSkillModal
+          isOpen={isNewSkillModalOpen}
+          onClose={handleCloseNewSkillModal}
+          onSave={handleSaveNewSkill}
+          editingSkill={editingSkill}
+        />
+
         {/* State message */}
         <StateMessage 
           isPlaying={isPlaying} 
@@ -271,9 +432,6 @@ export default function App(){
             isPending={isPending}
           />
         </div>
-
-        {/* Navigation tabs */}
-        <NavigationTabs activeTab='botting' onTabChange={setActiveTab} />
       </div>
     </div>
   )

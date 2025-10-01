@@ -17,7 +17,13 @@ from .handlers import (
     api_stop,
     api_files_rename,
     api_files_delete,
-    api_folders_delete,  # Added this import
+    api_folders_delete,
+    # CD Skills handlers
+    api_skills_list,
+    api_skills_save,
+    api_skills_update,
+    api_skills_delete,
+    api_skills_selected,
 )
 
 # ---- Config ----
@@ -72,6 +78,13 @@ def make_app() -> web.Application:
         
         # Folder management
         web.delete("/api/folders/{path:.*}", api_folders_delete),
+
+        # CD Skills management
+        web.get("/api/skills", api_skills_list),
+        web.post("/api/skills/save", api_skills_save),
+        web.put("/api/skills/{id}", api_skills_update),
+        web.delete("/api/skills/{id}", api_skills_delete),
+        web.get("/api/skills/selected", api_skills_selected),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),

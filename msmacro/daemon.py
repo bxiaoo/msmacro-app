@@ -17,6 +17,8 @@ from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_key
 from .core.bridge import Bridge
 from .core.player import Player
 from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
+from .core.skills import SkillManager
+from .core.skill_injector import SkillInjector
 from .io.ipc import start_server
 from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
 from .io.hidio import HIDWriter
@@ -54,7 +56,15 @@ class MacroDaemon:
         self.rec_dir = Path(getattr(SETTINGS, "record_dir", "./records"))
         self.rec_dir.mkdir(parents=True, exist_ok=True)
 
-        log.info("Daemon init: keyboard=%s  record_dir=%s", self.evdev_path, self.rec_dir)
+        # Initialize skills manager
+        skills_dir = Path(getattr(SETTINGS, "skills_dir", "./skills"))
+        self.skills_manager = SkillManager(skills_dir)
+
+        # Initialize persistent skill injector (shared across all playbacks)
+        self._skill_injector: Optional[Any] = None  # Will be created on first play with selected skills
+
+        log.info("Daemon init: keyboard=%s  record_dir=%s  skills_dir=%s",
+                 self.evdev_path, self.rec_dir, skills_dir)
         log.info("Hotkeys: record=%s  stop=%s",
                  getattr(SETTINGS, "record_hotkey", "LCTRL+R"),
                  getattr(SETTINGS, "stop_hotkey", "LCTRL+Q"))
@@ -634,9 +644,31 @@ class MacroDaemon:
             await self._start_post_hotkeys()
 
 
+    # ---------- skill injector management ----------
+
+    def _get_or_create_skill_injector(self, active_skills: Optional[List[Dict[str, Any]]]) -> Optional[SkillInjector]:
+        """Get or create persistent skill injector."""
+        if not active_skills:
+            return None
+
+        # If we already have a skill injector with the same skills, reuse it
+        # Otherwise, create a new one (this preserves state across recordings)
+        if self._skill_injector is None:
+            self._skill_injector = SkillInjector(active_skills)
+        else:
+            # Check if skills list has changed
+            current_skill_ids = set(state.config.id for state in self._skill_injector.skills.values())
+            new_skill_ids = set(s.get('id') for s in active_skills if s.get('id'))
+
+            if current_skill_ids != new_skill_ids:
+                # Skills changed, create new injector
+                self._skill_injector = SkillInjector(active_skills)
+
+        return self._skill_injector
+
     # ---------- playback ----------
 
-    async def _do_play(self, path: str, *, speed=1.0, jt=0.0, jh=0.0, loop=1, restore_mode="BRIDGE", ignore_keys=None, ignore_tolerance=0.0):
+    async def _do_play(self, path: str, *, speed=1.0, jt=0.0, jh=0.0, loop=1, restore_mode="BRIDGE", ignore_keys=None, ignore_tolerance=0.0, active_skills=None):
         log.info("Playback starting: path=%s speed=%.3f jt=%.3f jh=%.3f loop=%s",
                  path, speed, jt, jh, loop)
 
@@ -654,6 +686,8 @@ class MacroDaemon:
 
         player = Player(getattr(SETTINGS, "hidg_path", "/dev/hidg0"))
 
+        # Get or create persistent skill injector
+        skill_injector = self._get_or_create_skill_injector(active_skills)
 
         try:
             ok = await player.play(
@@ -662,6 +696,7 @@ class MacroDaemon:
                 min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.134),
                 loop=loop, stop_event=self._stop_event,
                 ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance,
+                skill_injector=skill_injector,
             )
             log.info("Playback finished: ok=%s", ok)
         except asyncio.CancelledError:
@@ -681,7 +716,7 @@ class MacroDaemon:
             if self.mode == "POSTRECORD":
                 await self._start_post_hotkeys()
 
-    async def _do_play_selection(self, paths: List[str], *, speed=1.0, jt=0.0, jh=0.0, loop=1, ignore_keys=None, ignore_tolerance=0.0):
+    async def _do_play_selection(self, paths: List[str], *, speed=1.0, jt=0.0, jh=0.0, loop=1, ignore_keys=None, ignore_tolerance=0.0, active_skills=None):
         """Play multiple recordings in random order."""
         log.info("Playlist starting: n=%d speed=%.3f jt=%.3f jh=%.3f loop=%s",
                  len(paths), speed, jt, jh, loop)
@@ -698,6 +733,10 @@ class MacroDaemon:
         await self._start_play_hotkeys()
 
         player = Player(getattr(SETTINGS, "hidg_path", "/dev/hidg0"))
+
+        # Get or create persistent skill injector
+        skill_injector = self._get_or_create_skill_injector(active_skills)
+
         try:
             for _ in range(max(1, int(loop))):
                 order = list(paths)
@@ -714,9 +753,10 @@ class MacroDaemon:
                     ok = await player.play(
                         p, speed=speed, jitter_time=jt, jitter_hold=jh,
                         min_hold_s=getattr(SETTINGS, "min_hold_s", 0.010),
-                        min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.050),
-                        loop=1, stop_event=self._stop_event,
+                        min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.1),
+                        loop=15, stop_event=self._stop_event,
                         ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance,
+                        skill_injector=skill_injector,
                     )
                     
                     emit("PLAY_FILE_END", file=str(p))
@@ -788,6 +828,7 @@ class MacroDaemon:
                     "loop": int(msg.get("loop", 1)),
                     "ignore_keys": msg.get("ignore_keys", []),
                     "ignore_tolerance": float(msg.get("ignore_tolerance", 0.0)),
+                    "active_skills": msg.get("active_skills", []),
                 }
                 # asyncio.create_task(self._do_play(str(p), **kwargs))
                 self._play_task = asyncio.create_task(self._do_play(str(p), **kwargs))
@@ -811,6 +852,7 @@ class MacroDaemon:
                     "loop": int(msg.get("loop", 1)),
                     "ignore_keys": msg.get("ignore_keys", []),
                     "ignore_tolerance": float(msg.get("ignore_tolerance", 0.0)),
+                    "active_skills": msg.get("active_skills", []),
                 }
                 self._play_task = asyncio.create_task(self._do_play_selection(paths, **kwargs))
                 return {"playlist": paths, **kwargs}
@@ -900,6 +942,48 @@ class MacroDaemon:
             if cmd == "list":
                 files = sorted(x.name for x in self.rec_dir.glob("*.json")) if self.rec_dir.exists() else []
                 return {"files": files}
+
+            # ---------- CD Skills Commands ----------
+
+            if cmd == "list_skills":
+                skills = self.skills_manager.list_skills()
+                return {"skills": [skill.to_dict() for skill in skills]}
+
+            if cmd == "save_skill":
+                skill_data = msg.get("skill_data")
+                if not skill_data:
+                    raise RuntimeError("missing skill_data")
+
+                skill = self.skills_manager.create_skill_from_frontend_data(skill_data)
+                saved_skill = self.skills_manager.save_skill(skill)
+                return {"skill": saved_skill.to_dict(), "saved": True}
+
+            if cmd == "update_skill":
+                skill_id = msg.get("skill_id")
+                skill_data = msg.get("skill_data")
+                if not skill_id or not skill_data:
+                    raise RuntimeError("missing skill_id or skill_data")
+
+                updated_skill = self.skills_manager.update_skill(skill_id, skill_data)
+                if not updated_skill:
+                    raise RuntimeError(f"skill not found: {skill_id}")
+
+                return {"skill": updated_skill.to_dict(), "updated": True}
+
+            if cmd == "delete_skill":
+                skill_id = msg.get("skill_id")
+                if not skill_id:
+                    raise RuntimeError("missing skill_id")
+
+                success = self.skills_manager.delete_skill(skill_id)
+                if not success:
+                    raise RuntimeError(f"skill not found: {skill_id}")
+
+                return {"deleted": True, "skill_id": skill_id}
+
+            if cmd == "get_selected_skills":
+                selected_skills = self.skills_manager.get_selected_skills()
+                return {"skills": [skill.to_dict() for skill in selected_skills]}
 
             raise RuntimeError(f"unknown cmd: {cmd}")
 
