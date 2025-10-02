@@ -754,7 +754,7 @@ class MacroDaemon:
                         p, speed=speed, jitter_time=jt, jitter_hold=jh,
                         min_hold_s=getattr(SETTINGS, "min_hold_s", 0.010),
                         min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.1),
-                        loop=15, stop_event=self._stop_event,
+                        loop=1, stop_event=self._stop_event,
                         ignore_keys=ignore_keys, ignore_tolerance=ignore_tolerance,
                         skill_injector=skill_injector,
                     )

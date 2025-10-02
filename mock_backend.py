@@ -68,47 +68,56 @@ class MockState:
         return files
 
     def _generate_mock_skills(self):
-        """Generate some sample skills for testing."""
+        """Generate some sample skills for testing (with frontend format)."""
         import uuid
         sample_skills = [
             {
                 "id": str(uuid.uuid4()),
                 "name": "Fireball",
-                "keystroke": "f",
+                "keystroke": "KEY_F",
                 "cooldown": 15.0,
-                "after_key_constraints": False,
+                "afterKeyConstraints": False,
                 "key1": "",
                 "key2": "",
                 "key3": "",
-                "after_keys_seconds": 0.45,
-                "frozen_rotation_during_casting": False,
-                "is_selected": True
+                "afterKeysSeconds": 0.45,
+                "frozenRotationDuringCasting": False,
+                "isSelected": True,
+                "variant": "cd skill",
+                "isOpen": False,
+                "isEnabled": True
             },
             {
                 "id": str(uuid.uuid4()),
                 "name": "Ice Blast",
-                "keystroke": "i",
+                "keystroke": "KEY_I",
                 "cooldown": 20.0,
-                "after_key_constraints": True,
-                "key1": "shift",
-                "key2": "ctrl",
+                "afterKeyConstraints": True,
+                "key1": "KEY_LEFTSHIFT",
+                "key2": "KEY_LEFTCTRL",
                 "key3": "",
-                "after_keys_seconds": 0.6,
-                "frozen_rotation_during_casting": True,
-                "is_selected": False
+                "afterKeysSeconds": 0.6,
+                "frozenRotationDuringCasting": True,
+                "isSelected": False,
+                "variant": "cd skill",
+                "isOpen": False,
+                "isEnabled": True
             },
             {
                 "id": str(uuid.uuid4()),
                 "name": "Lightning Strike",
-                "keystroke": "1",
+                "keystroke": "KEY_1",
                 "cooldown": 8.0,
-                "after_key_constraints": False,
+                "afterKeyConstraints": False,
                 "key1": "",
                 "key2": "",
                 "key3": "",
-                "after_keys_seconds": 0.3,
-                "frozen_rotation_during_casting": False,
-                "is_selected": True
+                "afterKeysSeconds": 0.3,
+                "frozenRotationDuringCasting": False,
+                "isSelected": True,
+                "variant": "cd skill",
+                "isOpen": False,
+                "isEnabled": True
             }
         ]
 

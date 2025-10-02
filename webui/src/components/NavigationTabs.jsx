@@ -1,4 +1,4 @@
-function TabItem({ label, active = false, onClick }) {
+function TabItem({ label, active = false, onClick, count = 0 }) {
     return (
         <div
             className="basis-0 box-border content-stretch flex gap-[10px] grow items-center justify-center min-h-px min-w-px p-[16px] relative shrink-0 cursor-pointer"
@@ -12,13 +12,22 @@ function TabItem({ label, active = false, onClick }) {
             }`} style={{ fontVariationSettings: "'wdth' 100" }}>
                 {label}
             </p>
+            {count > 0 && (
+                <div className={`flex items-center justify-center w-5 h-5 px-1.5 rounded-full bg-gray-300`}>
+                    <span className="text-gray-500 text-xs font-medium">
+                        {count}
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
 
 export function NavigationTabs({
     activeTab = 'rotations',
-    onTabChange
+    onTabChange,
+    rotationsCount = 0,
+    skillsCount = 0
 }) {
     return (
         <div className="content-stretch flex items-center relative w-full" data-name="tab-bar">
@@ -26,16 +35,13 @@ export function NavigationTabs({
                 label="Rotations"
                 active={activeTab === 'rotations'}
                 onClick={() => onTabChange?.('rotations')}
+                count={rotationsCount}
             />
             <TabItem
-                label="CD skills"
+                label="Skills"
                 active={activeTab === 'cd-skills'}
                 onClick={() => onTabChange?.('cd-skills')}
-            />
-            <TabItem
-                label="Buffs"
-                active={activeTab === 'buffs'}
-                onClick={() => onTabChange?.('buffs')}
+                count={skillsCount}
             />
         </div>
     )

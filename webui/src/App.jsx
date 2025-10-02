@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI } from './api.js'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, EventStream } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
@@ -20,9 +20,13 @@ export default function App(){
   const [isRecording, setIsRecording] = useState(false)
   const [isPostRecording, setIsPostRecording] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [playingMacroName, setPlayingMacroName] = useState('')
+
+  // Use refs for start times to avoid timer resets
+  const recordingStartTimeRef = useRef(undefined)
+  const playingStartTimeRef = useRef(undefined)
   const [recordingStartTime, setRecordingStartTime] = useState(undefined)
   const [playingStartTime, setPlayingStartTime] = useState(undefined)
-  const [playingMacroName, setPlayingMacroName] = useState('')
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [isDebugWindowOpen, setIsDebugWindowOpen] = useState(false)
   const [debugLogs, setDebugLogs] = useState([])
@@ -50,13 +54,16 @@ export default function App(){
       if (prevMode === newMode) return prevMode // Prevent unnecessary re-renders
       return newMode
     })
-    
+
     if (newMode === 'PLAYING') {
       setIsPostRecording(false)
       setIsRecording(false)
       setIsPlaying(true)
-      if (!playingStartTime) {
-        setPlayingStartTime(Date.now())
+      // Use ref to check if startTime already set (prevents reset)
+      if (!playingStartTimeRef.current) {
+        const now = Date.now()
+        playingStartTimeRef.current = now
+        setPlayingStartTime(now)
       }
       // Update playing file name from backend
       if (st.current_playing_file) {
@@ -67,32 +74,55 @@ export default function App(){
       setIsPlaying(false)
       setIsRecording(false)
       setIsPostRecording(true)
+      playingStartTimeRef.current = undefined
+      recordingStartTimeRef.current = undefined
       setPlayingStartTime(undefined)
       setRecordingStartTime(undefined)
     } else if (newMode === 'RECORDING') {
       setIsPlaying(false)
       setIsPostRecording(false)
       setIsRecording(true)
-      if (!recordingStartTime) {
-        setRecordingStartTime(Date.now())
+      // Use ref to check if startTime already set (prevents reset)
+      if (!recordingStartTimeRef.current) {
+        const now = Date.now()
+        recordingStartTimeRef.current = now
+        setRecordingStartTime(now)
       }
     } else {
       // IDLE or other states
       setIsPlaying(false)
       setIsRecording(false)
       setIsPostRecording(false)
+      playingStartTimeRef.current = undefined
+      recordingStartTimeRef.current = undefined
       setPlayingStartTime(undefined)
       setRecordingStartTime(undefined)
       setPlayingMacroName('')
     }
-  }).catch(() => {}), [playingStartTime, recordingStartTime])
+  }).catch(() => {}), []) // No dependencies - stable callback
 
   useEffect(() => {
     refresh()
     const t = setInterval(refresh, 2000)
     return () => clearInterval(t)
-  }, [])
+  }, [refresh])
 
+  // Connect SSE EventStream for real-time updates
+  useEffect(() => {
+    const eventStream = new EventStream(
+      // onMode callback
+      (newMode) => {
+        setMode(newMode)
+      },
+      // onFiles callback
+      (files) => {
+        // Dispatch event to trigger MacroList refresh
+        document.dispatchEvent(new CustomEvent('files:refresh'))
+      }
+    )
+
+    return () => eventStream.close()
+  }, [])
 
   // Bridge selection coming from FileBrowser → Controls
   useEffect(() => {
@@ -149,11 +179,13 @@ export default function App(){
    */
   const handleSaveRecording = useCallback((name) => {
     if (!name?.trim()) return;
-    executeAction('save', 
-      () => saveLast(name.trim()), 
+    executeAction('save',
+      () => saveLast(name.trim()),
       () => {
         setRecordingName('');
         refresh();
+        // Trigger MacroList refresh
+        document.dispatchEvent(new CustomEvent('files:refresh'));
       }
     )
   }, [executeAction, refresh])
@@ -172,11 +204,13 @@ export default function App(){
    * handle discard recording
    */
   const handleDiscardRecording = useCallback(() => {
-    executeAction('discard', 
-      () => discardLast(), 
+    executeAction('discard',
+      () => discardLast(),
       () => {
         setRecordingName('');
         refresh();
+        // Trigger MacroList refresh
+        document.dispatchEvent(new CustomEvent('files:refresh'));
       }
     )
   }, [executeAction, refresh])
@@ -219,6 +253,8 @@ export default function App(){
   const handleCloseModal = useCallback(() => {
     setIsSettingsModalOpen(false)
     setIsDebugWindowOpen(false)
+    // Note: We don't close isPostRecording or isNewSkillModalOpen on overlay click
+    // Those require explicit close button clicks
   }, [])
 
   /**
@@ -233,7 +269,11 @@ export default function App(){
         await deleteFile(rel)
       }
       setSelected([])
-    }, refresh)
+    }, () => {
+      refresh();
+      // Trigger MacroList refresh
+      document.dispatchEvent(new CustomEvent('files:refresh'));
+    })
   }, [selected, executeAction, refresh])
 
   /**
@@ -326,20 +366,27 @@ export default function App(){
     }
   }, [])
 
-  const canPlay = useMemo(() => 
+  const canPlay = useMemo(() =>
     selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play'),
     [selected.length, isRecording, isPostRecording, isPlaying, isPending]
   )
 
+  // Calculate selected counts for tab badges
+  const selectedRotationsCount = useMemo(() => selected.length, [selected.length])
+  const selectedSkillsCount = useMemo(() =>
+    cdSkills.filter(skill => skill.isSelected).length,
+    [cdSkills]
+  )
+
   return (
-    <div className="h-screen flex flex-col relative bg-gray-100">
-      {/* Global overlay for modals */}
-      {(isSettingsModalOpen || isDebugWindowOpen) && (
-        <div className='bg-gray-900/25 absolute inset-0 z-20' onClick={handleCloseModal}></div>
+    <div className="h-screen flex flex-col bg-gray-100">
+      {/* Global overlay for modals - dark background when any modal is open */}
+      {(isSettingsModalOpen || isDebugWindowOpen || isPostRecording || isNewSkillModalOpen) && (
+        <div className='bg-gray-900/50 fixed inset-0 z-10' onClick={handleCloseModal}></div>
       )}
 
       {/* Main content area - Scrollable (includes header, tabs, and macro list) */}
-      <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
+      <div className="flex-1 flex flex-col gap-2 overflow-y-auto min-h-0">
         <Header
           isActive={mode}
           onSettingsClick={handlePlaySetting}
@@ -351,7 +398,12 @@ export default function App(){
         />
 
         {/* Navigation tabs */}
-        <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
+        <NavigationTabs
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          rotationsCount={selectedRotationsCount}
+          skillsCount={selectedSkillsCount}
+        />
 
         {/* Tab Content */}
         {activeTab === 'rotations' && <MacroList onSelectedChange={setSelected} />}
@@ -364,59 +416,62 @@ export default function App(){
             onDeleteSkill={deleteSkill}
           />
         )}
-        {activeTab === 'buffs' && (
-          <div className="bg-gray-100 min-h-full flex items-center justify-center">
-            <p className="text-gray-500 text-lg">Buffs tab - Coming soon</p>
-          </div>
-        )}
       </div>
 
-      {/* Bottom section - Fixed at bottom with proper stacking */}
-      <div className='relative z-30 shadow-lg'>
-        {/* Debug panel - appears above the main bottom section */}
+      {/* Bottom section - Sticky at bottom, always visible */}
+      <div className='sticky bottom-0 z-30 shadow-lg'>
+        {/* Debug panel - modal that appears above bottom section */}
         {isDebugWindowOpen && (
-          <div className="border-t border-gray-200">
+          <div className="border-t border-gray-200 z-50 relative bg-white">
             <EventsPanel onMode={setMode} />
           </div>
         )}
 
-        {/* Post-recording modal - appears above action buttons */}
+        {/* Post-recording modal - only show if isPostRecording is true */}
         {isPostRecording && (
-            <PostRecordingModal
-              isOpen={isPostRecording}
-              name={recordingName}
-              onNameChange={setRecordingName}
-            />
+            <div className="z-50 relative">
+              <PostRecordingModal
+                isOpen={isPostRecording}
+                name={recordingName}
+                onNameChange={setRecordingName}
+              />
+            </div>
         )}
 
-        {/* Settings modal - appears above action buttons */}
+        {/* Settings modal - only show if isSettingsModalOpen is true and not playing */}
         {isSettingsModalOpen && !isPlaying && (
-            <PlaySettingsModal
-              isOpen={isSettingsModalOpen}
-              onClose={() => setIsSettingsModalOpen(false)}
-              settings={playSettings}
-              onSettingsChange={setPlaySettings}
-            />
+            <div className="z-50 relative">
+              <PlaySettingsModal
+                isOpen={isSettingsModalOpen}
+                onClose={() => setIsSettingsModalOpen(false)}
+                settings={playSettings}
+                onSettingsChange={setPlaySettings}
+              />
+            </div>
         )}
 
-        {/* New skill modal - appears above action buttons */}
-        <NewSkillModal
-          isOpen={isNewSkillModalOpen}
-          onClose={handleCloseNewSkillModal}
-          onSave={handleSaveNewSkill}
-          editingSkill={editingSkill}
-        />
+        {/* New skill modal - only show if isNewSkillModalOpen is true */}
+        {isNewSkillModalOpen && (
+          <div className="z-50 relative">
+            <NewSkillModal
+              isOpen={isNewSkillModalOpen}
+              onClose={handleCloseNewSkillModal}
+              onSave={handleSaveNewSkill}
+              editingSkill={editingSkill}
+            />
+          </div>
+        )}
 
         {/* State message */}
-        <StateMessage 
-          isPlaying={isPlaying} 
-          isRecording={isRecording} 
-          startTime={isPlaying ? playingStartTime : recordingStartTime} 
-          macroName={playingMacroName} 
+        <StateMessage
+          isPlaying={isPlaying}
+          isRecording={isRecording}
+          startTime={isPlaying ? playingStartTime : recordingStartTime}
+          macroName={playingMacroName}
         />
 
         {/* Action buttons */}
-        <div className='bg-white border-t border-gray-200'>
+        {!isNewSkillModalOpen && <div className='bg-white border-t border-gray-200'>
           <ActionButtonGroup
             onRecord={handleRecord}
             onPlay={handlePlay}
@@ -431,7 +486,7 @@ export default function App(){
             recordingName={recordingName}
             isPending={isPending}
           />
-        </div>
+        </div>}
       </div>
     </div>
   )

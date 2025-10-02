@@ -28,6 +28,13 @@ export function MacroList({ onSelectedChange }){
 
   React.useEffect(()=>{ refresh() }, [refresh])
 
+  // Listen for file refresh events from App (after CRUD operations)
+  React.useEffect(() => {
+    const onRefresh = () => refresh()
+    document.addEventListener('files:refresh', onRefresh)
+    return () => document.removeEventListener('files:refresh', onRefresh)
+  }, [refresh])
+
   // 🔄 Emit selection to parent listeners (App → Controls) on every change
   React.useEffect(()=>{
     document.dispatchEvent(new CustomEvent('files:selection:set', { detail: selected }))

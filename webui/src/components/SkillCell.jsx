@@ -2,8 +2,7 @@ import { ChevronDown, Edit, Trash2 } from 'lucide-react'
 import { Switch } from './ui/switch'
 import { NumberInput } from './ui/number-input'
 import { Input } from './ui/input'
-
-const imgLucideCheck = "http://localhost:3845/assets/ca25e4136b0d65387f17dc004c95f473d1d405bb.svg"
+import { Checkbox } from './ui/checkbox'
 
 function KeyInput({ label, placeholder = "Keystroke", value, onChange, disabled = false }) {
   return (
@@ -65,24 +64,11 @@ export function SkillCell({
     }`}>
       {/* Header */}
       <div className="box-border content-stretch flex items-center justify-between p-[6px] relative rounded-[4px] shrink-0 w-full">
-        <div className="box-border content-stretch flex gap-[10px] items-center overflow-clip p-[10px] relative shrink-0">
-          <div
-            className="relative shrink-0 size-[20px] cursor-pointer"
-            onClick={onToggleSelect}
-          >
-            {isSelected ? (
-              <div className="bg-gray-900 overflow-clip relative rounded-[4px] shrink-0 size-[20px]">
-                <div className="absolute left-1/2 size-[14px] top-1/2 translate-x-[-50%] translate-y-[-50%]">
-                  <img alt="" className="block max-w-none size-full" src={imgLucideCheck} />
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white relative rounded-[4px] shrink-0 size-[20px]">
-                <div aria-hidden="true" className="absolute border-2 border-gray-900 border-solid inset-0 pointer-events-none rounded-[4px]" />
-              </div>
-            )}
-          </div>
-        </div>
+        <Checkbox
+          checked={isSelected}
+          onChange={onToggleSelect}
+          className="box-border content-stretch flex gap-[10px] items-center overflow-clip p-[10px] relative shrink-0"
+        />
         <div className="basis-0 content-stretch flex gap-[4px] grow items-center min-h-px min-w-px relative shrink-0">
           <div className="content-stretch flex gap-[10px] items-center justify-center relative shrink-0">
             <p className="font-['Roboto:Bold',_sans-serif] font-bold leading-[normal] relative shrink-0 text-[16px] text-gray-900 text-nowrap whitespace-pre" style={{ fontVariationSettings: "'wdth' 100" }}>
