@@ -93,7 +93,7 @@ class SkillInjector:
                 for skill_state in self.skills.values():
                     if not skill_state.arrow_condition_met:
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.5, 1.0)
+                        skill_state.opposite_arrow_delay = random.uniform(0.2, 0.45)
             self.last_arrow_direction = ARROW_LEFT
             self.last_arrow_time = current_time
         elif ARROW_RIGHT in pressed_keys:
@@ -102,7 +102,7 @@ class SkillInjector:
                 for skill_state in self.skills.values():
                     if not skill_state.arrow_condition_met:
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.5, 1.0)
+                        skill_state.opposite_arrow_delay = random.uniform(0.2, 0.45)
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
 
