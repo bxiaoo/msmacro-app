@@ -33,7 +33,7 @@ class SkillState:
     # Arrow key tracking
     last_arrow_direction: Optional[int] = None  # ARROW_LEFT or ARROW_RIGHT
     opposite_arrow_timer: float = 0.0  # Time when opposite arrow condition met
-    opposite_arrow_delay: float = 0.0  # Random 0.5-1s delay
+    opposite_arrow_delay: float = 0.0  # Random 0.3-0.75s delay
     arrow_condition_met: bool = False
 
     # After-key constraints tracking
@@ -42,6 +42,11 @@ class SkillState:
     trigger_key_released_time: float = 0.0
     after_key_delay: float = 0.0  # after_keys_seconds ± 0.1s
     after_key_condition_met: bool = False
+
+    # Cascading condition state flags (new prioritized flow)
+    cooldown_passed: bool = False  # Condition 1: Cooldown + random delay passed
+    arrow_ready: bool = False  # Condition 2: Opposite arrow + delay passed
+    after_key_ready: bool = False  # Condition 3: After-key constraints passed
 
     def __post_init__(self):
         pass
@@ -91,43 +96,73 @@ class SkillInjector:
             if self.last_arrow_direction == ARROW_RIGHT:
                 # Opposite arrow detected! Update all skills
                 for skill_state in self.skills.values():
-                    if not skill_state.arrow_condition_met:
+                    # Only update if cooldown passed but not yet casting
+                    if skill_state.cooldown_passed and not skill_state.is_casting:
+                        # Reset timer - recalculate delay (allows reset if opposite pressed again)
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.2, 0.45)
+                        skill_state.opposite_arrow_delay = random.uniform(0.3, 0.75)
+                        skill_state.arrow_ready = False  # Reset ready flag
             self.last_arrow_direction = ARROW_LEFT
             self.last_arrow_time = current_time
         elif ARROW_RIGHT in pressed_keys:
             if self.last_arrow_direction == ARROW_LEFT:
                 # Opposite arrow detected! Update all skills
                 for skill_state in self.skills.values():
-                    if not skill_state.arrow_condition_met:
+                    # Only update if cooldown passed but not yet casting
+                    if skill_state.cooldown_passed and not skill_state.is_casting:
+                        # Reset timer - recalculate delay (allows reset if opposite pressed again)
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.2, 0.45)
+                        skill_state.opposite_arrow_delay = random.uniform(0.3, 0.75)
+                        skill_state.arrow_ready = False  # Reset ready flag
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
 
     def update_skill_conditions(self, skill_id: str, pressed_keys: List[int], current_time: float) -> None:
-        """Update all skill condition states."""
+        """
+        Update skill condition states with PRIORITIZED CASCADE LOGIC.
+
+        Conditions are checked in strict order:
+        1. Cooldown + random delay (PRIMARY - blocks all others)
+        2. Opposite arrow keys + delay (only if cooldown passed)
+        3. After-key constraints (only if arrow ready)
+        4. No other keys pressed (checked in check_and_inject_skills)
+        """
         if skill_id not in self.skills:
             return
 
         skill_state = self.skills[skill_id]
         config = skill_state.config
 
-        # 1. Update cooldown + random delay
-        if current_time >= skill_state.cooldown_ready_time and not skill_state.is_casting:
-            # Cooldown has expired, check if we can cast after random delay
-            if current_time >= skill_state.can_cast_after:
-                # Ready to cast (cooldown + random delay both satisfied)
-                pass
+        # ===== CONDITION 1: Cooldown + Random Delay (PRIMARY) =====
+        # This MUST pass before any other conditions are evaluated
+        if current_time >= skill_state.can_cast_after and not skill_state.is_casting:
+            skill_state.cooldown_passed = True
+        else:
+            # Cooldown not ready - don't process other conditions yet
+            # Reset downstream conditions
+            skill_state.cooldown_passed = False
+            skill_state.arrow_ready = False
+            skill_state.after_key_ready = False
+            return
 
-        # 2. Update arrow key condition
-        if skill_state.opposite_arrow_timer > 0:
-            if current_time >= skill_state.opposite_arrow_timer + skill_state.opposite_arrow_delay:
-                skill_state.arrow_condition_met = True
+        # ===== CONDITION 2: Opposite Arrow Keys + Delay =====
+        # Only evaluated if cooldown passed
+        if skill_state.cooldown_passed:
+            # Check if opposite arrow timer started
+            if skill_state.opposite_arrow_timer > 0:
+                # Check if delay elapsed
+                if current_time >= skill_state.opposite_arrow_timer + skill_state.opposite_arrow_delay:
+                    skill_state.arrow_ready = True
+                    skill_state.arrow_condition_met = True  # Keep for compatibility
 
-        # 3. Update after-key constraints
-        if config.after_key_constraints:
+            # If arrow not ready, don't process next condition
+            if not skill_state.arrow_ready:
+                skill_state.after_key_ready = False
+                return
+
+        # ===== CONDITION 3: After-Key Constraints =====
+        # Only evaluated if arrow ready
+        if config.after_key_constraints and skill_state.arrow_ready:
             # Select a random trigger key if not already selected
             if skill_state.selected_trigger_key is None:
                 trigger_keys = self._get_trigger_keys(config)
@@ -146,18 +181,22 @@ class SkillInjector:
             # Check if enough time has passed after key release
             if skill_state.trigger_key_released_time > 0:
                 if current_time >= skill_state.trigger_key_released_time + skill_state.after_key_delay:
-                    skill_state.after_key_condition_met = True
+                    skill_state.after_key_ready = True
+                    skill_state.after_key_condition_met = True  # Keep for compatibility
+        else:
+            # No after-key constraints configured - auto-pass this condition
+            skill_state.after_key_ready = True
 
     def can_inject_skill(self, skill_id: str, pressed_keys: List[int], current_time: float) -> bool:
         """
-        Check if ALL conditions are met for skill injection.
+        Check if ALL cascaded conditions are met for skill injection.
 
-        Conditions:
-        1. No other keys are pressed (only skill key or trigger keys)
-        2. Cooldown + random delay (1-30s) has passed
-        3. Opposite arrow keys were pressed with 0.5-1s delay
-        4. If after_key_constraints: selected key was pressed, released, and delay passed
-        5. Skill is not currently casting
+        This method simply checks the condition flags that were set by update_skill_conditions().
+        The cascade logic ensures conditions are evaluated in priority order:
+        1. Cooldown + random delay (PRIMARY)
+        2. Opposite arrow keys + delay
+        3. After-key constraints (if configured)
+        4. No other keys pressed (checked in check_and_inject_skills)
         """
         if skill_id not in self.skills:
             return False
@@ -165,30 +204,21 @@ class SkillInjector:
         skill_state = self.skills[skill_id]
         config = skill_state.config
 
-        # Skip if not selected
-        if not config.is_selected:
+        # Skip if not selected or currently casting
+        if not config.is_selected or skill_state.is_casting:
             return False
 
-        # Skip if casting
-        if skill_state.is_casting:
+        # Check cascaded condition flags in priority order
+        if not skill_state.cooldown_passed:
             return False
 
-        # Condition 1: No other keys should be pressed
-        # For now, we check this at injection time in the player
-
-        # Condition 2: Cooldown + random delay
-        if current_time < skill_state.can_cast_after:
+        if not skill_state.arrow_ready:
             return False
 
-        # Condition 3: Arrow key opposite detection
-        if not skill_state.arrow_condition_met:
+        if not skill_state.after_key_ready:
             return False
 
-        # Condition 4: After-key constraints
-        if config.after_key_constraints:
-            if not skill_state.after_key_condition_met:
-                return False
-
+        # All prior conditions passed
         return True
 
     def should_freeze_rotation(self, current_time: float) -> bool:
@@ -224,35 +254,47 @@ class SkillInjector:
         skill_state.random_delay_duration = random.uniform(1.0, 30.0)
         skill_state.can_cast_after = skill_state.cooldown_ready_time + skill_state.random_delay_duration
 
-        # Reset arrow condition
+        # Reset all cascading condition flags (NEW)
+        skill_state.cooldown_passed = False
+        skill_state.arrow_ready = False
+        skill_state.after_key_ready = False
+
+        # Reset arrow condition (legacy compatibility)
         skill_state.arrow_condition_met = False
         skill_state.opposite_arrow_timer = 0.0
 
-        # Reset after-key condition
+        # Reset after-key condition (legacy compatibility)
         skill_state.after_key_condition_met = False
         skill_state.selected_trigger_key = None
         skill_state.trigger_key_released_time = 0.0
 
-        # Calculate frozen rotation pauses if enabled
+        # Calculate pauses
+        # General post-casting delay (always applied for human-like behavior)
+        general_post_delay = random.uniform(0.3, 0.5)
+
         if config.frozen_rotation_during_casting:
+            # Frozen rotation: add extra pauses before and after
             pre_pause = random.uniform(0.5, 0.7)
             post_pause = random.uniform(0.5, 0.7)
-            total_cast_time = pre_pause + skill_press + post_pause  # 0.1s for key press
+            total_cast_time = pre_pause + skill_press + post_pause + general_post_delay
             skill_state.cast_end_time = current_time + total_cast_time
             self.frozen_until = skill_state.cast_end_time
 
             return {
                 "usage": skill_usage,
                 "pre_pause": pre_pause,
-                "post_pause": post_pause,
+                "post_pause": post_pause + general_post_delay,  # Combined post pauses
                 "press_duration": skill_press,
             }
         else:
-            skill_state.cast_end_time = current_time + 0.1
+            # Normal casting: only general post delay
+            total_cast_time = skill_press + general_post_delay
+            skill_state.cast_end_time = current_time + total_cast_time
+
             return {
                 "usage": skill_usage,
                 "pre_pause": 0.0,
-                "post_pause": 0.0,
+                "post_pause": general_post_delay,  # General post-casting delay
                 "press_duration": skill_press,
             }
 
