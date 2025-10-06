@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from ..utils.keymap import name_to_usage
 from .skills import SkillConfig
 
-# HID usage IDs for arrow keys
+# HID usage IDs for arrow keys and special keys
 ARROW_LEFT = 80
 ARROW_RIGHT = 79
+SPACE_KEY = 44
 
 
 @dataclass
@@ -36,17 +37,15 @@ class SkillState:
     opposite_arrow_delay: float = 0.0  # Random 0.3-0.75s delay
     arrow_condition_met: bool = False
 
-    # After-key constraints tracking
-    selected_trigger_key: Optional[int] = None  # Randomly selected from key1/2/3
-    trigger_key_pressed: bool = False
-    trigger_key_released_time: float = 0.0
-    after_key_delay: float = 0.0  # after_keys_seconds ± 0.1s
-    after_key_condition_met: bool = False
+    # Key replacement tracking (new logic)
+    space_key_released_time: float = 0.0  # When space key was released
+    space_delay: float = 0.0  # Random 0.33-0.5s delay after space
+    use_replacement_mode: bool = False  # True=replace ignore_key, False=after-space
+    replacement_ready: bool = False  # Condition 3: Replacement logic passed
 
     # Cascading condition state flags (new prioritized flow)
     cooldown_passed: bool = False  # Condition 1: Cooldown + random delay passed
     arrow_ready: bool = False  # Condition 2: Opposite arrow + delay passed
-    after_key_ready: bool = False  # Condition 3: After-key constraints passed
 
     def __post_init__(self):
         pass
@@ -79,15 +78,6 @@ class SkillInjector:
             return None
         return name_to_usage(key_name.strip())
 
-    def _get_trigger_keys(self, config: SkillConfig) -> List[int]:
-        """Get list of trigger key usage IDs for a skill configuration."""
-        keys = []
-        for key_name in [config.key1, config.key2, config.key3]:
-            if key_name and key_name.strip():
-                usage = self._get_usage_from_name(key_name)
-                if usage:
-                    keys.append(usage)
-        return keys
 
     def update_arrow_key_tracking(self, pressed_keys: List[int], current_time: float) -> None:
         """Track arrow key presses for opposite arrow detection."""
@@ -117,14 +107,14 @@ class SkillInjector:
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
 
-    def update_skill_conditions(self, skill_id: str, pressed_keys: List[int], current_time: float) -> None:
+    def update_skill_conditions(self, skill_id: str, pressed_keys: List[int], current_time: float, ignore_keys: Optional[List[int]] = None) -> None:
         """
         Update skill condition states with PRIORITIZED CASCADE LOGIC.
 
         Conditions are checked in strict order:
         1. Cooldown + random delay (PRIMARY - blocks all others)
         2. Opposite arrow keys + delay (only if cooldown passed)
-        3. After-key constraints (only if arrow ready)
+        3. Key replacement logic (only if arrow ready and key_replacement enabled)
         4. No other keys pressed (checked in check_and_inject_skills)
         """
         if skill_id not in self.skills:
@@ -142,7 +132,7 @@ class SkillInjector:
             # Reset downstream conditions
             skill_state.cooldown_passed = False
             skill_state.arrow_ready = False
-            skill_state.after_key_ready = False
+            skill_state.replacement_ready = False
             return
 
         # ===== CONDITION 2: Opposite Arrow Keys + Delay =====
@@ -157,35 +147,48 @@ class SkillInjector:
 
             # If arrow not ready, don't process next condition
             if not skill_state.arrow_ready:
-                skill_state.after_key_ready = False
+                skill_state.replacement_ready = False
                 return
 
-        # ===== CONDITION 3: After-Key Constraints =====
+        # ===== CONDITION 3: Key Replacement Logic =====
         # Only evaluated if arrow ready
-        if config.after_key_constraints and skill_state.arrow_ready:
-            # Select a random trigger key if not already selected
-            if skill_state.selected_trigger_key is None:
-                trigger_keys = self._get_trigger_keys(config)
-                if trigger_keys:
-                    skill_state.selected_trigger_key = random.choice(trigger_keys)
-                    skill_state.after_key_delay = config.after_keys_seconds + random.uniform(-0.1, 0.1)
+        if config.key_replacement and skill_state.arrow_ready:
+            # Determine replacement mode on first evaluation after arrow ready
+            if not skill_state.use_replacement_mode and skill_state.space_key_released_time == 0:
+                # Randomly decide: replace_rate% = replacement, (1-replace_rate)% = after-space
+                skill_state.use_replacement_mode = random.random() < config.replace_rate
 
-            # Check if selected trigger key is pressed
-            if skill_state.selected_trigger_key and skill_state.selected_trigger_key in pressed_keys:
-                skill_state.trigger_key_pressed = True
-            elif skill_state.trigger_key_pressed:
-                # Key was pressed and now released
-                skill_state.trigger_key_released_time = current_time
-                skill_state.trigger_key_pressed = False
+                if not skill_state.use_replacement_mode:
+                    # After-space mode: set up space key delay (0.33-0.5s)
+                    skill_state.space_delay = random.uniform(0.33, 0.5)
 
-            # Check if enough time has passed after key release
-            if skill_state.trigger_key_released_time > 0:
-                if current_time >= skill_state.trigger_key_released_time + skill_state.after_key_delay:
-                    skill_state.after_key_ready = True
-                    skill_state.after_key_condition_met = True  # Keep for compatibility
+            if skill_state.use_replacement_mode:
+                # Replacement mode: skill replaces ignore_key (ready immediately if ignore_keys available)
+                if ignore_keys and len(ignore_keys) > 0:
+                    skill_state.replacement_ready = True
+                else:
+                    # No ignore_keys configured, can't use replacement mode
+                    skill_state.replacement_ready = False
+            else:
+                # After-space mode: wait for space key release + delay
+                # Track space key
+                space_pressed = SPACE_KEY in pressed_keys
+
+                if space_pressed:
+                    # Space is currently pressed (not released yet)
+                    pass
+                elif skill_state.space_key_released_time == 0:
+                    # Space was released (first time detection)
+                    # Check if space was pressed before (simple heuristic: assume it was)
+                    skill_state.space_key_released_time = current_time
+
+                # Check if enough time passed after space release
+                if skill_state.space_key_released_time > 0:
+                    if current_time >= skill_state.space_key_released_time + skill_state.space_delay:
+                        skill_state.replacement_ready = True
         else:
-            # No after-key constraints configured - auto-pass this condition
-            skill_state.after_key_ready = True
+            # No key replacement - auto-pass this condition (original behavior)
+            skill_state.replacement_ready = True
 
     def can_inject_skill(self, skill_id: str, pressed_keys: List[int], current_time: float) -> bool:
         """
@@ -195,7 +198,7 @@ class SkillInjector:
         The cascade logic ensures conditions are evaluated in priority order:
         1. Cooldown + random delay (PRIMARY)
         2. Opposite arrow keys + delay
-        3. After-key constraints (if configured)
+        3. Key replacement logic (if configured)
         4. No other keys pressed (checked in check_and_inject_skills)
         """
         if skill_id not in self.skills:
@@ -215,7 +218,7 @@ class SkillInjector:
         if not skill_state.arrow_ready:
             return False
 
-        if not skill_state.after_key_ready:
+        if not skill_state.replacement_ready:
             return False
 
         # All prior conditions passed
@@ -254,19 +257,19 @@ class SkillInjector:
         skill_state.random_delay_duration = random.uniform(1.0, 30.0)
         skill_state.can_cast_after = skill_state.cooldown_ready_time + skill_state.random_delay_duration
 
-        # Reset all cascading condition flags (NEW)
+        # Reset all cascading condition flags
         skill_state.cooldown_passed = False
         skill_state.arrow_ready = False
-        skill_state.after_key_ready = False
+        skill_state.replacement_ready = False
 
         # Reset arrow condition (legacy compatibility)
         skill_state.arrow_condition_met = False
         skill_state.opposite_arrow_timer = 0.0
 
-        # Reset after-key condition (legacy compatibility)
-        skill_state.after_key_condition_met = False
-        skill_state.selected_trigger_key = None
-        skill_state.trigger_key_released_time = 0.0
+        # Reset key replacement tracking
+        skill_state.space_key_released_time = 0.0
+        skill_state.space_delay = 0.0
+        skill_state.use_replacement_mode = False
 
         # Calculate pauses
         # General post-casting delay (always applied for human-like behavior)
@@ -307,11 +310,17 @@ class SkillInjector:
     def check_and_inject_skills(
         self,
         pressed_keys: List[int],
-        current_time: float
+        current_time: float,
+        ignore_keys: Optional[List[int]] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Check all skills and return injection info if any skill should be cast.
-        Only injects if NO other keys are pressed.
+        Only injects if NO other keys are pressed (or in replacement mode).
+
+        Args:
+            pressed_keys: Currently pressed HID usage IDs
+            current_time: Current time
+            ignore_keys: List of HID usage IDs that can be replaced by skills
 
         Returns:
             Skill cast info dict or None
@@ -322,17 +331,22 @@ class SkillInjector:
         # Update casting states
         self.update_casting_state(current_time)
 
-        # Update all skill conditions
+        # Update all skill conditions (pass ignore_keys for replacement logic)
         for skill_id in self.skills.keys():
-            self.update_skill_conditions(skill_id, pressed_keys, current_time)
+            self.update_skill_conditions(skill_id, pressed_keys, current_time, ignore_keys)
 
         # Check each skill for injection
         for skill_id in self.skills.keys():
             if not self.can_inject_skill(skill_id, pressed_keys, current_time):
                 continue
 
-            # Additional check: only inject if no other keys are pressed
-            # Allow injection only if no keys are pressed
+            skill_state = self.skills[skill_id]
+
+            # If in replacement mode, can inject anytime (skill will replace ignore_key)
+            if skill_state.use_replacement_mode:
+                return self.cast_skill(skill_id, current_time)
+
+            # Otherwise, only inject if no other keys are pressed
             if len(pressed_keys) == 0:
                 return self.cast_skill(skill_id, current_time)
 

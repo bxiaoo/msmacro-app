@@ -334,8 +334,10 @@ class Player:
                     current_keys_list = list(down_keys)
 
                     # Try to inject skill (this checks all conditions)
+                    # Pass ignore_usages as list for skill replacement logic
+                    ignore_keys_list = list(ignore_usages) if ignore_usages else None
                     skill_cast_info = skill_injector.check_and_inject_skills(
-                        current_keys_list, current_time
+                        current_keys_list, current_time, ignore_keys_list
                     )
 
                     if skill_cast_info:

@@ -293,7 +293,7 @@ export default function App(){
     setIsNewSkillModalOpen(true)
   }, [])
 
-  const handleSaveNewSkill = useCallback(async ({ skillKey, cooldown, isEditing, skillId }) => {
+  const handleSaveNewSkill = useCallback(async ({ name, skillKey, cooldown, isEditing, skillId }) => {
     try {
       if (isEditing && skillId) {
         // Update existing skill
@@ -301,7 +301,8 @@ export default function App(){
         if (existingSkill) {
           const updatedSkill = {
             ...existingSkill,
-            name: skillKey,
+            name: name,
+            keystroke: skillKey,
             cooldown: cooldown
           }
           await updateSkill(skillId, updatedSkill)
@@ -312,17 +313,14 @@ export default function App(){
       } else {
         // Create new skill
         const newSkill = {
-          name: skillKey,
+          name: name,
           keystroke: skillKey,
           variant: "cd skill",
           isOpen: false,
           isEnabled: true,
           isSelected: false,
-          afterKeyConstraints: false,
-          key1: "",
-          key2: "",
-          key3: "",
-          afterKeysSeconds: 0.45,
+          keyReplacement: false,
+          replaceRate: 0.7,
           frozenRotationDuringCasting: false,
           cooldown: cooldown
         }

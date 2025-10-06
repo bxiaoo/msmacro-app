@@ -5,24 +5,28 @@ import { Input } from './ui/input'
 import { NumberInput } from './ui/number-input'
 
 export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) {
+  const [name, setName] = useState('')
   const [skillKey, setSkillKey] = useState('')
   const [cooldown, setCooldown] = useState(120)
 
   // Pre-populate form when editing
   useEffect(() => {
     if (editingSkill) {
-      setSkillKey(editingSkill.name || '')
+      setName(editingSkill.name || '')
+      setSkillKey(editingSkill.keystroke || editingSkill.name || '')
       setCooldown(editingSkill.cooldown || 120)
     } else {
+      setName('')
       setSkillKey('')
       setCooldown(120)
     }
   }, [editingSkill, isOpen])
 
   const handleSave = () => {
-    if (!skillKey.trim()) return
+    if (!skillKey.trim() || !name.trim()) return
 
     onSave({
+      name: name.trim(),
       skillKey: skillKey.trim(),
       cooldown,
       isEditing: !!editingSkill,
@@ -30,17 +34,19 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
     })
 
     // Reset form
+    setName('')
     setSkillKey('')
     setCooldown(120)
   }
 
   const handleDiscard = () => {
+    setName('')
     setSkillKey('')
     setCooldown(120)
     onClose()
   }
 
-  const canSave = skillKey.trim().length > 0
+  const canSave = skillKey.trim().length > 0 && name.trim().length > 0
 
   if (!isOpen) return null
 
@@ -54,6 +60,18 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
           </p>
 
           <div className="content-stretch flex flex-col gap-[14px] items-start relative shrink-0 w-full">
+            <div className="flex flex-col gap-1.5 w-full">
+              <label className="text-sm font-medium text-gray-900">
+                Name
+              </label>
+              <Input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Skill name"
+              />
+            </div>
+
             <div className="flex flex-col gap-1.5 w-full">
               <label className="text-sm font-medium text-gray-900">
                 Skill key

@@ -38,16 +38,10 @@ export function SkillCell({
   onEdit,
   onDelete,
   // CD Skill specific props
-  afterKeyConstraints = false,
-  onAfterKeyConstraintsChange,
-  key1 = "",
-  key2 = "",
-  key3 = "",
-  onKey1Change,
-  onKey2Change,
-  onKey3Change,
-  afterKeysSeconds = 0.45,
-  onAfterKeysSecondsChange,
+  keyReplacement = false,
+  onKeyReplacementChange,
+  replaceRate = 0.7,
+  onReplaceRateChange,
   frozenRotationDuringCasting = false,
   onFrozenRotationDuringCastingChange,
   // Buff specific props
@@ -104,56 +98,29 @@ export function SkillCell({
 
             {variant === "cd skill" && (
               <>
-                {/* After key constraints toggle */}
+                {/* Key replacement toggle */}
                 <div className="content-stretch flex gap-[12px] items-center relative shrink-0">
                   <Switch
-                    checked={afterKeyConstraints}
-                    onCheckedChange={onAfterKeyConstraintsChange}
+                    checked={keyReplacement}
+                    onCheckedChange={onKeyReplacementChange}
                     disabled={!isEnabled}
                   />
                   <p className={`font-['Roboto:Regular',_sans-serif] font-normal leading-[normal] relative shrink-0 text-[16px] text-nowrap whitespace-pre ${
                     isEnabled ? 'text-gray-900' : 'text-gray-400'
                   }`} style={{ fontVariationSettings: "'wdth' 100" }}>
-                    After key constraints
+                    Key replacement
                   </p>
                 </div>
 
-                {/* Key inputs */}
-                <div className="content-stretch flex gap-[10px] items-center relative shrink-0 w-full">
-                  <KeyInput
-                    label="Key #1"
-                    value={key1}
-                    onChange={onKey1Change}
-                    disabled={!isEnabled}
-                  />
-                  <p className={`font-['Roboto:Regular',_sans-serif] font-normal leading-[normal] relative shrink-0 text-[14px] text-nowrap whitespace-pre ${
-                    isEnabled ? 'text-gray-900' : 'text-gray-400'
-                  }`} style={{ fontVariationSettings: "'wdth' 100" }}>
-                  </p>
-                  <KeyInput
-                    label="Key #2"
-                    value={key2}
-                    onChange={onKey2Change}
-                    disabled={!isEnabled}
-                  />
-                  <p className={`font-['Roboto:Regular',_sans-serif] font-normal leading-[normal] relative shrink-0 text-[14px] text-nowrap whitespace-pre ${
-                    isEnabled ? 'text-gray-900' : 'text-gray-400'
-                  }`} style={{ fontVariationSettings: "'wdth' 100" }}>
-                  </p>
-                  <KeyInput
-                    label="Key #3"
-                    value={key3}
-                    onChange={onKey3Change}
-                    disabled={!isEnabled}
-                  />
-                </div>
-
-                {/* After keys seconds */}
+                {/* Replace rate */}
                 <NumberInput
-                  label="After keys (seconds)"
-                  value={afterKeysSeconds}
-                  onChange={onAfterKeysSecondsChange}
+                  label="Replace rate"
+                  value={replaceRate}
+                  onChange={onReplaceRateChange}
                   disabled={!isEnabled}
+                  min={0}
+                  max={1}
+                  step={0.1}
                 />
               </>
             )}

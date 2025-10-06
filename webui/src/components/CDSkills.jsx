@@ -45,16 +45,10 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
                   onEdit={() => onEditSkill(skill)}
                   onDelete={() => onDeleteSkill(skill.id)}
                   // CD Skill props
-                  afterKeyConstraints={skill.afterKeyConstraints}
-                  onAfterKeyConstraintsChange={(value) => onUpdateSkill(skill.id, { afterKeyConstraints: value })}
-                  key1={skill.key1}
-                  key2={skill.key2}
-                  key3={skill.key3}
-                  onKey1Change={(value) => onUpdateSkill(skill.id, { key1: value })}
-                  onKey2Change={(value) => onUpdateSkill(skill.id, { key2: value })}
-                  onKey3Change={(value) => onUpdateSkill(skill.id, { key3: value })}
-                  afterKeysSeconds={skill.afterKeysSeconds}
-                  onAfterKeysSecondsChange={(value) => onUpdateSkill(skill.id, { afterKeysSeconds: value })}
+                  keyReplacement={skill.keyReplacement}
+                  onKeyReplacementChange={(value) => onUpdateSkill(skill.id, { keyReplacement: value })}
+                  replaceRate={skill.replaceRate}
+                  onReplaceRateChange={(value) => onUpdateSkill(skill.id, { replaceRate: value })}
                   frozenRotationDuringCasting={skill.frozenRotationDuringCasting}
                   onFrozenRotationDuringCastingChange={(value) => onUpdateSkill(skill.id, { frozenRotationDuringCasting: value })}
                 />

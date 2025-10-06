@@ -19,7 +19,7 @@ class Settings:
     stop_hotkey: str = "LCTRL+Q"
     record_hotkey: str = "LCTRL+R"
     min_hold_s: float = 0.083
-    min_repeat_same_key_s: float = 0.112
+    min_repeat_same_key_s: float = 0.09
     socket_path: str = DEFAULT_SOCKET
 
 SETTINGS = Settings()

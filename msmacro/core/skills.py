@@ -19,11 +19,8 @@ class SkillConfig:
     name: str
     keystroke: str
     cooldown: float
-    after_key_constraints: bool = False
-    key1: str = ""
-    key2: str = ""
-    key3: str = ""
-    after_keys_seconds: float = 0.45
+    key_replacement: bool = False
+    replace_rate: float = 0.7
     frozen_rotation_during_casting: bool = False
     is_selected: bool = False
     # Frontend-only UI state (not persisted to disk)
@@ -38,11 +35,8 @@ class SkillConfig:
             "name": self.name,
             "keystroke": self.keystroke,
             "cooldown": self.cooldown,
-            "afterKeyConstraints": self.after_key_constraints,
-            "key1": self.key1,
-            "key2": self.key2,
-            "key3": self.key3,
-            "afterKeysSeconds": self.after_keys_seconds,
+            "keyReplacement": self.key_replacement,
+            "replaceRate": self.replace_rate,
             "frozenRotationDuringCasting": self.frozen_rotation_during_casting,
             "isSelected": self.is_selected,
             # Frontend UI state
@@ -66,10 +60,10 @@ class SkillConfig:
         normalized = {}
         for k, v in data.items():
             # Map camelCase to snake_case
-            if k == "afterKeyConstraints":
-                normalized["after_key_constraints"] = v
-            elif k == "afterKeysSeconds":
-                normalized["after_keys_seconds"] = v
+            if k == "keyReplacement":
+                normalized["key_replacement"] = v
+            elif k == "replaceRate":
+                normalized["replace_rate"] = v
             elif k == "frozenRotationDuringCasting":
                 normalized["frozen_rotation_during_casting"] = v
             elif k == "isSelected":
@@ -78,6 +72,9 @@ class SkillConfig:
                 normalized["is_open"] = v
             elif k == "isEnabled":
                 normalized["is_enabled"] = v
+            # Legacy field migration - ignore old fields
+            elif k in ("afterKeyConstraints", "key1", "key2", "key3", "afterKeysSeconds"):
+                continue  # Skip legacy fields
             else:
                 normalized[k] = v
 
@@ -179,14 +176,11 @@ class SkillManager:
         # Map frontend field names to SkillConfig field names
         skill_data = {
             "id": data.get("id") or str(uuid.uuid4()),
-            "name": data.get("skillKey") or data.get("name", ""),
+            "name": data.get("name") or data.get("skillKey", ""),
             "keystroke": data.get("skillKey") or data.get("keystroke", ""),
             "cooldown": float(data.get("cooldown", 120)),
-            "after_key_constraints": bool(data.get("afterKeyConstraints", False)),
-            "key1": data.get("key1", ""),
-            "key2": data.get("key2", ""),
-            "key3": data.get("key3", ""),
-            "after_keys_seconds": float(data.get("afterKeysSeconds", 0.45)),
+            "key_replacement": bool(data.get("keyReplacement", False)),
+            "replace_rate": float(data.get("replaceRate", 0.7)),
             "frozen_rotation_during_casting": bool(data.get("frozenRotationDuringCasting", False)),
             "is_selected": bool(data.get("isSelected", False)),
         }
