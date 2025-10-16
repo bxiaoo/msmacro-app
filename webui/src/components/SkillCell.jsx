@@ -1,33 +1,11 @@
 import { ChevronDown, Edit, Trash2, Menu } from 'lucide-react'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { Switch } from './ui/switch'
 import { NumberInput } from './ui/number-input'
-import { Input } from './ui/input'
 import { Checkbox } from './ui/checkbox'
 
-function KeyInput({ label, placeholder = "Keystroke", value, onChange, disabled = false }) {
-  return (
-    <div className="basis-0 h-18 content-stretch flex flex-col gap-[8px] grow items-start min-h-px min-w-px relative shrink-0">
-      <p className={`font-['Roboto:Regular',_sans-serif] font-normal leading-[normal] relative shrink-0 text-[14px] w-full ${
-        disabled ? 'text-gray-400' : 'text-gray-900'
-      }`} style={{ fontVariationSettings: "'wdth' 100" }}>
-        {label}
-      </p>
-      <Input
-        type="text"
-        value={value}
-        onChange={(e) => onChange?.(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-        className={`basis-0 font-['Roboto:Regular',_sans-serif] font-normal grow leading-[normal] min-h-px min-w-px relative shrink-0 text-[16px] bg-gray-100 border-none outline-none ${
-          disabled ? 'text-gray-600' : 'text-gray-600'
-        }`}
-        style={{ fontVariationSettings: "'wdth' 100" }}
-      />
-    </div>
-  )
-}
-
 export function SkillCell({
+  id,
   skillName = "Skill #1",
   variant = "cd skill", // "cd skill" or "buff"
   isOpen = false,
@@ -53,17 +31,23 @@ export function SkillCell({
   onAfterCastingSecondsChange,
   // Drag and drop props
   isDragging = false,
-  dragHandleProps,
   isInGroup = false
 }) {
+  // Register as draggable and droppable to participate in DnD
+  const { attributes, listeners, setNodeRef: setDragRef } = id ? useDraggable({ id }) : { attributes: {}, listeners: {}, setNodeRef: undefined }
+  const { setNodeRef: setDropRef } = id ? useDroppable({ id }) : { setNodeRef: undefined }
+
   return (
-    <div className={`box-border content-stretch flex flex-col gap-[12px] items-center relative shrink-0 w-full transition-all duration-300 ease-out ${
-      isDragging ? 'bg-white shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-2px_rgba(0,0,0,0.05)] rounded-[4px]' : 'bg-gray-200'
-    } ${
-      isInGroup ? '' : 'rounded-[4px]'
-    } ${
-      isOpen ? 'pb-[12px] pt-0 px-0' : ''
-    }`}>
+    <div
+      ref={setDropRef}
+      className={`box-border content-stretch flex flex-col gap-[12px] items-center relative shrink-0 w-full ${
+        isDragging ? 'bg-white shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-2px_rgba(0,0,0,0.05)] rounded-[4px]' : 'bg-gray-200'
+      } ${
+        isInGroup ? '' : 'rounded-[4px]'
+      } ${
+        isOpen ? 'pb-[12px] pt-0 px-0' : ''
+      }`}
+    >
       {/* Header */}
       <div className="box-border content-stretch flex items-center justify-between p-[6px] relative rounded-[4px] shrink-0 w-full">
         <Checkbox
@@ -87,19 +71,26 @@ export function SkillCell({
             />
           </div>
         </div>
-        <div className="box-border content-stretch flex gap-[10px] items-center p-[10px] relative shrink-0">
-          <div className="overflow-clip relative shrink-0 size-[20px] cursor-pointer" onClick={onEdit}>
-            <Edit size={20} className="text-gray-900" />
+        <div
+          ref={setDragRef}
+          {...attributes}
+          {...listeners}
+          className="box-border content-stretch flex items-center relative shrink-0 cursor-grab active:cursor-grabbing touch-none"
+        >
+          <div className="box-border content-stretch flex gap-[10px] items-center p-[10px] relative shrink-0">
+            <div className="overflow-clip relative shrink-0 size-[20px] cursor-pointer" onClick={onEdit}>
+              <Edit size={20} className="text-gray-900" />
+            </div>
           </div>
-        </div>
-        <div className="box-border content-stretch flex gap-[10px] items-center p-[10px] relative shrink-0">
-          <div className="overflow-clip relative shrink-0 size-[20px] cursor-pointer" onClick={onDelete}>
-            <Trash2 size={20} className="text-gray-900" />
+          <div className="box-border content-stretch flex gap-[10px] items-center p-[10px] relative shrink-0">
+            <div className="overflow-clip relative shrink-0 size-[20px] cursor-pointer" onClick={onDelete}>
+              <Trash2 size={20} className="text-gray-900" />
+            </div>
           </div>
-        </div>
-        <div className="box-border content-stretch flex gap-[10px] items-center pl-[10px] pr-0 py-0 relative shrink-0">
-          <div className="overflow-clip relative shrink-0 size-[14px] cursor-grab active:cursor-grabbing" {...dragHandleProps}>
-            <Menu size={14} className="text-gray-400" />
+          <div className="box-border content-stretch flex gap-[10px] items-center pl-[10px] pr-0 py-0 relative shrink-0">
+            <div className="overflow-clip relative shrink-0 size-[14px]">
+              <Menu size={14} className="text-gray-400" />
+            </div>
           </div>
         </div>
       </div>
@@ -193,4 +184,3 @@ export function SkillCell({
     </div>
   )
 }
-
