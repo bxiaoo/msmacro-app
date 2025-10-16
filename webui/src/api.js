@@ -145,6 +145,13 @@ async function API(path, opts = {}) {
     return API("/api/skills/selected");
   }
 
+  export function reorderSkills(skillsData) {
+    return API("/api/skills/reorder", {
+      method: "PUT",
+      body: JSON.stringify(skillsData),
+    });
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

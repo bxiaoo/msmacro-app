@@ -179,7 +179,7 @@ test_skills() {
     # Test 1: List skills
     echo -e "${BLUE}📋 Testing skills list...${NC}"
     SKILLS_RESPONSE=$(curl -s "$BASE_URL/api/skills")
-    if echo "$SKILLS_RESPONSE" | grep -q "Fireball"; then
+    if echo "$SKILLS_RESPONSE" | grep -q "Thunder Hit"; then
         echo -e "${GREEN}✅ Skills list working - found sample skills${NC}"
         SKILL_COUNT=$(echo "$SKILLS_RESPONSE" | jq length 2>/dev/null || echo "unknown")
         echo -e "   Found $SKILL_COUNT skills"
@@ -265,6 +265,129 @@ test_skills() {
     echo -e "${GREEN}🎉 All CD Skills tests passed!${NC}"
 }
 
+test_drag() {
+    echo -e "${YELLOW}Testing Drag-and-Drop Skill Reordering...${NC}"
+    echo
+
+    BASE_URL="http://127.0.0.1:$MOCK_PORT"
+
+    # Check if jq is available
+    if ! command -v jq &> /dev/null; then
+        echo -e "${RED}❌ jq is required for this test. Please install jq.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}📋 Step 1: List current skills${NC}"
+    SKILLS=$(curl -s "$BASE_URL/api/skills")
+
+    echo "$SKILLS" | jq -r '.[] | "   [\(.order)] \(.name) (group: \(.group_id // "none"), delay: \(.delay_after)s)"'
+    echo
+
+    # Extract skill IDs and names
+    SKILL_1_ID=$(echo "$SKILLS" | jq -r '.[0].id')
+    SKILL_1_NAME=$(echo "$SKILLS" | jq -r '.[0].name')
+    SKILL_2_ID=$(echo "$SKILLS" | jq -r '.[1].id')
+    SKILL_2_NAME=$(echo "$SKILLS" | jq -r '.[1].name')
+    SKILL_3_ID=$(echo "$SKILLS" | jq -r '.[2].id')
+    SKILL_3_NAME=$(echo "$SKILLS" | jq -r '.[2].name')
+
+    # Test 1: Reorder skills (swap first and third)
+    echo -e "${BLUE}🔄 Step 2: Reordering skills (swap first and third)${NC}"
+    REORDER_DATA=$(echo "$SKILLS" | jq --arg id1 "$SKILL_1_ID" --arg id3 "$SKILL_3_ID" '
+        map(if .id == $id1 then .order = 2 elif .id == $id3 then .order = 0 else . end)
+    ')
+
+    REORDER_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$REORDER_DATA" "$BASE_URL/api/skills/reorder")
+
+    if echo "$REORDER_RESPONSE" | jq -e '.[0].name' > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Reorder successful${NC}"
+        echo "$REORDER_RESPONSE" | jq -r '.[] | "   [\(.order)] \(.name)"'
+    else
+        echo -e "${RED}❌ Reorder failed${NC}"
+        echo "Response: $REORDER_RESPONSE"
+        return 1
+    fi
+    echo
+
+    # Test 2: Create a group
+    echo -e "${BLUE}👥 Step 3: Creating a group (grouping first two skills)${NC}"
+    GROUP_ID="group-test-$(date +%s)"
+    GROUP_DATA=$(echo "$REORDER_RESPONSE" | jq --arg gid "$GROUP_ID" '
+        map(if .order == 0 then
+            .group_id = $gid | .delay_after = 12
+        elif .order == 1 then
+            .group_id = $gid | .delay_after = 0
+        else . end)
+    ')
+
+    GROUP_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$GROUP_DATA" "$BASE_URL/api/skills/reorder")
+
+    if echo "$GROUP_RESPONSE" | jq -e '.[] | select(.group_id != null)' > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Group created successfully${NC}"
+        echo "$GROUP_RESPONSE" | jq -r '.[] | "   [\(.order)] \(.name) - group: \(.group_id // "none"), delay: \(.delay_after)s"'
+    else
+        echo -e "${RED}❌ Group creation failed${NC}"
+        echo "Response: $GROUP_RESPONSE"
+        return 1
+    fi
+    echo
+
+    # Test 3: Update delay in group
+    echo -e "${BLUE}⏱️  Step 4: Updating delay between grouped skills${NC}"
+    DELAY_DATA=$(echo "$GROUP_RESPONSE" | jq '
+        map(if .order == 0 then .delay_after = 5 else . end)
+    ')
+
+    DELAY_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$DELAY_DATA" "$BASE_URL/api/skills/reorder")
+
+    if echo "$DELAY_RESPONSE" | jq -e '.[0].delay_after == 5' > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Delay updated successfully${NC}"
+        echo "$DELAY_RESPONSE" | jq -r '.[] | select(.group_id != null) | "   [\(.order)] \(.name) → wait \(.delay_after)s → next skill"'
+    else
+        echo -e "${RED}❌ Delay update failed${NC}"
+        return 1
+    fi
+    echo
+
+    # Test 4: Break group (remove group_id)
+    echo -e "${BLUE}💔 Step 5: Breaking the group${NC}"
+    UNGROUP_DATA=$(echo "$DELAY_RESPONSE" | jq '
+        map(.group_id = null | .delay_after = 0)
+    ')
+
+    UNGROUP_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$UNGROUP_DATA" "$BASE_URL/api/skills/reorder")
+
+    if ! echo "$UNGROUP_RESPONSE" | jq -e '.[] | select(.group_id != null)' > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Group broken successfully${NC}"
+        echo "$UNGROUP_RESPONSE" | jq -r '.[] | "   [\(.order)] \(.name) - ungrouped"'
+    else
+        echo -e "${RED}❌ Ungroup failed${NC}"
+        return 1
+    fi
+    echo
+
+    # Test 5: Restore original order
+    echo -e "${BLUE}↩️  Step 6: Restoring original order${NC}"
+    RESTORE_DATA=$(echo "$UNGROUP_RESPONSE" | jq --arg id1 "$SKILL_1_ID" --arg id2 "$SKILL_2_ID" --arg id3 "$SKILL_3_ID" '
+        map(if .id == $id1 then .order = 0 elif .id == $id2 then .order = 1 elif .id == $id3 then .order = 2 else . end)
+    ')
+
+    RESTORE_RESPONSE=$(curl -s -X PUT -H "Content-Type: application/json" -d "$RESTORE_DATA" "$BASE_URL/api/skills/reorder")
+
+    echo -e "${GREEN}✅ Order restored${NC}"
+    echo "$RESTORE_RESPONSE" | jq -r '.[] | "   [\(.order)] \(.name)"'
+    echo
+
+    echo -e "${GREEN}🎉 All drag-and-drop tests passed!${NC}"
+    echo
+    echo -e "${BLUE}💡 Next steps:${NC}"
+    echo -e "   1. Open http://127.0.0.1:$FRONTEND_PORT in your browser"
+    echo -e "   2. Go to the 'Skills' tab"
+    echo -e "   3. Long-press the menu icon (≡) on any skill"
+    echo -e "   4. Drag to reorder or drop on another skill to group"
+    echo -e "   5. Click the delay number to edit wait time between skills"
+}
+
 show_help() {
     echo "Usage: $0 [command]"
     echo
@@ -276,6 +399,7 @@ show_help() {
     echo "  build       - Build frontend for production"
     echo "  test        - Test basic mock API endpoints"
     echo "  test-skills - Test CD Skills CRUD operations and integration"
+    echo "  test-drag   - Test drag-and-drop skill reordering (interactive)"
     echo "  status      - Show status of development services"
     echo "  help        - Show this help message"
 }
@@ -348,6 +472,9 @@ case "$1" in
         ;;
     "test-skills")
         test_skills
+        ;;
+    "test-drag")
+        test_drag
         ;;
     "status")
         show_status

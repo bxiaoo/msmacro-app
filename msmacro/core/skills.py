@@ -23,6 +23,10 @@ class SkillConfig:
     replace_rate: float = 0.7
     frozen_rotation_during_casting: bool = False
     is_selected: bool = False
+    # Group and ordering fields
+    order: int = 0
+    group_id: Optional[str] = None
+    delay_after: float = 0.0  # Delay in seconds after this skill casts (for group members)
     # Frontend-only UI state (not persisted to disk)
     variant: str = "cd skill"
     is_open: bool = False
@@ -39,6 +43,10 @@ class SkillConfig:
             "replaceRate": self.replace_rate,
             "frozenRotationDuringCasting": self.frozen_rotation_during_casting,
             "isSelected": self.is_selected,
+            # Group and ordering
+            "order": self.order,
+            "groupId": self.group_id,
+            "delayAfter": self.delay_after,
             # Frontend UI state
             "variant": self.variant,
             "isOpen": self.is_open,
@@ -72,6 +80,10 @@ class SkillConfig:
                 normalized["is_open"] = v
             elif k == "isEnabled":
                 normalized["is_enabled"] = v
+            elif k == "groupId":
+                normalized["group_id"] = v
+            elif k == "delayAfter":
+                normalized["delay_after"] = v
             # Legacy field migration - ignore old fields
             elif k in ("afterKeyConstraints", "key1", "key2", "key3", "afterKeysSeconds"):
                 continue  # Skip legacy fields

@@ -68,13 +68,13 @@ class MockState:
         return files
 
     def _generate_mock_skills(self):
-        """Generate some sample skills for testing (with frontend format)."""
+        """Generate some sample skills for testing (with frontend format + drag-drop fields)."""
         import uuid
         sample_skills = [
             {
                 "id": str(uuid.uuid4()),
-                "name": "Fireball",
-                "keystroke": "KEY_F",
+                "name": "Thunder Hit",
+                "keystroke": "KEY_1",
                 "cooldown": 15.0,
                 "afterKeyConstraints": False,
                 "key1": "",
@@ -85,28 +85,38 @@ class MockState:
                 "isSelected": True,
                 "variant": "cd skill",
                 "isOpen": False,
-                "isEnabled": True
+                "isEnabled": True,
+                "keyReplacement": False,
+                "replaceRate": 0.7,
+                "order": 0,
+                "group_id": None,
+                "delay_after": 0
             },
             {
                 "id": str(uuid.uuid4()),
-                "name": "Ice Blast",
-                "keystroke": "KEY_I",
+                "name": "Strong Attack",
+                "keystroke": "KEY_2",
                 "cooldown": 20.0,
-                "afterKeyConstraints": True,
-                "key1": "KEY_LEFTSHIFT",
-                "key2": "KEY_LEFTCTRL",
+                "afterKeyConstraints": False,
+                "key1": "",
+                "key2": "",
                 "key3": "",
                 "afterKeysSeconds": 0.6,
                 "frozenRotationDuringCasting": True,
                 "isSelected": False,
                 "variant": "cd skill",
                 "isOpen": False,
-                "isEnabled": True
+                "isEnabled": True,
+                "keyReplacement": False,
+                "replaceRate": 0.7,
+                "order": 1,
+                "group_id": None,
+                "delay_after": 0
             },
             {
                 "id": str(uuid.uuid4()),
-                "name": "Lightning Strike",
-                "keystroke": "KEY_1",
+                "name": "Poison Fire",
+                "keystroke": "KEY_3",
                 "cooldown": 8.0,
                 "afterKeyConstraints": False,
                 "key1": "",
@@ -114,10 +124,15 @@ class MockState:
                 "key3": "",
                 "afterKeysSeconds": 0.3,
                 "frozenRotationDuringCasting": False,
-                "isSelected": True,
+                "isSelected": False,
                 "variant": "cd skill",
                 "isOpen": False,
-                "isEnabled": True
+                "isEnabled": True,
+                "keyReplacement": False,
+                "replaceRate": 0.7,
+                "order": 2,
+                "group_id": None,
+                "delay_after": 0
             }
         ]
 
@@ -693,6 +708,7 @@ def make_app() -> web.Application:
         web.put("/api/skills/{id}", api_skills_update),
         web.delete("/api/skills/{id}", api_skills_delete),
         web.get("/api/skills/selected", api_skills_selected),
+        web.put("/api/skills/reorder", api_skills_reorder),
 
         # Health check
         web.get("/api/ping", api_ping),
@@ -796,6 +812,38 @@ async def api_skills_selected(request: web.Request) -> web.Response:
     """Get all selected skills."""
     selected_skills = [skill for skill in mock_state.skills.values() if skill.get("is_selected", False)]
     return json_response(selected_skills)
+
+async def api_skills_reorder(request: web.Request) -> web.Response:
+    """Reorder skills and update grouping information."""
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"error": "Invalid JSON"}, 400)
+
+    # Validate that we have skills data
+    if not isinstance(body, list):
+        return json_response({"error": "Expected array of skills"}, 400)
+
+    print(f"🔄 Reordering {len(body)} skills...")
+
+    # Update all skills with new order/group_id/delay_after
+    for skill_data in body:
+        skill_id = skill_data.get("id")
+        if skill_id and skill_id in mock_state.skills:
+            # Update existing skill with new ordering fields
+            skill = mock_state.skills[skill_id]
+            skill["order"] = skill_data.get("order", skill.get("order", 0))
+            skill["group_id"] = skill_data.get("group_id")
+            skill["delay_after"] = skill_data.get("delay_after", 0)
+
+            print(f"   - {skill['name']}: order={skill['order']}, group_id={skill['group_id']}, delay={skill['delay_after']}s")
+
+    # Broadcast update
+    await broadcast_event("skills", {"skills": list(mock_state.skills.values())})
+
+    # Return updated skills sorted by order
+    updated_skills = sorted(mock_state.skills.values(), key=lambda s: s.get("order", 0))
+    return json_response(updated_skills)
 
 def main():
     """Run the mock server."""

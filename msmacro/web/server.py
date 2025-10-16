@@ -24,6 +24,7 @@ from .handlers import (
     api_skills_update,
     api_skills_delete,
     api_skills_selected,
+    api_skills_reorder,
 )
 
 # ---- Config ----
@@ -85,6 +86,7 @@ def make_app() -> web.Application:
         web.put("/api/skills/{id}", api_skills_update),
         web.delete("/api/skills/{id}", api_skills_delete),
         web.get("/api/skills/selected", api_skills_selected),
+        web.put("/api/skills/reorder", api_skills_reorder),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),

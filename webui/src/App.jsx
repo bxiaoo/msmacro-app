@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, EventStream } from './api.js'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
@@ -312,6 +312,7 @@ export default function App(){
         }
       } else {
         // Create new skill
+        const maxOrder = cdSkills.length > 0 ? Math.max(...cdSkills.map(s => s.order || 0)) : -1
         const newSkill = {
           name: name,
           keystroke: skillKey,
@@ -322,7 +323,10 @@ export default function App(){
           keyReplacement: false,
           replaceRate: 0.7,
           frozenRotationDuringCasting: false,
-          cooldown: cooldown
+          cooldown: cooldown,
+          order: maxOrder + 1,
+          group_id: null,
+          delay_after: 0
         }
         const savedSkill = await saveSkill(newSkill)
         setCdSkills(prev => [...prev, savedSkill])
@@ -361,6 +365,15 @@ export default function App(){
       } catch (error) {
         console.error('Failed to delete skill:', error)
       }
+    }
+  }, [])
+
+  const handleReorderSkills = useCallback(async (reorderedSkills) => {
+    try {
+      await reorderSkills(reorderedSkills)
+      setCdSkills(reorderedSkills)
+    } catch (error) {
+      console.error('Failed to reorder skills:', error)
     }
   }, [])
 
@@ -412,6 +425,7 @@ export default function App(){
             onEditSkill={handleEditSkill}
             onUpdateSkill={updateSkillLocal}
             onDeleteSkill={deleteSkill}
+            onReorderSkills={handleReorderSkills}
           />
         )}
       </div>

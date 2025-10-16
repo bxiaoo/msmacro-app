@@ -444,3 +444,23 @@ async def api_skills_selected(request: web.Request):
         return _json(skills)
     except Exception as e:
         return _json({"error": str(e)}, 500)
+
+
+async def api_skills_reorder(request: web.Request):
+    """Reorder skills and update grouping information."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _json({"error": "invalid json"}, 400)
+
+    # Validate that we have skills data
+    if not isinstance(body, list):
+        return _json({"error": "expected array of skills"}, 400)
+
+    try:
+        resp = await _daemon("reorder_skills", skills_data=body)
+        # Extract skills array from response
+        skills = resp.get("skills", [])
+        return _json(skills)
+    except Exception as e:
+        return _json({"error": str(e)}, 500)

@@ -47,6 +47,10 @@ class SkillState:
     cooldown_passed: bool = False  # Condition 1: Cooldown + random delay passed
     arrow_ready: bool = False  # Condition 2: Opposite arrow + delay passed
 
+    # Group casting state (new for sequential group casting)
+    group_delay_end_time: float = 0.0  # When this skill can cast after previous group member
+    waiting_for_previous_skill: bool = False  # True if waiting for previous skill in group
+
     def __post_init__(self):
         pass
 
@@ -62,6 +66,10 @@ class SkillInjector:
         self.last_arrow_direction: Optional[int] = None
         self.last_arrow_time: float = 0.0
 
+        # Group management (new for sequential group casting)
+        self.skill_groups: Dict[str, List[str]] = {}  # group_id -> [skill_ids in order]
+        self.group_casting_state: Dict[str, int] = {}  # group_id -> index of next skill to cast
+
         # Initialize skill states
         for skill_data in active_skills:
             config = SkillConfig.from_dict(skill_data)
@@ -72,11 +80,33 @@ class SkillInjector:
             state.can_cast_after = state.random_delay_duration
             self.skills[config.id] = state
 
+        # Build group structure
+        self._build_skill_groups(active_skills)
+
     def _get_usage_from_name(self, key_name: str) -> Optional[int]:
         """Convert key name to HID usage ID."""
         if not key_name or not key_name.strip():
             return None
         return name_to_usage(key_name.strip())
+
+    def _build_skill_groups(self, active_skills: List[Dict[str, Any]]) -> None:
+        """
+        Organize skills by group_id and order.
+        Builds self.skill_groups mapping: group_id -> [skill_ids in order]
+        """
+        # Sort skills by order
+        sorted_skills = sorted(active_skills, key=lambda s: s.get('order', 0))
+
+        for skill_data in sorted_skills:
+            # Handle both snake_case and camelCase
+            group_id = skill_data.get('group_id') or skill_data.get('groupId')
+            skill_id = skill_data.get('id')
+
+            if group_id and skill_id:
+                if group_id not in self.skill_groups:
+                    self.skill_groups[group_id] = []
+                    self.group_casting_state[group_id] = 0  # Start at first skill
+                self.skill_groups[group_id].append(skill_id)
 
 
     def update_arrow_key_tracking(self, pressed_keys: List[int], current_time: float) -> None:
@@ -190,6 +220,70 @@ class SkillInjector:
             # No key replacement - auto-pass this condition (original behavior)
             skill_state.replacement_ready = True
 
+    def _check_group_casting_order(self, skill_id: str, current_time: float) -> bool:
+        """
+        Check if this skill can cast based on group order.
+
+        Returns True if:
+        - Skill is not in a group (solo skill)
+        - Skill is the next one to cast in its group
+        - Previous skill in group has finished + delay_after + random(1-5s) + all cascade conditions met
+
+        This adds an additional cascade condition for grouped skills:
+        - Solo skills: Always pass this check
+        - Grouped skills: Must wait for previous skill in group
+        """
+        if skill_id not in self.skills:
+            return False
+
+        skill_state = self.skills[skill_id]
+        config = skill_state.config
+
+        # Solo skill (not in a group) - always pass
+        if not config.group_id:
+            return True
+
+        # Get group members
+        group_members = self.skill_groups.get(config.group_id, [])
+        if not group_members:
+            return True  # Group doesn't exist, treat as solo
+
+        # Find this skill's index in the group
+        try:
+            skill_index = group_members.index(skill_id)
+        except ValueError:
+            return True  # Skill not in group list, treat as solo
+
+        # First skill in group - check if it's the current turn
+        if skill_index == 0:
+            current_index = self.group_casting_state.get(config.group_id, 0)
+            return current_index == 0
+
+        # Not first skill - must wait for previous skill
+        previous_skill_id = group_members[skill_index - 1]
+        previous_state = self.skills.get(previous_skill_id)
+
+        if not previous_state:
+            return False  # Previous skill doesn't exist
+
+        # Check if previous skill has been cast
+        if previous_state.last_used_time == 0.0:
+            return False  # Previous skill never cast yet
+
+        # Calculate when this skill can cast:
+        # previous_cast_end_time + previous_delay_after + random(1-5s)
+        if skill_state.group_delay_end_time == 0.0:
+            # First time checking - set delay
+            random_delay = random.uniform(1.0, 5.0)
+            skill_state.group_delay_end_time = (
+                previous_state.cast_end_time +
+                previous_state.config.delay_after +
+                random_delay
+            )
+
+        # Check if enough time has passed
+        return current_time >= skill_state.group_delay_end_time
+
     def can_inject_skill(self, skill_id: str, pressed_keys: List[int], current_time: float) -> bool:
         """
         Check if ALL cascaded conditions are met for skill injection.
@@ -271,6 +365,19 @@ class SkillInjector:
         skill_state.space_delay = 0.0
         skill_state.use_replacement_mode = False
 
+        # NEW: Update group casting state
+        if config.group_id:
+            group_members = self.skill_groups.get(config.group_id, [])
+            try:
+                skill_index = group_members.index(skill_id)
+                # Advance to next skill in group (or wrap to 0 for cycling)
+                self.group_casting_state[config.group_id] = (skill_index + 1) % len(group_members)
+            except ValueError:
+                pass  # Skill not in group list
+
+        # Reset group delay for this skill (will be recalculated on next cast attempt)
+        skill_state.group_delay_end_time = 0.0
+
         # Calculate pauses
         # General post-casting delay (always applied for human-like behavior)
         general_post_delay = random.uniform(0.3, 0.5)
@@ -338,6 +445,10 @@ class SkillInjector:
         # Check each skill for injection
         for skill_id in self.skills.keys():
             if not self.can_inject_skill(skill_id, pressed_keys, current_time):
+                continue
+
+            # NEW: Check group casting order (additional cascade condition)
+            if not self._check_group_casting_order(skill_id, current_time):
                 continue
 
             skill_state = self.skills[skill_id]

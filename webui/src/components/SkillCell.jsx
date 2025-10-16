@@ -1,4 +1,4 @@
-import { ChevronDown, Edit, Trash2 } from 'lucide-react'
+import { ChevronDown, Edit, Trash2, Menu } from 'lucide-react'
 import { Switch } from './ui/switch'
 import { NumberInput } from './ui/number-input'
 import { Input } from './ui/input'
@@ -50,10 +50,18 @@ export function SkillCell({
   beforeCastingSeconds = 0.45,
   onBeforeCastingSecondsChange,
   afterCastingSeconds = 0.45,
-  onAfterCastingSecondsChange
+  onAfterCastingSecondsChange,
+  // Drag and drop props
+  isDragging = false,
+  dragHandleProps,
+  isInGroup = false
 }) {
   return (
-    <div className={`bg-gray-200 box-border content-stretch flex flex-col gap-[12px] items-center relative rounded-[4px] shrink-0 w-full ${
+    <div className={`box-border content-stretch flex flex-col gap-[12px] items-center relative shrink-0 w-full transition-all duration-300 ease-out ${
+      isDragging ? 'bg-white shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-2px_rgba(0,0,0,0.05)] rounded-[4px]' : 'bg-gray-200'
+    } ${
+      isInGroup ? '' : 'rounded-[4px]'
+    } ${
       isOpen ? 'pb-[12px] pt-0 px-0' : ''
     }`}>
       {/* Header */}
@@ -87,6 +95,11 @@ export function SkillCell({
         <div className="box-border content-stretch flex gap-[10px] items-center p-[10px] relative shrink-0">
           <div className="overflow-clip relative shrink-0 size-[20px] cursor-pointer" onClick={onDelete}>
             <Trash2 size={20} className="text-gray-900" />
+          </div>
+        </div>
+        <div className="box-border content-stretch flex gap-[10px] items-center pl-[10px] pr-0 py-0 relative shrink-0">
+          <div className="overflow-clip relative shrink-0 size-[14px] cursor-grab active:cursor-grabbing" {...dragHandleProps}>
+            <Menu size={14} className="text-gray-400" />
           </div>
         </div>
       </div>
