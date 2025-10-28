@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
+import { useSkillsOpenState } from './hooks/useSkillsOpenState.js'
 import EventsPanel from './components/EventsPanel.jsx'
 import './styles.css'
 
@@ -16,6 +17,7 @@ import { NewSkillModal } from './components/NewSkillModal.jsx'
 
 export default function App(){
   const { executeAction, isPending } = useApiAction()
+  const { getAllOpenStates, setOpenState, removeOpenState, cleanupOpenStates } = useSkillsOpenState()
   const [activeTab, setActiveTab] = useState('rotations')
   const [isRecording, setIsRecording] = useState(false)
   const [isPostRecording, setIsPostRecording] = useState(false)
@@ -135,13 +137,24 @@ export default function App(){
   const loadSkills = useCallback(async () => {
     try {
       const skills = await listSkills()
-      setCdSkills(skills || [])
+
+      // Merge backend data with localStorage open states
+      const openStates = getAllOpenStates()
+      const mergedSkills = (skills || []).map(skill => ({
+        ...skill,
+        isOpen: openStates[skill.id] || false
+      }))
+
+      // Cleanup localStorage for any deleted skills
+      cleanupOpenStates(mergedSkills.map(s => s.id))
+
+      setCdSkills(mergedSkills)
       setSkillsLoaded(true)
     } catch (error) {
       console.error('Failed to load skills:', error)
       setSkillsLoaded(true)
     }
-  }, [])
+  }, [getAllOpenStates, cleanupOpenStates])
 
   useEffect(() => {
     loadSkills()
@@ -293,7 +306,7 @@ export default function App(){
     setIsNewSkillModalOpen(true)
   }, [])
 
-  const handleSaveNewSkill = useCallback(async ({ name, skillKey, cooldown, isEditing, skillId }) => {
+  const handleSaveNewSkill = useCallback(async ({ name, skillKey, cooldown, skillDelay, castPosition, isEditing, skillId }) => {
     try {
       if (isEditing && skillId) {
         // Update existing skill
@@ -303,7 +316,9 @@ export default function App(){
             ...existingSkill,
             name: name,
             keystroke: skillKey,
-            cooldown: cooldown
+            cooldown: cooldown,
+            skillDelay: skillDelay !== undefined ? skillDelay : 0.3,
+            castPosition: castPosition !== undefined ? castPosition : 0.3
           }
           await updateSkill(skillId, updatedSkill)
           setCdSkills(prev => prev.map(skill =>
@@ -324,6 +339,8 @@ export default function App(){
           replaceRate: 0.7,
           frozenRotationDuringCasting: false,
           cooldown: cooldown,
+          skillDelay: skillDelay !== undefined ? skillDelay : 0.3,
+          castPosition: castPosition !== undefined ? castPosition : 0.3,
           order: maxOrder + 1,
           group_id: null,
           delay_after: 0
@@ -347,6 +364,12 @@ export default function App(){
       const existingSkill = cdSkills.find(skill => skill.id === id)
       if (existingSkill) {
         const updatedSkill = { ...existingSkill, ...updates }
+
+        // If isOpen is being updated, persist to localStorage
+        if ('isOpen' in updates) {
+          setOpenState(id, updates.isOpen)
+        }
+
         await updateSkill(id, updatedSkill)
         setCdSkills(prev => prev.map(skill =>
           skill.id === id ? updatedSkill : skill
@@ -355,18 +378,20 @@ export default function App(){
     } catch (error) {
       console.error('Failed to update skill:', error)
     }
-  }, [cdSkills])
+  }, [cdSkills, setOpenState])
 
   const deleteSkill = useCallback(async (id) => {
     if (confirm('Delete this skill?')) {
       try {
         await deleteSkillAPI(id)
+        // Remove from localStorage as well
+        removeOpenState(id)
         setCdSkills(prev => prev.filter(skill => skill.id !== id))
       } catch (error) {
         console.error('Failed to delete skill:', error)
       }
     }
-  }, [])
+  }, [removeOpenState])
 
   const handleReorderSkills = useCallback(async (reorderedSkills) => {
     try {

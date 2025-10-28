@@ -27,6 +27,9 @@ class SkillConfig:
     order: int = 0
     group_id: Optional[str] = None
     delay_after: float = 0.0  # Delay in seconds after this skill casts (for group members)
+    # Timing configuration fields
+    skill_delay: float = 0.3  # Minimum delay for post-skill pause rotation (final: skill_delay + random(0-0.2s))
+    cast_position: float = 0.3  # Minimum delay after opposite arrow key press (final: cast_position + random(0-0.2s))
     # Frontend-only UI state (not persisted to disk)
     variant: str = "cd skill"
     is_open: bool = False
@@ -47,6 +50,9 @@ class SkillConfig:
             "order": self.order,
             "groupId": self.group_id,
             "delayAfter": self.delay_after,
+            # Timing configuration
+            "skillDelay": self.skill_delay,
+            "castPosition": self.cast_position,
             # Frontend UI state
             "variant": self.variant,
             "isOpen": self.is_open,
@@ -84,6 +90,10 @@ class SkillConfig:
                 normalized["group_id"] = v
             elif k == "delayAfter":
                 normalized["delay_after"] = v
+            elif k == "skillDelay":
+                normalized["skill_delay"] = v
+            elif k == "castPosition":
+                normalized["cast_position"] = v
             # Legacy field migration - ignore old fields
             elif k in ("afterKeyConstraints", "key1", "key2", "key3", "afterKeysSeconds"):
                 continue  # Skip legacy fields

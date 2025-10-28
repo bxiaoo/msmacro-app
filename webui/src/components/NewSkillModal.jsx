@@ -8,6 +8,8 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
   const [name, setName] = useState('')
   const [skillKey, setSkillKey] = useState('')
   const [cooldown, setCooldown] = useState(120)
+  const [skillDelay, setSkillDelay] = useState(0.3)
+  const [castPosition, setCastPosition] = useState(0.3)
 
   // Pre-populate form when editing
   useEffect(() => {
@@ -15,10 +17,14 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
       setName(editingSkill.name || '')
       setSkillKey(editingSkill.keystroke || editingSkill.name || '')
       setCooldown(editingSkill.cooldown || 120)
+      setSkillDelay(editingSkill.skillDelay || 0.3)
+      setCastPosition(editingSkill.castPosition || 0.3)
     } else {
       setName('')
       setSkillKey('')
       setCooldown(120)
+      setSkillDelay(0.3)
+      setCastPosition(0.3)
     }
   }, [editingSkill, isOpen])
 
@@ -29,6 +35,8 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
       name: name.trim(),
       skillKey: skillKey.trim(),
       cooldown,
+      skillDelay,
+      castPosition,
       isEditing: !!editingSkill,
       skillId: editingSkill?.id
     })
@@ -37,12 +45,16 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
     setName('')
     setSkillKey('')
     setCooldown(120)
+    setSkillDelay(0.3)
+    setCastPosition(0.3)
   }
 
   const handleDiscard = () => {
     setName('')
     setSkillKey('')
     setCooldown(120)
+    setSkillDelay(0.3)
+    setCastPosition(0.3)
     onClose()
   }
 
@@ -89,6 +101,22 @@ export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) 
               value={cooldown}
               onChange={setCooldown}
               min={0}
+            />
+
+            <NumberInput
+              label="Skill delay (second)"
+              value={skillDelay}
+              onChange={setSkillDelay}
+              min={0}
+              step={0.1}
+            />
+
+            <NumberInput
+              label="Cast position (second)"
+              value={castPosition}
+              onChange={setCastPosition}
+              min={0}
+              step={0.1}
             />
           </div>
         </div>

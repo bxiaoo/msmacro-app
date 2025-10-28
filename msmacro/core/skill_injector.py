@@ -120,7 +120,10 @@ class SkillInjector:
                     if skill_state.cooldown_passed and not skill_state.is_casting:
                         # Reset timer - recalculate delay (allows reset if opposite pressed again)
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.3, 0.75)
+                        skill_state.opposite_arrow_delay = random.uniform(
+                            skill_state.config.cast_position,
+                            skill_state.config.cast_position + 0.2
+                        )
                         skill_state.arrow_ready = False  # Reset ready flag
             self.last_arrow_direction = ARROW_LEFT
             self.last_arrow_time = current_time
@@ -132,7 +135,10 @@ class SkillInjector:
                     if skill_state.cooldown_passed and not skill_state.is_casting:
                         # Reset timer - recalculate delay (allows reset if opposite pressed again)
                         skill_state.opposite_arrow_timer = current_time
-                        skill_state.opposite_arrow_delay = random.uniform(0.3, 0.75)
+                        skill_state.opposite_arrow_delay = random.uniform(
+                            skill_state.config.cast_position,
+                            skill_state.config.cast_position + 0.2
+                        )
                         skill_state.arrow_ready = False  # Reset ready flag
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
@@ -380,7 +386,7 @@ class SkillInjector:
 
         # Calculate pauses
         # General post-casting delay (always applied for human-like behavior)
-        general_post_delay = random.uniform(0.3, 0.5)
+        general_post_delay = random.uniform(config.skill_delay, config.skill_delay + 0.2)
 
         if config.frozen_rotation_during_casting:
             # Frozen rotation: add extra pauses before and after
