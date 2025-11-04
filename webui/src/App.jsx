@@ -342,8 +342,8 @@ export default function App(){
           skillDelay: skillDelay !== undefined ? skillDelay : 0.3,
           castPosition: castPosition !== undefined ? castPosition : 0.3,
           order: maxOrder + 1,
-          group_id: null,
-          delay_after: 0
+          groupId: null,
+          delayAfter: 0
         }
         const savedSkill = await saveSkill(newSkill)
         setCdSkills(prev => [...prev, savedSkill])

@@ -54,11 +54,11 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
     const seen = new Set()
     const out = []
     for (const s of sorted) {
-      if (s.group_id) {
-        if (seen.has(s.group_id)) continue
-        const members = sorted.filter(x => x.group_id === s.group_id)
-        out.push({ type: 'group', groupId: s.group_id, skillIds: members.map(m => m.id) })
-        seen.add(s.group_id)
+      if (s.groupId) {
+        if (seen.has(s.groupId)) continue
+        const members = sorted.filter(x => x.groupId === s.groupId)
+        out.push({ type: 'group', groupId: s.groupId, skillIds: members.map(m => m.id) })
+        seen.add(s.groupId)
       } else {
         out.push({ type: 'single', skillIds: [s.id] })
       }
@@ -171,9 +171,9 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
       console.log('[DnD] Dropping on skill cell:', dropId)
       const target = skills.find(s => String(s.id) === String(dropId))
       if (target && String(target.id) !== String(draggedId)) {
-        if (target.group_id) {
+        if (target.groupId) {
           // Target is in a group, add after it in the same group
-          const b = bs.find(x => x.type === 'group' && String(x.groupId) === String(target.group_id))
+          const b = bs.find(x => x.type === 'group' && String(x.groupId) === String(target.groupId))
           if (b) {
             const idx = b.skillIds.findIndex(sid => String(sid) === String(target.id))
             b.skillIds.splice(idx + 1, 0, draggedId)
@@ -202,11 +202,11 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
       if (b.type === 'single') {
         const id = b.skillIds[0]
         const orig = id2orig.get(id)
-        if (orig) updated.push({ ...orig, order: order++, group_id: null, delay_after: 0 })
+        if (orig) updated.push({ ...orig, order: order++, groupId: null, delayAfter: 0 })
       } else {
         for (const id of b.skillIds) {
           const orig = id2orig.get(id)
-          if (orig) updated.push({ ...orig, order: order++, group_id: b.groupId, delay_after: orig.delay_after ?? 0 })
+          if (orig) updated.push({ ...orig, order: order++, groupId: b.groupId, delayAfter: orig.delayAfter ?? 0 })
         }
       }
     }
@@ -216,7 +216,7 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
   }
 
   const handleDelayChange = async (skillId, delay) => {
-    await onUpdateSkill(skillId, { delay_after: delay })
+    await onUpdateSkill(skillId, { delayAfter: delay })
   }
 
   const addNewSkill = () => {

@@ -85,9 +85,9 @@ export function SkillGroup({
                 {/* Show delay separator between skills (except after the last one) */}
                 {index < skills.length - 1 && (
                   <DelaySeparator
-                    delay={skill.delay_after}
+                    delay={skill.delayAfter}
                     onDelayClick={() => {
-                      const newDelay = prompt('Enter delay in seconds:', skill.delay_after || '0')
+                      const newDelay = prompt('Enter delay in seconds:', skill.delayAfter || '0')
                       if (newDelay !== null) {
                         const parsedDelay = parseFloat(newDelay)
                         if (!isNaN(parsedDelay) && parsedDelay >= 0) {

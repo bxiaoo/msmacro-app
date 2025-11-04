@@ -51,9 +51,8 @@ class SkillState:
     group_delay_end_time: float = 0.0  # When this skill can cast after previous group member
     waiting_for_previous_skill: bool = False  # True if waiting for previous skill in group
 
-    # Group completion tracking (for restart delay after full cycle)
+    # Group completion tracking (for metrics/logging)
     group_completion_time: float = 0.0  # When the group last completed a full cycle
-    group_restart_delay: float = 0.0  # Random 5-10s gap before group can restart
 
     def __post_init__(self):
         pass
@@ -285,19 +284,8 @@ class SkillInjector:
                 if current_time < member_state.can_cast_after:
                     return False  # At least one member not ready
 
-            # Check if group restart delay has passed (after completing a full cycle)
-            if skill_state.group_completion_time > 0.0:
-                # Group completed before, check restart delay
-                restart_ready_time = (
-                    skill_state.group_completion_time +
-                    skill_state.group_restart_delay +
-                    skill_state.can_cast_after  # This includes cooldown + 1-30s random
-                )
-
-                if current_time < restart_ready_time:
-                    return False  # Restart delay not passed yet
-
             # All conditions met - group can start
+            # (No additional restart delay needed - each skill already has cooldown + 1-30s random)
             return True
 
         # Not first skill - must wait for previous skill
@@ -414,20 +402,17 @@ class SkillInjector:
                 is_last_skill = (skill_index == len(group_members) - 1)
 
                 if is_last_skill:
-                    # Last skill in group - mark completion and stay at last index
-                    # Group will restart after: 5-10s gap + all members' cooldowns (+ 1-30s random)
+                    # Last skill in group - mark completion and reset to start
+                    # Group will restart after all members' cooldowns pass (+ their 1-30s random delays)
                     completion_time = current_time
-                    restart_delay = random.uniform(5.0, 10.0)
 
-                    # Set completion time and restart delay for ALL group members
+                    # Set completion time for ALL group members (for metrics/logging)
                     for member_id in group_members:
                         member_state = self.skills.get(member_id)
                         if member_state:
                             member_state.group_completion_time = completion_time
-                            member_state.group_restart_delay = restart_delay
 
-                    # Keep group at last index (will reset to 0 when ready to restart)
-                    # The _check_group_casting_order will reset to 0 after restart delay passes
+                    # Reset group to first skill - will restart when all members are ready
                     self.group_casting_state[config.group_id] = 0
                 else:
                     # Not last skill - advance to next skill in group
