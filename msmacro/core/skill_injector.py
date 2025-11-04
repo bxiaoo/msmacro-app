@@ -300,12 +300,12 @@ class SkillInjector:
             return False  # Previous skill never cast yet
 
         # Calculate when this skill can cast:
-        # previous_cast_end_time + previous_delay_after + random(5-10s)
+        # previous_can_cast_after (cooldown + 1-30s random) + previous_delay_after + random(1-5s)
         if skill_state.group_delay_end_time == 0.0:
             # First time checking - set delay
             random_delay = random.uniform(1.0, 5.0)
             skill_state.group_delay_end_time = (
-                previous_state.cast_end_time +
+                previous_state.can_cast_after +
                 previous_state.config.delay_after +
                 random_delay
             )
