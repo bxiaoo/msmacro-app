@@ -130,8 +130,8 @@ class SkillManager:
                 print(f"Warning: Failed to load skill from {skill_file}: {e}")
                 continue
 
-        # Sort by name for consistent ordering
-        skills.sort(key=lambda s: s.name.lower())
+        # Sort by order field for drag-and-drop grouping
+        skills.sort(key=lambda s: s.order)
         return skills
 
     def get_skill(self, skill_id: str) -> Optional[SkillConfig]:
@@ -174,6 +174,39 @@ class SkillManager:
         # Create updated skill
         updated_skill = SkillConfig.from_dict(skill_dict)
         return self.save_skill(updated_skill)
+
+    def reorder_skills(self, skills_data: List[Dict[str, Any]]) -> List[SkillConfig]:
+        """Bulk update skills with new order and grouping information.
+
+        Args:
+            skills_data: List of skill dictionaries with updated order, group_id, and delay_after
+
+        Returns:
+            List of updated SkillConfig objects
+        """
+        updated_skills = []
+
+        for skill_dict in skills_data:
+            skill_id = skill_dict.get("id")
+            if not skill_id:
+                continue
+
+            # Get existing skill
+            existing_skill = self.get_skill(skill_id)
+            if not existing_skill:
+                # Skip skills that don't exist
+                continue
+
+            # Merge existing skill data with updates
+            merged = existing_skill.to_dict()
+            merged.update(skill_dict)
+
+            # Create and save updated skill
+            updated_skill = SkillConfig.from_dict(merged)
+            self.save_skill(updated_skill)
+            updated_skills.append(updated_skill)
+
+        return updated_skills
 
     def delete_skill(self, skill_id: str) -> bool:
         """Delete a skill configuration."""

@@ -985,6 +985,14 @@ class MacroDaemon:
                 selected_skills = self.skills_manager.get_selected_skills()
                 return {"skills": [skill.to_dict() for skill in selected_skills]}
 
+            if cmd == "reorder_skills":
+                skills_data = msg.get("skills_data")
+                if not skills_data or not isinstance(skills_data, list):
+                    raise RuntimeError("missing or invalid skills_data")
+
+                updated_skills = self.skills_manager.reorder_skills(skills_data)
+                return {"skills": [skill.to_dict() for skill in updated_skills], "updated": len(updated_skills)}
+
             raise RuntimeError(f"unknown cmd: {cmd}")
 
         except Exception as e:
