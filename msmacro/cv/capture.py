@@ -271,9 +271,18 @@ class CVCapture:
             self._set_last_error(msg)
             raise CVCaptureError(msg)
 
-        # Configure capture for best performance
-        # Use MJPEG if available for lower CPU usage
-        self._capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        # Try to configure MJPEG format for better performance (hardware encoding)
+        # Many devices only support raw formats like YUYV, which is fine - we encode to JPEG in software
+        try:
+            fourcc_mjpg = cv2.VideoWriter_fourcc(*'MJPG')
+            self._capture.set(cv2.CAP_PROP_FOURCC, fourcc_mjpg)
+            actual_fourcc = int(self._capture.get(cv2.CAP_PROP_FOURCC))
+            if actual_fourcc == fourcc_mjpg:
+                logger.info("Using MJPEG format (hardware encoding)")
+            else:
+                logger.info(f"MJPEG not supported, using device default format (will encode to JPEG in software)")
+        except Exception as e:
+            logger.debug(f"Could not set MJPEG format, using device default: {e}")
 
         # Verify we can read a frame
         ret, frame = self._capture.read()
@@ -283,9 +292,15 @@ class CVCapture:
             raise CVCaptureError("Failed to read initial frame from device")
 
         self._device_connected = True
-        logger.info(f"Capture initialized: {int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
-                    f"{int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))} @ "
-                    f"{self._capture.get(cv2.CAP_PROP_FPS)} FPS")
+
+        # Log capture properties
+        width = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = self._capture.get(cv2.CAP_PROP_FPS)
+        fourcc = int(self._capture.get(cv2.CAP_PROP_FOURCC))
+        fourcc_str = "".join([chr((fourcc >> 8 * i) & 0xFF) for i in range(4)])
+
+        logger.info(f"Capture initialized: {width}x{height} @ {fps} FPS, format: {fourcc_str}")
         self._clear_last_error()
 
     def _release_capture(self) -> None:
