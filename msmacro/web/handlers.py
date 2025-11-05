@@ -2,12 +2,15 @@ import asyncio
 import json
 import time
 import contextlib
+import logging
 from pathlib import Path
 from aiohttp import web
 
 from ..utils.config import SETTINGS
 from ..io.ipc import send
 from .validation import safe_record_path
+
+log = logging.getLogger(__name__)
 
 # ---------- helpers ----------
 
@@ -484,6 +487,7 @@ async def api_cv_screenshot(request: web.Request):
     except RuntimeError as e:
         # Daemon reports this when the capture loop hasn't produced a frame yet.
         if "no frame available" in str(e).lower():
+            log.debug("CV screenshot requested before a frame was ready")
             return _json({"error": "no frame available"}, 404)
         return _json({"error": str(e)}, 503)
     except Exception as e:
@@ -492,22 +496,32 @@ async def api_cv_screenshot(request: web.Request):
     # Extract base64-encoded frame data
     frame_b64 = resp.get("frame")
     if not frame_b64:
+        log.debug("CV daemon returned no frame data")
         return _json({"error": "no frame available"}, 404)
+
+    metadata = resp.get("metadata") or {}
 
     # Decode base64 to bytes
     import base64
-    jpeg_data = base64.b64decode(frame_b64)
+    try:
+        jpeg_data = base64.b64decode(frame_b64)
+    except Exception as e:
+        log.warning("Failed to decode CV frame: %s", e)
+        return _json({"error": "invalid frame data"}, 500)
 
-    # Return as JPEG image
-    return web.Response(
-        body=jpeg_data,
-        content_type="image/jpeg",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0"
-        }
-    )
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+
+    # Surface metadata in headers for quick inspection in DevTools
+    if isinstance(metadata, dict):
+        for key in ("width", "height", "size_bytes", "timestamp"):
+            if key in metadata:
+                headers[f"X-CV-Frame-{key.replace('_', '-').title()}"] = str(metadata[key])
+
+    return web.Response(body=jpeg_data, content_type="image/jpeg", headers=headers)
 
 
 async def api_cv_start(request: web.Request):

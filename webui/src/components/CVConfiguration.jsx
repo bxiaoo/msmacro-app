@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Camera, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import { getCVStatus, getCVScreenshotURL, startCVCapture } from '../api'
 
@@ -8,6 +8,19 @@ export function CVConfiguration() {
   const [loading, setLoading] = useState(true)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [imageError, setImageError] = useState(false)
+  const lastFrameLoggedRef = useRef(null)
+  const lastErrorLoggedRef = useRef(null)
+
+  const formatTimestamp = (ts) => {
+    if (ts === null || ts === undefined) return '—'
+    const value = Number(ts)
+    if (!Number.isFinite(value)) return String(ts)
+    try {
+      return new Date(value * 1000).toLocaleString()
+    } catch {
+      return String(ts)
+    }
+  }
 
   // Auto-start capture on mount
   useEffect(() => {
@@ -30,6 +43,22 @@ export function CVConfiguration() {
         setStatus(data)
         setError(null)
         setLoading(false)
+
+        if (data.frame && data.frame.timestamp !== lastFrameLoggedRef.current) {
+          console.debug('CV frame metadata:', data.frame)
+          lastFrameLoggedRef.current = data.frame.timestamp
+        }
+
+        if (data.last_error) {
+          const signature = `${data.last_error.message ?? ''}|${data.last_error.timestamp ?? ''}`
+          if (signature !== lastErrorLoggedRef.current) {
+            console.warn('CV capture error:', data.last_error)
+            lastErrorLoggedRef.current = signature
+          }
+        } else if (lastErrorLoggedRef.current) {
+          console.info('CV capture recovered')
+          lastErrorLoggedRef.current = null
+        }
 
         // Refresh screenshot if we have frames
         if (data.has_frame) {
@@ -133,7 +162,17 @@ export function CVConfiguration() {
 
           {status.frame && (
             <>
-              <div className="text-gray-600">Last Frame Age:</div>
+              <div className="text-gray-600">Resolution:</div>
+              <div className="text-gray-900 font-mono">
+                {status.frame.width} × {status.frame.height}
+              </div>
+
+              <div className="text-gray-600">Captured At:</div>
+              <div className="text-gray-900 font-mono">
+                {formatTimestamp(status.frame.timestamp)}
+              </div>
+
+              <div className="text-gray-600">Frame Age:</div>
               <div className="text-gray-900 font-mono">
                 {status.frame.age_seconds.toFixed(1)}s
               </div>
@@ -143,6 +182,20 @@ export function CVConfiguration() {
                 {(status.frame.size_bytes / 1024).toFixed(1)} KB
               </div>
             </>
+          )}
+        </div>
+        <div className="pt-3 mt-3 border-t border-gray-200">
+          {status.last_error ? (
+            <div>
+              <p className="text-sm font-medium text-red-600">Last Capture Error</p>
+              <p className="text-xs text-red-500 mt-1">{status.last_error.message}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {status.last_error.timestamp ? formatTimestamp(status.last_error.timestamp) : 'Timestamp unavailable'}
+                {status.last_error.detail ? ` · ${status.last_error.detail}` : ''}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500">No recent capture errors.</p>
           )}
         </div>
       </div>

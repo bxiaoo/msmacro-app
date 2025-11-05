@@ -6,12 +6,12 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import cv2
 import numpy as np
 
 from .device import CaptureDevice, find_capture_device, find_capture_device_with_retry, validate_device_access
-from .frame_buffer import FrameBuffer
+from .frame_buffer import FrameBuffer, FrameMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class CVCapture:
         self._frames_captured = 0
         self._frames_failed = 0
         self._last_frame_time = 0.0
+        self._error_lock = threading.Lock()
+        self._last_error: Optional[Dict[str, Any]] = None
 
     def get_status(self) -> Dict[str, Any]:
         """
@@ -74,6 +76,7 @@ class CVCapture:
             "has_frame": has_frame,
             "frames_captured": self._frames_captured,
             "frames_failed": self._frames_failed,
+            "last_error": self._get_last_error(),
         }
 
         if self._device:
@@ -121,14 +124,17 @@ class CVCapture:
             return
 
         logger.info("Starting CV capture system...")
+        self._clear_last_error()
 
         # Find device with retry
         self._device = await find_capture_device_with_retry(max_retries=3)
         if not self._device:
+            self._set_last_error("No capture device found after retries")
             raise CVCaptureError("No capture device found after retries")
 
         # Validate device access
         if not validate_device_access(self._device):
+            self._set_last_error(f"Cannot access device: {self._device.device_path}")
             raise CVCaptureError(f"Cannot access device: {self._device.device_path}")
 
         # Initialize capture
@@ -185,6 +191,7 @@ class CVCapture:
 
         if not self._capture.isOpened():
             self._capture = None
+            self._set_last_error(f"Failed to open capture device: {self._device.device_path}")
             raise CVCaptureError(f"Failed to open capture device: {self._device.device_path}")
 
         # Configure capture for best performance
@@ -194,6 +201,7 @@ class CVCapture:
         # Verify we can read a frame
         ret, frame = self._capture.read()
         if not ret or frame is None:
+            self._set_last_error("Failed to read initial frame from device")
             self._release_capture()
             raise CVCaptureError("Failed to read initial frame from device")
 
@@ -201,6 +209,7 @@ class CVCapture:
         logger.info(f"Capture initialized: {int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
                     f"{int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))} @ "
                     f"{self._capture.get(cv2.CAP_PROP_FPS)} FPS")
+        self._clear_last_error()
 
     def _release_capture(self) -> None:
         """Release the OpenCV VideoCapture."""
@@ -231,6 +240,7 @@ class CVCapture:
                     self._frames_failed += 1
                     logger.warning("Failed to read frame")
                     self._device_connected = False
+                    self._set_last_error("Failed to read frame from capture device")
                     time.sleep(0.5)
                     continue
 
@@ -241,6 +251,7 @@ class CVCapture:
                 if not ret or jpeg_data is None:
                     self._frames_failed += 1
                     logger.warning("Failed to encode frame as JPEG")
+                    self._set_last_error("Failed to encode frame as JPEG")
                     continue
 
                 # Store in buffer
@@ -249,6 +260,7 @@ class CVCapture:
 
                 self._frames_captured += 1
                 self._last_frame_time = time.time()
+                self._clear_last_error()
 
                 # Small delay to avoid consuming 100% CPU
                 time.sleep(0.03)  # ~30 FPS max capture rate
@@ -256,6 +268,7 @@ class CVCapture:
             except Exception as e:
                 self._frames_failed += 1
                 logger.error(f"Error in capture loop: {e}", exc_info=True)
+                self._set_last_error("Unexpected error in capture loop", exception=e)
                 time.sleep(0.5)
 
         logger.info("Capture loop stopped")
@@ -293,18 +306,33 @@ class CVCapture:
             except Exception as e:
                 logger.error(f"Error in device monitoring: {e}", exc_info=True)
 
-    def get_latest_frame(self) -> Optional[bytes]:
+    def get_latest_frame(self) -> Optional[Tuple[bytes, FrameMetadata]]:
         """
         Get the latest captured frame as JPEG data.
 
         Returns:
-            JPEG-encoded frame bytes or None if no frame available
+            Tuple of (JPEG-encoded frame bytes, FrameMetadata) or None if no frame available
         """
-        result = self.frame_buffer.get_latest()
-        if result:
-            jpeg_data, _ = result
-            return jpeg_data
-        return None
+        return self.frame_buffer.get_latest()
+
+    def _set_last_error(self, message: str, *, exception: Optional[Exception] = None) -> None:
+        """Record the most recent capture error for diagnostics."""
+        error: Dict[str, Any] = {
+            "message": message,
+            "timestamp": time.time(),
+        }
+        if exception:
+            error["detail"] = str(exception)
+        with self._error_lock:
+            self._last_error = error
+
+    def _clear_last_error(self) -> None:
+        with self._error_lock:
+            self._last_error = None
+
+    def _get_last_error(self) -> Optional[Dict[str, Any]]:
+        with self._error_lock:
+            return dict(self._last_error) if self._last_error else None
 
 
 # Global capture instance

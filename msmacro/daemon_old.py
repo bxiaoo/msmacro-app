@@ -1015,12 +1015,17 @@ class MacroDaemon:
             if cmd == "cv_get_frame":
                 """Get the latest captured frame as JPEG data."""
                 capture = get_capture_instance()
-                frame_data = capture.get_latest_frame()
-                if frame_data is None:
+                frame_result = capture.get_latest_frame()
+                if frame_result is None:
                     raise RuntimeError("no frame available")
                 # Return frame data encoded as base64 for JSON transport
                 import base64
-                return {"frame": base64.b64encode(frame_data).decode('ascii')}
+                frame_data, metadata = frame_result
+                payload = {"frame": base64.b64encode(frame_data).decode('ascii')}
+                if metadata is not None:
+                    from dataclasses import asdict
+                    payload["metadata"] = asdict(metadata)
+                return payload
 
             if cmd == "cv_start":
                 """Start CV capture system."""

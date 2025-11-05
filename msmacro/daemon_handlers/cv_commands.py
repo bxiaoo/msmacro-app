@@ -6,6 +6,7 @@ starting/stopping capture and retrieving frames and status.
 """
 
 import base64
+from dataclasses import asdict
 from typing import Dict, Any
 from ..cv import get_capture_instance
 
@@ -65,13 +66,20 @@ class CVCommandHandler:
             RuntimeError: If no frame is available
         """
         capture = get_capture_instance()
-        frame_data = capture.get_latest_frame()
+        frame_result = capture.get_latest_frame()
 
-        if frame_data is None:
+        if frame_result is None:
             raise RuntimeError("no frame available")
 
+        frame_data, metadata = frame_result
+
         # Encode as base64 for JSON transport
-        return {"frame": base64.b64encode(frame_data).decode('ascii')}
+        payload: Dict[str, Any] = {
+            "frame": base64.b64encode(frame_data).decode('ascii')
+        }
+        if metadata is not None:
+            payload["metadata"] = asdict(metadata)
+        return payload
 
     async def cv_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
