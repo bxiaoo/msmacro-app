@@ -131,16 +131,21 @@ class CVCapture:
         self._clear_last_error()
 
         # Wait for a device to appear
+        logger.debug("Searching for capture devices...")
         preferred_device = await find_capture_device_with_retry(max_retries=3)
         if not preferred_device:
             self._set_last_error("No capture device found after retries")
             raise CVCaptureError("No capture device found after retries")
+
+        logger.info(f"Preferred device selected: {preferred_device}")
 
         # Build candidate list (preferred device first, then the rest ordered by priority)
         all_devices = list_video_devices()
         if not all_devices:
             self._set_last_error("No capture devices detected on system")
             raise CVCaptureError("No capture devices detected on system")
+
+        logger.debug(f"Building candidate list from {len(all_devices)} available devices")
 
         def _priority(device: CaptureDevice) -> tuple:
             name_lower = (device.name or "").lower()
@@ -177,24 +182,29 @@ class CVCapture:
                 seen.add(dev.device_path)
 
         init_error: Optional[str] = None
-        for candidate in candidates:
+        logger.info(f"Trying {len(candidates)} candidate device(s) in priority order:")
+        for idx, candidate in enumerate(candidates, 1):
+            logger.info(f"  Attempt {idx}/{len(candidates)}: {candidate}")
+
             if not validate_device_access(candidate):
                 init_error = f"Cannot access device: {candidate.device_path}"
-                logger.warning(init_error)
+                logger.warning(f"    ✗ {init_error}")
                 continue
 
             self._device = candidate
             try:
                 await self._init_capture()
+                logger.info(f"    ✓ Successfully initialized {candidate.device_path}")
                 break
             except CVCaptureError as exc:
                 init_error = str(exc)
-                logger.warning("Failed to initialize capture on %s: %s", candidate.device_path, exc)
+                logger.warning(f"    ✗ Failed to initialize: {exc}")
                 self._release_capture()
                 self._device = None
                 continue
         else:
             self._set_last_error(init_error or "Failed to initialize capture device")
+            logger.error("All device candidates failed!")
             raise CVCaptureError(init_error or "Failed to initialize capture device")
 
         # Start capture thread

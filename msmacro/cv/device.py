@@ -14,13 +14,15 @@ logger = logging.getLogger(__name__)
 class CaptureDevice:
     """Represents a video capture device."""
 
-    def __init__(self, device_path: str, device_index: int, name: str = ""):
+    def __init__(self, device_path: str, device_index: int, name: str = "", is_usb: bool = False):
         self.device_path = device_path
         self.device_index = device_index
         self.name = name or f"Video Device {device_index}"
+        self.is_usb = is_usb
 
     def __repr__(self):
-        return f"CaptureDevice(path={self.device_path}, index={self.device_index}, name={self.name})"
+        device_type = "USB" if self.is_usb else "Platform"
+        return f"CaptureDevice(path={self.device_path}, index={self.device_index}, name={self.name}, type={device_type})"
 
 
 def list_video_devices() -> List[CaptureDevice]:
@@ -52,10 +54,14 @@ def list_video_devices() -> List[CaptureDevice]:
                     logger.debug(f"Skipping metadata-only device: {device_path_str}")
                     continue
 
+                # Check if device is USB
+                is_usb = _is_usb_device(device_index)
+
                 device = CaptureDevice(
                     device_path=device_path_str,
                     device_index=device_index,
-                    name=_get_device_name(device_path_str)
+                    name=_get_device_name(device_path_str),
+                    is_usb=is_usb
                 )
                 devices.append(device)
                 logger.debug(f"Found capture-capable video device: {device}")
@@ -91,6 +97,39 @@ def _get_device_name(device_path: str) -> str:
         logger.debug(f"Could not get device name for {device_path}: {e}")
 
     return ""
+
+
+def _is_usb_device(device_index: int) -> bool:
+    """
+    Check if a video device is connected via USB.
+
+    Args:
+        device_index: Video device index (e.g., 0 for /dev/video0)
+
+    Returns:
+        True if device is USB, False if platform/built-in device
+    """
+    try:
+        # Check sysfs for device connection type
+        uevent_path = Path(f"/sys/class/video4linux/video{device_index}/device/uevent")
+        if uevent_path.exists():
+            uevent_content = uevent_path.read_text()
+            # USB devices have DEVTYPE=usb_interface or DRIVER=uvcvideo
+            if "usb" in uevent_content.lower() or "uvc" in uevent_content.lower():
+                return True
+
+        # Alternative: check parent device path for "usb"
+        device_path_link = Path(f"/sys/class/video4linux/video{device_index}/device")
+        if device_path_link.exists():
+            real_path = str(device_path_link.resolve())
+            if "/usb" in real_path:
+                return True
+
+        return False
+    except Exception as e:
+        logger.debug(f"Could not determine USB status for video{device_index}: {e}")
+        # If we can't determine, assume it might be USB (don't filter out)
+        return False
 
 
 def _check_device_has_capture_formats(device_path: str) -> bool:
@@ -130,10 +169,13 @@ def _check_device_has_capture_formats(device_path: str) -> bool:
 
 def find_capture_device() -> Optional[CaptureDevice]:
     """
-    Find the first available HDMI capture device.
+    Find the best available capture device with smart prioritization.
 
-    Prioritizes devices with "capture" or "HDMI" in their name,
-    falls back to the first available video device if none found.
+    Priority order:
+    1. USB devices with "HDMI" or "capture" in name
+    2. Any USB devices
+    3. Platform devices with "HDMI" or "capture" in name
+    4. Lowest-numbered platform device (video0 > video19)
 
     Returns:
         CaptureDevice or None if no devices found
@@ -144,15 +186,36 @@ def find_capture_device() -> Optional[CaptureDevice]:
         logger.warning("No video devices found on the system")
         return None
 
-    # Prioritize HDMI/capture devices
+    logger.info(f"Found {len(devices)} capture-capable device(s):")
+    for dev in devices:
+        logger.info(f"  - {dev}")
+
+    # Priority 1: USB devices with HDMI/capture in name
+    for device in devices:
+        if device.is_usb:
+            name_lower = device.name.lower()
+            if "hdmi" in name_lower or "capture" in name_lower:
+                logger.info(f"Selected USB HDMI/capture device (priority 1): {device}")
+                return device
+
+    # Priority 2: Any USB device
+    usb_devices = [d for d in devices if d.is_usb]
+    if usb_devices:
+        # Sort by device index (prefer lower numbers)
+        usb_devices.sort(key=lambda d: d.device_index)
+        logger.info(f"Selected USB device (priority 2): {usb_devices[0]}")
+        return usb_devices[0]
+
+    # Priority 3: Platform devices with HDMI/capture in name
     for device in devices:
         name_lower = device.name.lower()
         if "hdmi" in name_lower or "capture" in name_lower:
-            logger.info(f"Found HDMI capture device: {device}")
+            logger.info(f"Selected platform HDMI/capture device (priority 3): {device}")
             return device
 
-    # Fall back to first device
-    logger.info(f"No HDMI capture device found, using first available: {devices[0]}")
+    # Priority 4: Lowest-numbered device (video0 preferred over video19)
+    devices.sort(key=lambda d: d.device_index)
+    logger.info(f"Selected lowest-numbered device (priority 4): {devices[0]}")
     return devices[0]
 
 
