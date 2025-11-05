@@ -481,28 +481,33 @@ async def api_cv_screenshot(request: web.Request):
     """Get the latest captured frame as JPEG image."""
     try:
         resp = await _daemon("cv_get_frame")
-
-        # Extract base64-encoded frame data
-        frame_b64 = resp.get("frame")
-        if not frame_b64:
+    except RuntimeError as e:
+        # Daemon reports this when the capture loop hasn't produced a frame yet.
+        if "no frame available" in str(e).lower():
             return _json({"error": "no frame available"}, 404)
-
-        # Decode base64 to bytes
-        import base64
-        jpeg_data = base64.b64decode(frame_b64)
-
-        # Return as JPEG image
-        return web.Response(
-            body=jpeg_data,
-            content_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
+        return _json({"error": str(e)}, 503)
     except Exception as e:
         return _json({"error": str(e)}, 500)
+
+    # Extract base64-encoded frame data
+    frame_b64 = resp.get("frame")
+    if not frame_b64:
+        return _json({"error": "no frame available"}, 404)
+
+    # Decode base64 to bytes
+    import base64
+    jpeg_data = base64.b64decode(frame_b64)
+
+    # Return as JPEG image
+    return web.Response(
+        body=jpeg_data,
+        content_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 async def api_cv_start(request: web.Request):

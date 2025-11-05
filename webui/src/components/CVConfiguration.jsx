@@ -5,8 +5,9 @@ import { getCVStatus, getCVScreenshotURL, startCVCapture } from '../api'
 export function CVConfiguration() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
-  const [screenshotKey, setScreenshotKey] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [previewUrl, setPreviewUrl] = useState(null)
+  const [imageError, setImageError] = useState(false)
 
   // Auto-start capture on mount
   useEffect(() => {
@@ -32,7 +33,10 @@ export function CVConfiguration() {
 
         // Refresh screenshot if we have frames
         if (data.has_frame) {
-          setScreenshotKey(prev => prev + 1)
+          setPreviewUrl(getCVScreenshotURL())
+          setImageError(false)
+        } else {
+          setPreviewUrl(null)
         }
       } catch (err) {
         setError(err.message || 'Failed to get CV status')
@@ -177,21 +181,34 @@ export function CVConfiguration() {
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-900">Live Preview</h2>
             <div className="bg-gray-100 rounded-lg p-4">
-              {status?.has_frame ? (
+              {status?.has_frame && previewUrl ? (
                 <div className="relative">
-                  <img
-                    key={screenshotKey}
-                    src={getCVScreenshotURL()}
-                    alt="Captured Screenshot"
-                    className="w-full h-auto rounded border border-gray-300 shadow-sm"
-                    onError={(e) => {
-                      console.error('Failed to load screenshot')
-                      e.target.style.display = 'none'
-                    }}
-                  />
-                  <div className="mt-2 text-xs text-gray-500 text-center">
-                    Updates every 2 seconds
-                  </div>
+                  {imageError ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                      <AlertCircle size={36} className="mb-2 text-red-500" />
+                      <p className="text-sm">Preview unavailable</p>
+                      <p className="text-xs mt-1 text-gray-500">
+                        Waiting for the next frame from the capture device…
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <img
+                        key={previewUrl}
+                        src={previewUrl}
+                        alt="Captured Screenshot"
+                        className="w-full h-auto rounded border border-gray-300 shadow-sm"
+                        onLoad={() => setImageError(false)}
+                        onError={() => {
+                          console.error('Failed to load screenshot')
+                          setImageError(true)
+                        }}
+                      />
+                      <div className="mt-2 text-xs text-gray-500 text-center">
+                        Updates every 2 seconds
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-400">
