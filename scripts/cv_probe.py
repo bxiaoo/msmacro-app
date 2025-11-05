@@ -15,10 +15,18 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from msmacro.cv import get_capture_instance, CVCaptureError
+from msmacro.cv import get_capture_instance, CVCaptureError, list_video_devices
 
 
 async def gather_frame(timeout: float, output: Optional[Path]) -> int:
+    devices = list_video_devices()
+    if not devices:
+        print("[cv_probe] No /dev/video* devices detected. Check cabling and kernel drivers.", file=sys.stderr)
+    else:
+        print("[cv_probe] Detected video devices:")
+        for dev in devices:
+            print(f"  - {dev.device_path} (index={dev.device_index}, name='{dev.name}')")
+
     capture = get_capture_instance()
     try:
         await capture.start()
