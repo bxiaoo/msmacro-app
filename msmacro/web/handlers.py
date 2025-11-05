@@ -483,15 +483,21 @@ async def api_cv_status(request: web.Request):
 async def api_cv_screenshot(request: web.Request):
     """Get the latest captured frame as JPEG image."""
     try:
+        log.debug("CV screenshot requested")
         resp = await _daemon("cv_get_frame")
+        log.debug(f"CV screenshot response received: {len(str(resp))} bytes")
     except RuntimeError as e:
         # Daemon reports this when the capture loop hasn't produced a frame yet.
-        if "no frame available" in str(e).lower():
-            log.debug("CV screenshot requested before a frame was ready")
-            return _json({"error": "no frame available"}, 404)
-        return _json({"error": str(e)}, 503)
+        error_msg = str(e)
+        log.warning(f"CV screenshot RuntimeError: {error_msg}")
+        if "no frame available" in error_msg.lower():
+            return _json({"error": "no frame available", "detail": error_msg}, 404)
+        if "failed to start" in error_msg.lower():
+            return _json({"error": "capture failed to start", "detail": error_msg}, 503)
+        return _json({"error": error_msg}, 503)
     except Exception as e:
-        return _json({"error": str(e)}, 500)
+        log.error(f"CV screenshot unexpected error: {e}", exc_info=True)
+        return _json({"error": str(e), "type": type(e).__name__}, 500)
 
     # Extract base64-encoded frame data
     frame_b64 = resp.get("frame")

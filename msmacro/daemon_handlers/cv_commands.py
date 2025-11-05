@@ -5,10 +5,14 @@ Handles IPC commands for CV capture system operations including
 starting/stopping capture and retrieving frames and status.
 """
 
+import asyncio
 import base64
+import logging
 from dataclasses import asdict
 from typing import Dict, Any
-from ..cv import get_capture_instance
+from ..cv import get_capture_instance, CVCaptureError
+
+logger = logging.getLogger(__name__)
 
 # Import event emitter with fallback
 try:
@@ -56,6 +60,8 @@ class CVCommandHandler:
         """
         Get the latest captured frame as JPEG data.
 
+        Auto-starts capture if not already running.
+
         Args:
             msg: IPC message (unused)
 
@@ -63,13 +69,48 @@ class CVCommandHandler:
             Dictionary with "frame" key containing base64-encoded JPEG data
 
         Raises:
-            RuntimeError: If no frame is available
+            RuntimeError: If capture fails to start or no frame available after timeout
         """
         capture = get_capture_instance()
+        status = capture.get_status()
+
+        logger.debug(f"cv_get_frame called: capturing={status.get('capturing')}, has_frame={status.get('has_frame')}")
+
+        # Auto-start capture if not running
+        if not status.get('capturing'):
+            logger.info("CV capture not running, auto-starting...")
+            try:
+                await capture.start()
+                logger.info("CV capture auto-started successfully")
+
+                # Wait up to 3 seconds for first frame to be captured
+                for attempt in range(30):  # 30 x 0.1s = 3 seconds
+                    await asyncio.sleep(0.1)
+                    frame_result = capture.get_latest_frame()
+                    if frame_result is not None:
+                        logger.info(f"First frame captured after {(attempt + 1) * 0.1:.1f}s")
+                        break
+                else:
+                    # Timeout waiting for first frame
+                    last_error = capture.get_status().get('last_error')
+                    error_detail = f": {last_error}" if last_error else ""
+                    raise RuntimeError(f"Timed out waiting for first frame after auto-start{error_detail}")
+
+            except CVCaptureError as e:
+                logger.error(f"Failed to auto-start CV capture: {e}")
+                raise RuntimeError(f"Failed to start CV capture: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error auto-starting CV capture: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to start CV capture: {e}")
+
+        # Get frame
         frame_result = capture.get_latest_frame()
 
         if frame_result is None:
-            raise RuntimeError("no frame available")
+            last_error = capture.get_status().get('last_error')
+            error_context = f" (last error: {last_error})" if last_error else ""
+            logger.warning(f"No frame available{error_context}")
+            raise RuntimeError(f"no frame available{error_context}")
 
         frame_data, metadata = frame_result
 
@@ -79,6 +120,8 @@ class CVCommandHandler:
         }
         if metadata is not None:
             payload["metadata"] = asdict(metadata)
+
+        logger.debug(f"Returning frame: {len(frame_data)} bytes, {metadata.width}x{metadata.height}")
         return payload
 
     async def cv_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:

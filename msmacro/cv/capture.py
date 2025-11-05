@@ -127,6 +127,7 @@ class CVCapture:
             return
 
         logger.info("Starting CV capture system...")
+        logger.debug(f"Current state: connected={self._device_connected}, has_frame={self.frame_buffer.has_frame()}")
         self._clear_last_error()
 
         # Wait for a device to appear
@@ -199,13 +200,15 @@ class CVCapture:
         # Start capture thread
         self._stop_event.clear()
         self._running = True
-        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True, name="CV-Capture")
         self._capture_thread.start()
+        logger.debug("Capture thread started")
 
         # Start monitoring task
         self._monitor_task = asyncio.create_task(self._monitor_device())
+        logger.debug("Monitor task started")
 
-        logger.info(f"CV capture started with device: {self._device}")
+        logger.info(f"CV capture started successfully with device: {self._device.device_path}")
 
     async def stop(self) -> None:
         """Stop the capture system."""
@@ -251,6 +254,7 @@ class CVCapture:
 
         self._capture = None
         last_error = None
+        cap = None  # Initialize to avoid warning
 
         for target, api_pref in open_attempts:
             try:
