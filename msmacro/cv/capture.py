@@ -241,13 +241,35 @@ class CVCapture:
 
         logger.info(f"Initializing capture on {self._device.device_path}")
 
-        # Use device index for OpenCV
-        self._capture = cv2.VideoCapture(self._device.device_index)
+        # Try opening by explicit device path first (more reliable on multi-node capture cards)
+        open_attempts = [
+            (self._device.device_path, cv2.CAP_V4L2),
+            (self._device.device_index, cv2.CAP_V4L2),
+            (self._device.device_index, cv2.CAP_ANY),
+        ]
 
-        if not self._capture.isOpened():
+        self._capture = None
+        last_error = None
+
+        for target, api_pref in open_attempts:
+            try:
+                logger.debug("Attempting to open capture device %r with API preference %s", target, api_pref)
+                cap = cv2.VideoCapture(target, api_pref)
+                if cap is not None and cap.isOpened():
+                    self._capture = cap
+                    break
+                if cap is not None:
+                    last_error = f"OpenCV could not open target {target} (api={api_pref})"
+                    cap.release()
+            except Exception as exc:
+                last_error = exc
+
+        if not self._capture or not self._capture.isOpened():
             self._capture = None
-            self._set_last_error(f"Failed to open capture device: {self._device.device_path}")
-            raise CVCaptureError(f"Failed to open capture device: {self._device.device_path}")
+            detail = str(last_error) if last_error else "unknown error"
+            msg = f"Failed to open capture device: {self._device.device_path} ({detail})"
+            self._set_last_error(msg)
+            raise CVCaptureError(msg)
 
         # Configure capture for best performance
         # Use MJPEG if available for lower CPU usage
