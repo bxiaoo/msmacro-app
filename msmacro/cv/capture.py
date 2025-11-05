@@ -256,13 +256,63 @@ class CVCapture:
                 logger.debug("Attempting to open capture device %r with API preference %s", target, api_pref)
                 cap = cv2.VideoCapture(target, api_pref)
                 if cap is not None and cap.isOpened():
-                    self._capture = cap
-                    break
-                if cap is not None:
-                    last_error = f"OpenCV could not open target {target} (api={api_pref})"
+                    # Device opened, now set format parameters immediately
+                    # USB capture cards often need explicit resolution/format set before first read
+                    logger.debug("Device opened, configuring format parameters...")
+
+                    # Set resolution to a common supported size (1920x1080 is widely supported)
+                    # The device will adjust to its closest supported resolution
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+                    # Try YUYV format first (most USB capture cards support this)
+                    fourcc_yuyv = cv2.VideoWriter_fourcc(*'YUYV')
+                    cap.set(cv2.CAP_PROP_FOURCC, fourcc_yuyv)
+
+                    # Try to read a test frame to verify the configuration works
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None:
+                        logger.debug("Successfully read test frame with YUYV format")
+                        self._capture = cap
+                        break
+                    else:
+                        # YUYV didn't work, try MJPEG
+                        logger.debug("YUYV format failed, trying MJPEG...")
+                        fourcc_mjpg = cv2.VideoWriter_fourcc(*'MJPG')
+                        cap.set(cv2.CAP_PROP_FOURCC, fourcc_mjpg)
+
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None:
+                            logger.debug("Successfully read test frame with MJPEG format")
+                            self._capture = cap
+                            break
+                        else:
+                            # Neither worked, try with no format preference (device default)
+                            logger.debug("MJPEG also failed, trying device default format...")
+                            cap.set(cv2.CAP_PROP_FOURCC, 0)  # Reset to default
+
+                            ret, test_frame = cap.read()
+                            if ret and test_frame is not None:
+                                logger.debug("Successfully read test frame with device default format")
+                                self._capture = cap
+                                break
+
+                    # If we get here, this open attempt failed
+                    last_error = f"Opened device but could not read frames (api={api_pref})"
                     cap.release()
+
+                else:
+                    if cap is not None:
+                        last_error = f"OpenCV could not open target {target} (api={api_pref})"
+                        cap.release()
             except Exception as exc:
-                last_error = exc
+                last_error = str(exc)
+                logger.debug(f"Exception during open attempt: {exc}")
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except:
+                        pass
 
         if not self._capture or not self._capture.isOpened():
             self._capture = None
@@ -270,26 +320,6 @@ class CVCapture:
             msg = f"Failed to open capture device: {self._device.device_path} ({detail})"
             self._set_last_error(msg)
             raise CVCaptureError(msg)
-
-        # Try to configure MJPEG format for better performance (hardware encoding)
-        # Many devices only support raw formats like YUYV, which is fine - we encode to JPEG in software
-        try:
-            fourcc_mjpg = cv2.VideoWriter_fourcc(*'MJPG')
-            self._capture.set(cv2.CAP_PROP_FOURCC, fourcc_mjpg)
-            actual_fourcc = int(self._capture.get(cv2.CAP_PROP_FOURCC))
-            if actual_fourcc == fourcc_mjpg:
-                logger.info("Using MJPEG format (hardware encoding)")
-            else:
-                logger.info(f"MJPEG not supported, using device default format (will encode to JPEG in software)")
-        except Exception as e:
-            logger.debug(f"Could not set MJPEG format, using device default: {e}")
-
-        # Verify we can read a frame
-        ret, frame = self._capture.read()
-        if not ret or frame is None:
-            self._set_last_error("Failed to read initial frame from device")
-            self._release_capture()
-            raise CVCaptureError("Failed to read initial frame from device")
 
         self._device_connected = True
 
