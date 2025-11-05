@@ -9,7 +9,9 @@ description = "Raspberry Pi HID keyboard bridge/recorder with daemon + web UI"
 requires-python = ">=3.10"
 dependencies = [
   "evdev",
-  "aiohttp"
+  "aiohttp",
+  "opencv-python",
+  "numpy"
 ]
 
 [tool.setuptools.packages.find]

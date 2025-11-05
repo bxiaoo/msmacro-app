@@ -1,3 +1,13 @@
+"""
+DEPRECATED - This file is a backup of the original monolithic daemon.py
+
+The daemon implementation has been refactored into the daemon/ module
+for better maintainability and testability. This file is kept as a
+backup during the migration and will be removed after verification.
+
+See: msmacro/daemon/ for the new modular implementation
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,6 +30,7 @@ from .core.recorder import Recorder, list_recordings_recursive, resolve_record_p
 from .core.skills import SkillManager
 from .core.skill_injector import SkillInjector
 from .io.ipc import start_server
+from .cv import get_capture_instance, CVCaptureError
 from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
 from .io.hidio import HIDWriter
 
@@ -992,6 +1003,38 @@ class MacroDaemon:
 
                 updated_skills = self.skills_manager.reorder_skills(skills_data)
                 return {"skills": [skill.to_dict() for skill in updated_skills], "updated": len(updated_skills)}
+
+            # ---------- CV Commands ----------
+
+            if cmd == "cv_status":
+                """Get CV capture device status and latest frame info."""
+                capture = get_capture_instance()
+                status = capture.get_status()
+                return status
+
+            if cmd == "cv_get_frame":
+                """Get the latest captured frame as JPEG data."""
+                capture = get_capture_instance()
+                frame_data = capture.get_latest_frame()
+                if frame_data is None:
+                    raise RuntimeError("no frame available")
+                # Return frame data encoded as base64 for JSON transport
+                import base64
+                return {"frame": base64.b64encode(frame_data).decode('ascii')}
+
+            if cmd == "cv_start":
+                """Start CV capture system."""
+                capture = get_capture_instance()
+                await capture.start()
+                emit("CV_STARTED")
+                return {"started": True, "status": capture.get_status()}
+
+            if cmd == "cv_stop":
+                """Stop CV capture system."""
+                capture = get_capture_instance()
+                await capture.stop()
+                emit("CV_STOPPED")
+                return {"stopped": True}
 
             raise RuntimeError(f"unknown cmd: {cmd}")
 

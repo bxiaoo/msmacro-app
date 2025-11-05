@@ -152,6 +152,28 @@ async function API(path, opts = {}) {
     });
   }
 
+  // ---------- CV (Computer Vision) Management ----------
+  export function getCVStatus() {
+    return API("/api/cv/status");
+  }
+
+  export function getCVScreenshotURL() {
+    // Return URL with timestamp to prevent caching
+    return `/api/cv/screenshot?t=${Date.now()}`;
+  }
+
+  export function startCVCapture() {
+    return API("/api/cv/start", {
+      method: "POST",
+    });
+  }
+
+  export function stopCVCapture() {
+    return API("/api/cv/stop", {
+      method: "POST",
+    });
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

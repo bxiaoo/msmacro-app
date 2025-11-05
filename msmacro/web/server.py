@@ -25,6 +25,11 @@ from .handlers import (
     api_skills_delete,
     api_skills_selected,
     api_skills_reorder,
+    # CV handlers
+    api_cv_status,
+    api_cv_screenshot,
+    api_cv_start,
+    api_cv_stop,
 )
 
 # ---- Config ----
@@ -87,6 +92,12 @@ def make_app() -> web.Application:
         web.delete("/api/skills/{id}", api_skills_delete),
         web.get("/api/skills/selected", api_skills_selected),
         web.put("/api/skills/reorder", api_skills_reorder),
+
+        # CV (Computer Vision) management
+        web.get("/api/cv/status", api_cv_status),
+        web.get("/api/cv/screenshot", api_cv_screenshot),
+        web.post("/api/cv/start", api_cv_start),
+        web.post("/api/cv/stop", api_cv_stop),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),

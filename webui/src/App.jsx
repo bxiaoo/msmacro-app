@@ -11,6 +11,7 @@ import { ActionButtonGroup } from './components/ActionButtonGroup.jsx'
 import { StateMessage } from './components/StateMessage.jsx'
 import { MacroList } from './components/files/MacroList.jsx'
 import { CDSkills } from './components/CDSkills.jsx'
+import { CVConfiguration } from './components/CVConfiguration.jsx'
 import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
 import { PostRecordingModal } from './components/PostRecordingModal.jsx'
 import { NewSkillModal } from './components/NewSkillModal.jsx'
@@ -35,8 +36,8 @@ export default function App(){
   const [isDesktop, setIsDesktop] = useState(false)
   const [playSettings, setPlaySettings] = useState({ 
     speed: 1, 
-    jitter_time: 0.5, 
-    jitter_hold: 0.5, 
+    jitter_time: 0.3,
+    jitter_hold: 0.3,
     loop: 15,
     ignore_keys: ['s', '', ''], // Up to 3 keys that can be ignored
     ignore_tolerance: 0.15 // How often keys should be ignored (0-1, where 0.1 = 10%)
@@ -453,6 +454,7 @@ export default function App(){
             onReorderSkills={handleReorderSkills}
           />
         )}
+        {activeTab === 'cv-config' && <CVConfiguration />}
       </div>
 
       {/* Bottom section - Sticky at bottom, always visible */}
