@@ -12,6 +12,14 @@ from .validation import safe_record_path
 
 log = logging.getLogger(__name__)
 
+# Import CV module for direct frame access (bypasses IPC size limits)
+try:
+    from ..cv import get_capture_instance
+    CV_AVAILABLE = True
+except ImportError:
+    CV_AVAILABLE = False
+    log.warning("CV module not available - screenshot endpoint will not work")
+
 # ---------- helpers ----------
 
 def _rec_dir() -> Path:
@@ -481,51 +489,57 @@ async def api_cv_status(request: web.Request):
 
 
 async def api_cv_screenshot(request: web.Request):
-    """Get the latest captured frame as JPEG image."""
+    """
+    Get the latest captured frame as JPEG image.
+
+    Accesses CV capture instance directly (not via IPC) to avoid message size limits.
+    """
+    if not CV_AVAILABLE:
+        log.error("CV screenshot requested but CV module not available")
+        return _json({"error": "CV module not available"}, 503)
+
+    log.debug("CV screenshot requested")
+
     try:
-        log.debug("CV screenshot requested")
-        resp = await _daemon("cv_get_frame")
-        log.debug(f"CV screenshot response received: {len(str(resp))} bytes")
-    except RuntimeError as e:
-        # Daemon reports this when the capture loop hasn't produced a frame yet.
-        error_msg = str(e)
-        log.warning(f"CV screenshot RuntimeError: {error_msg}")
-        if "no frame available" in error_msg.lower():
-            return _json({"error": "no frame available", "detail": error_msg}, 404)
-        if "failed to start" in error_msg.lower():
-            return _json({"error": "capture failed to start", "detail": error_msg}, 503)
-        return _json({"error": error_msg}, 503)
+        # Access capture instance directly (bypasses IPC size limits)
+        capture = get_capture_instance()
+
+        # Check if capture is running
+        status = capture.get_status()
+        if not status.get('capturing'):
+            log.info("CV capture not running for screenshot request")
+            return _json({"error": "CV capture not running", "hint": "Call /api/cv/start first"}, 503)
+
+        # Get latest frame
+        frame_result = capture.get_latest_frame()
+
+        if frame_result is None:
+            last_error = status.get('last_error')
+            error_detail = f": {last_error}" if last_error else ""
+            log.warning(f"No frame available{error_detail}")
+            return _json({"error": "no frame available", "detail": error_detail}, 404)
+
+        # Unpack frame data and metadata
+        jpeg_data, metadata = frame_result
+
+        log.debug(f"Returning frame: {len(jpeg_data)} bytes, {metadata.width}x{metadata.height}")
+
     except Exception as e:
-        log.error(f"CV screenshot unexpected error: {e}", exc_info=True)
+        log.error(f"CV screenshot error: {e}", exc_info=True)
         return _json({"error": str(e), "type": type(e).__name__}, 500)
 
-    # Extract base64-encoded frame data
-    frame_b64 = resp.get("frame")
-    if not frame_b64:
-        log.debug("CV daemon returned no frame data")
-        return _json({"error": "no frame available"}, 404)
-
-    metadata = resp.get("metadata") or {}
-
-    # Decode base64 to bytes
-    import base64
-    try:
-        jpeg_data = base64.b64decode(frame_b64)
-    except Exception as e:
-        log.warning("Failed to decode CV frame: %s", e)
-        return _json({"error": "invalid frame data"}, 500)
-
+    # Build response headers
     headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache",
-        "Expires": "0"
+        "Expires": "0",
+        # Add metadata as headers for debugging
+        "X-CV-Frame-Width": str(metadata.width),
+        "X-CV-Frame-Height": str(metadata.height),
+        "X-CV-Frame-Size-Bytes": str(metadata.size_bytes),
+        "X-CV-Frame-Timestamp": str(metadata.timestamp),
+        "X-CV-Frame-Age": str(time.time() - metadata.timestamp),
     }
-
-    # Surface metadata in headers for quick inspection in DevTools
-    if isinstance(metadata, dict):
-        for key in ("width", "height", "size_bytes", "timestamp"):
-            if key in metadata:
-                headers[f"X-CV-Frame-{key.replace('_', '-').title()}"] = str(metadata[key])
 
     return web.Response(body=jpeg_data, content_type="image/jpeg", headers=headers)
 
