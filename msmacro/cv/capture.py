@@ -6,11 +6,12 @@ import asyncio
 import logging
 import threading
 import time
+import os
 from typing import Optional, Dict, Any, Tuple
 import cv2
 import numpy as np
 
-from .device import CaptureDevice, find_capture_device, find_capture_device_with_retry, validate_device_access
+from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class CVCapture:
         """
         self.jpeg_quality = jpeg_quality
         self.frame_buffer = FrameBuffer()
+        self._preferred_device_cfg = os.environ.get("MSMACRO_CV_DEVICE", "").strip()
 
         # Capture state
         self._capture: Optional[cv2.VideoCapture] = None
@@ -126,19 +128,72 @@ class CVCapture:
         logger.info("Starting CV capture system...")
         self._clear_last_error()
 
-        # Find device with retry
-        self._device = await find_capture_device_with_retry(max_retries=3)
-        if not self._device:
+        # Wait for a device to appear
+        preferred_device = await find_capture_device_with_retry(max_retries=3)
+        if not preferred_device:
             self._set_last_error("No capture device found after retries")
             raise CVCaptureError("No capture device found after retries")
 
-        # Validate device access
-        if not validate_device_access(self._device):
-            self._set_last_error(f"Cannot access device: {self._device.device_path}")
-            raise CVCaptureError(f"Cannot access device: {self._device.device_path}")
+        # Build candidate list (preferred device first, then the rest ordered by priority)
+        all_devices = list_video_devices()
+        if not all_devices:
+            self._set_last_error("No capture devices detected on system")
+            raise CVCaptureError("No capture devices detected on system")
 
-        # Initialize capture
-        await self._init_capture()
+        def _priority(device: CaptureDevice) -> tuple:
+            name_lower = (device.name or "").lower()
+            keyword = 0 if ("hdmi" in name_lower or "capture" in name_lower) else 1
+            return (keyword, device.device_index)
+
+        ordered_devices = sorted(all_devices, key=_priority)
+
+        def _env_matches(device: CaptureDevice) -> bool:
+            if not self._preferred_device_cfg:
+                return False
+            pref = self._preferred_device_cfg
+            if pref.isdigit():
+                return device.device_index == int(pref)
+            if pref.startswith("/dev/"):
+                return device.device_path == pref
+            return pref.lower() in (device.name or "").lower()
+
+        candidates: list[CaptureDevice] = []
+        seen = set()
+
+        for dev in ordered_devices:
+            if _env_matches(dev) and dev.device_path not in seen:
+                candidates.append(dev)
+                seen.add(dev.device_path)
+
+        if preferred_device.device_path not in seen:
+            candidates.append(preferred_device)
+            seen.add(preferred_device.device_path)
+
+        for dev in ordered_devices:
+            if dev.device_path not in seen:
+                candidates.append(dev)
+                seen.add(dev.device_path)
+
+        init_error: Optional[str] = None
+        for candidate in candidates:
+            if not validate_device_access(candidate):
+                init_error = f"Cannot access device: {candidate.device_path}"
+                logger.warning(init_error)
+                continue
+
+            self._device = candidate
+            try:
+                await self._init_capture()
+                break
+            except CVCaptureError as exc:
+                init_error = str(exc)
+                logger.warning("Failed to initialize capture on %s: %s", candidate.device_path, exc)
+                self._release_capture()
+                self._device = None
+                continue
+        else:
+            self._set_last_error(init_error or "Failed to initialize capture device")
+            raise CVCaptureError(init_error or "Failed to initialize capture device")
 
         # Start capture thread
         self._stop_event.clear()

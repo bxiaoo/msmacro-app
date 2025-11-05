@@ -11,6 +11,7 @@ prints metadata to the console, and optionally writes the JPEG to disk.
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -83,8 +84,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         type=Path,
         help="Optional path to write the captured JPEG frame",
     )
+    parser.add_argument(
+        "--device",
+        help="Preferred video device (index, /dev path, or name substring) to try first",
+    )
 
     args = parser.parse_args(argv)
+    if args.device:
+        os.environ["MSMACRO_CV_DEVICE"] = str(args.device)
     try:
         return asyncio.run(gather_frame(args.timeout, args.output))
     except KeyboardInterrupt:
