@@ -33,12 +33,13 @@ class CVCapture:
     - Device reconnection on failures
     """
 
-    def __init__(self, jpeg_quality: int = 85):
+    def __init__(self, jpeg_quality: int = 70):
         """
         Initialize the capture manager.
 
         Args:
             jpeg_quality: JPEG compression quality (0-100, higher is better)
+                         Default 70 balances quality and memory usage on Raspberry Pi
         """
         self.jpeg_quality = jpeg_quality
         self.frame_buffer = FrameBuffer()
@@ -260,10 +261,11 @@ class CVCapture:
                     # USB capture cards often need explicit resolution/format set before first read
                     logger.debug("Device opened, configuring format parameters...")
 
-                    # Set resolution to a common supported size (1920x1080 is widely supported)
-                    # The device will adjust to its closest supported resolution
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                    # Set resolution - use 1280x720 to reduce memory usage on Raspberry Pi
+                    # Original 1920x1080 uses 6MB per frame, 1280x720 uses only 2.7MB (55% less)
+                    # Quality is still excellent for web preview, and saves critical RAM
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
                     # Try YUYV format first (most USB capture cards support this)
                     fourcc_yuyv = cv2.VideoWriter_fourcc(*'YUYV')
@@ -366,9 +368,16 @@ class CVCapture:
                     time.sleep(0.5)
                     continue
 
+                # Get frame dimensions before encoding
+                height, width = frame.shape[:2]
+
                 # Encode as JPEG
                 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
                 ret, jpeg_data = cv2.imencode('.jpg', frame, encode_param)
+
+                # Explicitly delete frame to free memory immediately
+                # Each frame is ~6MB for 1920x1080, critical on Raspberry Pi
+                del frame
 
                 if not ret or jpeg_data is None:
                     self._frames_failed += 1
@@ -376,16 +385,23 @@ class CVCapture:
                     self._set_last_error("Failed to encode frame as JPEG")
                     continue
 
+                # Convert to bytes
+                jpeg_bytes = jpeg_data.tobytes()
+
+                # Explicitly delete jpeg_data to free memory immediately
+                # JPEG numpy array is ~1MB, needs immediate cleanup on Pi
+                del jpeg_data
+
                 # Store in buffer
-                height, width = frame.shape[:2]
-                self.frame_buffer.update(jpeg_data.tobytes(), width, height)
+                self.frame_buffer.update(jpeg_bytes, width, height)
 
                 self._frames_captured += 1
                 self._last_frame_time = time.time()
                 self._clear_last_error()
 
-                # Small delay to avoid consuming 100% CPU
-                time.sleep(0.03)  # ~30 FPS max capture rate
+                # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
+                # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
+                time.sleep(0.5)  # 2 FPS capture rate
 
             except Exception as e:
                 self._frames_failed += 1

@@ -60,8 +60,9 @@ class FrameBuffer:
         with self._lock:
             if self._frame_data is None or self._metadata is None:
                 return None
-            # Return copies to avoid external modifications
-            return (self._frame_data, self._metadata)
+            # Return actual copies to prevent memory leaks from web request references
+            # Critical on Raspberry Pi with limited RAM
+            return (bytes(self._frame_data), self._metadata)
 
     def clear(self) -> None:
         """Clear the frame buffer."""
