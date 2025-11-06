@@ -3,6 +3,7 @@ import json
 import time
 import contextlib
 import logging
+import os
 from pathlib import Path
 from aiohttp import web
 
@@ -12,13 +13,15 @@ from .validation import safe_record_path
 
 log = logging.getLogger(__name__)
 
-# Import CV module for direct frame access (bypasses IPC size limits)
-try:
-    from ..cv import get_capture_instance
-    CV_AVAILABLE = True
-except ImportError:
-    CV_AVAILABLE = False
-    log.warning("CV module not available - screenshot endpoint will not work")
+_frame_path_env = os.environ.get("MSMACRO_CV_FRAME_PATH", "/dev/shm/msmacro_cv_frame.jpg").strip()
+SHARED_FRAME_PATH = Path(_frame_path_env) if _frame_path_env else None
+_meta_path_env = os.environ.get("MSMACRO_CV_META_PATH", "").strip()
+if _meta_path_env:
+    SHARED_META_PATH = Path(_meta_path_env)
+elif SHARED_FRAME_PATH is not None:
+    SHARED_META_PATH = SHARED_FRAME_PATH.with_suffix(".json")
+else:
+    SHARED_META_PATH = None
 
 # ---------- helpers ----------
 
@@ -489,57 +492,48 @@ async def api_cv_status(request: web.Request):
 
 
 async def api_cv_screenshot(request: web.Request):
-    """
-    Get the latest captured frame as JPEG image.
-
-    Accesses CV capture instance directly (not via IPC) to avoid message size limits.
-    """
-    if not CV_AVAILABLE:
-        log.error("CV screenshot requested but CV module not available")
-        return _json({"error": "CV module not available"}, 503)
-
-    log.debug("CV screenshot requested")
+    """Get the latest captured frame as JPEG image via shared memory frame file."""
+    if SHARED_FRAME_PATH is None:
+        log.error("Shared frame path not configured; set MSMACRO_CV_FRAME_PATH")
+        return _json({"error": "shared frame path not configured"}, 503)
 
     try:
-        # Access capture instance directly (bypasses IPC size limits)
-        capture = get_capture_instance()
-
-        # Check if capture is running
-        status = capture.get_status()
-        if not status.get('capturing'):
-            log.info("CV capture not running for screenshot request")
-            return _json({"error": "CV capture not running", "hint": "Call /api/cv/start first"}, 503)
-
-        # Get latest frame
-        frame_result = capture.get_latest_frame()
-
-        if frame_result is None:
-            last_error = status.get('last_error')
-            error_detail = f": {last_error}" if last_error else ""
-            log.warning(f"No frame available{error_detail}")
-            return _json({"error": "no frame available", "detail": error_detail}, 404)
-
-        # Unpack frame data and metadata
-        jpeg_data, metadata = frame_result
-
-        log.debug(f"Returning frame: {len(jpeg_data)} bytes, {metadata.width}x{metadata.height}")
-
+        status = await _daemon("cv_status")
     except Exception as e:
-        log.error(f"CV screenshot error: {e}", exc_info=True)
-        return _json({"error": str(e), "type": type(e).__name__}, 500)
+        log.warning("Failed to fetch CV status for screenshot: %s", e)
+        return _json({"error": str(e)}, 503)
 
-    # Build response headers
+    if not status.get("capturing") or not status.get("has_frame"):
+        log.debug("Screenshot requested but capture inactive or no recent frame")
+        return _json({"error": "no frame available"}, 404)
+
+    try:
+        jpeg_data = SHARED_FRAME_PATH.read_bytes()
+    except FileNotFoundError:
+        log.debug("Shared CV frame missing at %s", SHARED_FRAME_PATH)
+        return _json({"error": "no frame available"}, 404)
+    except Exception as e:
+        log.warning("Failed to read shared CV frame: %s", e)
+        return _json({"error": "failed to read frame"}, 500)
+
+    metadata = status.get("frame") or {}
+    if SHARED_META_PATH and SHARED_META_PATH.exists():
+        try:
+            metadata = json.loads(SHARED_META_PATH.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.debug("Failed to parse shared CV metadata: %s", e)
+
     headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache",
         "Expires": "0",
-        # Add metadata as headers for debugging
-        "X-CV-Frame-Width": str(metadata.width),
-        "X-CV-Frame-Height": str(metadata.height),
-        "X-CV-Frame-Size-Bytes": str(metadata.size_bytes),
-        "X-CV-Frame-Timestamp": str(metadata.timestamp),
-        "X-CV-Frame-Age": str(time.time() - metadata.timestamp),
     }
+
+    if isinstance(metadata, dict):
+        for key in ("width", "height", "size_bytes", "timestamp"):
+            if key in metadata:
+                header_key = f"X-CV-Frame-{key.replace('_', '-').title()}"
+                headers[header_key] = str(metadata[key])
 
     return web.Response(body=jpeg_data, content_type="image/jpeg", headers=headers)
 

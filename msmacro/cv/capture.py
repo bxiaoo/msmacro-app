@@ -3,13 +3,14 @@ Main capture manager for HDMI video capture cards using OpenCV.
 """
 
 import asyncio
+import json
 import logging
 import threading
 import time
 import os
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 import cv2
-import numpy as np
 
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
@@ -39,11 +40,20 @@ class CVCapture:
 
         Args:
             jpeg_quality: JPEG compression quality (0-100, higher is better)
-                         Default 70 balances quality and memory usage on Raspberry Pi
+                        Default 70 balances quality and memory usage on Raspberry Pi
         """
         self.jpeg_quality = jpeg_quality
         self.frame_buffer = FrameBuffer()
         self._preferred_device_cfg = os.environ.get("MSMACRO_CV_DEVICE", "").strip()
+        frame_path_env = os.environ.get("MSMACRO_CV_FRAME_PATH", "/dev/shm/msmacro_cv_frame.jpg").strip()
+        self._shared_frame_path = Path(frame_path_env) if frame_path_env else None
+        meta_path_env = os.environ.get("MSMACRO_CV_META_PATH", "").strip()
+        if meta_path_env:
+            self._shared_meta_path = Path(meta_path_env)
+        elif self._shared_frame_path is not None:
+            self._shared_meta_path = self._shared_frame_path.with_suffix(".json")
+        else:
+            self._shared_meta_path = None
 
         # Capture state
         self._capture: Optional[cv2.VideoCapture] = None
@@ -406,11 +416,16 @@ class CVCapture:
                 # JPEG numpy array is ~1MB, needs immediate cleanup on Pi
                 del jpeg_data
 
+                timestamp = time.time()
+
                 # Store in buffer
-                self.frame_buffer.update(jpeg_bytes, width, height)
+                self.frame_buffer.update(jpeg_bytes, width, height, timestamp=timestamp)
+
+                # Write to shared filesystem location for cross-process access
+                self._write_shared_frame(jpeg_bytes, width, height, timestamp)
 
                 self._frames_captured += 1
-                self._last_frame_time = time.time()
+                self._last_frame_time = timestamp
                 self._clear_last_error()
 
                 # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
@@ -466,6 +481,40 @@ class CVCapture:
             Tuple of (JPEG-encoded frame bytes, FrameMetadata) or None if no frame available
         """
         return self.frame_buffer.get_latest()
+
+    def _write_shared_frame(self, jpeg_bytes: bytes, width: int, height: int, timestamp: float) -> None:
+        """Persist latest frame to shared memory for other processes."""
+        if not self._shared_frame_path:
+            return
+
+        path = self._shared_frame_path
+        meta_path = self._shared_meta_path
+        try:
+            if path.parent != path and not path.parent.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+            tmp_path = path.with_name(path.name + ".tmp")
+            with open(tmp_path, "wb") as fh:
+                fh.write(jpeg_bytes)
+            os.replace(tmp_path, path)
+
+            if meta_path:
+                if meta_path.parent != meta_path and not meta_path.parent.exists():
+                    meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+                metadata = {
+                    "width": width,
+                    "height": height,
+                    "timestamp": timestamp,
+                    "size_bytes": len(jpeg_bytes),
+                }
+                meta_tmp = meta_path.with_name(meta_path.name + ".tmp")
+                with open(meta_tmp, "w", encoding="utf-8") as fh:
+                    json.dump(metadata, fh)
+                os.replace(meta_tmp, meta_path)
+        except Exception as exc:
+            # Failure to persist shared frame shouldn't break capture loop; log at debug level
+            logger.debug(f"Failed to write shared CV frame: {exc}", exc_info=True)
 
     def _set_last_error(self, message: str, *, exception: Optional[Exception] = None) -> None:
         """Record the most recent capture error for diagnostics."""

@@ -30,7 +30,7 @@ class FrameBuffer:
         self._frame_data: Optional[bytes] = None
         self._metadata: Optional[FrameMetadata] = None
 
-    def update(self, jpeg_data: bytes, width: int, height: int) -> None:
+    def update(self, jpeg_data: bytes, width: int, height: int, timestamp: Optional[float] = None) -> None:
         """
         Update the buffer with a new JPEG-encoded frame.
 
@@ -38,9 +38,10 @@ class FrameBuffer:
             jpeg_data: JPEG-encoded frame data
             width: Frame width in pixels
             height: Frame height in pixels
+            timestamp: Optional precomputed timestamp to associate with the frame
         """
         metadata = FrameMetadata(
-            timestamp=time.time(),
+            timestamp=timestamp if timestamp is not None else time.time(),
             width=width,
             height=height,
             size_bytes=len(jpeg_data)
