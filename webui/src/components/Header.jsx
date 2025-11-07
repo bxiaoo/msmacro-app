@@ -21,7 +21,7 @@ function AppTitle({active = false}) {
         <p className="leading-[normal] text-nowrap whitespace-pre">MS Macro</p>
       </div>
       <div className={clsx("font-['Roboto:Medium',_sans-serif] font-medium relative shrink-0 text-[14px]", active ? "text-emerald-600" : "text-gray-400")} style={{ fontVariationSettings: "'wdth' 100" }}>
-        <p className="leading-[normal] text-nowrap whitespace-pre">{active ? 'Online' : 'Offline'}</p>
+          <SystemStats />
       </div>
     </div>
   );
@@ -112,7 +112,6 @@ export function Header({
         <AppTitle active={isActive} />
       </div>
       <div className="content-stretch flex gap-4 items-center justify-end relative shrink-0">
-        <SystemStats />
         <div className="content-stretch flex gap-1 items-center justify-start relative shrink-0">
           <ActionButton
             Icon={Trash2}
