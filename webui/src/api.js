@@ -174,6 +174,46 @@ async function API(path, opts = {}) {
     });
   }
 
+  // ---------- CV Map Configuration ----------
+  export function listMapConfigs() {
+    return API("/api/cv/map-configs");
+  }
+
+  export function createMapConfig(name, tl_x, tl_y, width, height) {
+    return API("/api/cv/map-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        tl_x,
+        tl_y,
+        width,
+        height,
+      }),
+    });
+  }
+
+  export function deleteMapConfig(name) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+  }
+
+  export function activateMapConfig(name) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(name)}/activate`, {
+      method: "POST",
+    });
+  }
+
+  export function getActiveMapConfig() {
+    return API("/api/cv/map-configs/active");
+  }
+
+  export function deactivateMapConfig() {
+    return API("/api/cv/map-configs/deactivate", {
+      method: "POST",
+    });
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

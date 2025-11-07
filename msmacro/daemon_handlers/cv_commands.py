@@ -159,3 +159,33 @@ class CVCommandHandler:
         await capture.stop()
         emit("CV_STOPPED")
         return {"stopped": True}
+
+    async def cv_reload_config(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Reload map configuration from disk.
+
+        Called when map configurations are modified via the web API
+        to update the active detection region without restarting capture.
+
+        Args:
+            msg: IPC message (unused)
+
+        Returns:
+            Dictionary with "reloaded" key set to True and current config info
+
+        Note:
+            Emits CV_CONFIG_RELOADED event on success
+        """
+        capture = get_capture_instance()
+        capture.reload_config()
+        emit("CV_CONFIG_RELOADED")
+
+        # Get current config for response
+        from ..cv.map_config import get_manager
+        manager = get_manager()
+        active_config = manager.get_active_config()
+
+        return {
+            "reloaded": True,
+            "active_config": active_config.to_dict() if active_config else None
+        }

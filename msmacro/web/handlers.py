@@ -569,3 +569,196 @@ async def api_cv_stop(request: web.Request):
         return _json(resp)
     except Exception as e:
         return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_list(request: web.Request):
+    """
+    Get all saved map configurations.
+
+    Returns:
+        List of map configs with all details
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        manager = get_manager()
+        configs = manager.list_configs()
+
+        return _json({
+            "configs": [config.to_dict() for config in configs]
+        })
+    except Exception as e:
+        log.error(f"Failed to list map configs: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_create(request: web.Request):
+    """
+    Create a new map configuration.
+
+    Request body (JSON):
+        {
+            "name": "My Map",
+            "tl_x": 68,
+            "tl_y": 56,
+            "width": 340,
+            "height": 86
+        }
+
+    Returns:
+        Created config object
+    """
+    try:
+        from msmacro.cv.map_config import get_manager, MapConfig
+        import time
+
+        data = await request.json()
+
+        # Validate required fields
+        required_fields = ["name", "tl_x", "tl_y", "width", "height"]
+        for field in required_fields:
+            if field not in data:
+                return _json({"error": f"Missing required field: {field}"}, 400)
+
+        # Create config object
+        config = MapConfig(
+            name=data["name"],
+            tl_x=int(data["tl_x"]),
+            tl_y=int(data["tl_y"]),
+            width=int(data["width"]),
+            height=int(data["height"]),
+            created_at=time.time(),
+            last_used_at=0.0,
+            is_active=False
+        )
+
+        manager = get_manager()
+        manager.save_config(config)
+
+        return _json({
+            "success": True,
+            "config": config.to_dict()
+        })
+
+    except ValueError as e:
+        return _json({"error": str(e)}, 400)
+    except Exception as e:
+        log.error(f"Failed to create map config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_delete(request: web.Request):
+    """
+    Delete a map configuration.
+
+    URL parameter:
+        name: Config name to delete
+
+    Returns:
+        Success status
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        name = request.match_info.get("name")
+        if not name:
+            return _json({"error": "Config name required"}, 400)
+
+        manager = get_manager()
+        deleted = manager.delete_config(name)
+
+        if not deleted:
+            return _json({"error": "Config not found or cannot be deleted (is active)"}, 404)
+
+        return _json({"success": True})
+
+    except Exception as e:
+        log.error(f"Failed to delete map config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_activate(request: web.Request):
+    """
+    Activate a map configuration.
+
+    URL parameter:
+        name: Config name to activate
+
+    Returns:
+        Activated config object
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        name = request.match_info.get("name")
+        if not name:
+            return _json({"error": "Config name required"}, 400)
+
+        manager = get_manager()
+        config = manager.activate_config(name)
+
+        if not config:
+            return _json({"error": "Config not found"}, 404)
+
+        # Notify daemon to reload config
+        try:
+            await _daemon("cv_reload_config")
+        except Exception as e:
+            log.warning(f"Failed to notify daemon of config change: {e}")
+
+        return _json({
+            "success": True,
+            "config": config.to_dict()
+        })
+
+    except Exception as e:
+        log.error(f"Failed to activate map config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_get_active(request: web.Request):
+    """
+    Get the currently active map configuration.
+
+    Returns:
+        Active config object or null if none active
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        manager = get_manager()
+        config = manager.get_active_config()
+
+        return _json({
+            "config": config.to_dict() if config else None
+        })
+
+    except Exception as e:
+        log.error(f"Failed to get active map config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_map_configs_deactivate(request: web.Request):
+    """
+    Deactivate the current map configuration (revert to full-screen detection).
+
+    Returns:
+        Success status
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        manager = get_manager()
+        manager.deactivate()
+
+        # Notify daemon to reload config
+        try:
+            await _daemon("cv_reload_config")
+        except Exception as e:
+            log.warning(f"Failed to notify daemon of config change: {e}")
+
+        return _json({"success": True})
+
+    except Exception as e:
+        log.error(f"Failed to deactivate map config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)

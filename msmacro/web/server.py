@@ -30,6 +30,13 @@ from .handlers import (
     api_cv_screenshot,
     api_cv_start,
     api_cv_stop,
+    # CV map config handlers
+    api_cv_map_configs_list,
+    api_cv_map_configs_create,
+    api_cv_map_configs_delete,
+    api_cv_map_configs_activate,
+    api_cv_map_configs_get_active,
+    api_cv_map_configs_deactivate,
 )
 
 # ---- Config ----
@@ -98,6 +105,14 @@ def make_app() -> web.Application:
         web.get("/api/cv/screenshot", api_cv_screenshot),
         web.post("/api/cv/start", api_cv_start),
         web.post("/api/cv/stop", api_cv_stop),
+
+        # CV Map Configuration management
+        web.get("/api/cv/map-configs", api_cv_map_configs_list),
+        web.post("/api/cv/map-configs", api_cv_map_configs_create),
+        web.delete("/api/cv/map-configs/{name}", api_cv_map_configs_delete),
+        web.post("/api/cv/map-configs/{name}/activate", api_cv_map_configs_activate),
+        web.get("/api/cv/map-configs/active", api_cv_map_configs_get_active),
+        web.post("/api/cv/map-configs/deactivate", api_cv_map_configs_deactivate),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),
