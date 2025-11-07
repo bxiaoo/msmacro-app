@@ -874,3 +874,27 @@ async def api_cv_map_configs_deactivate(request: web.Request):
     except Exception as e:
         log.error(f"Failed to deactivate map config: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)
+
+
+async def api_system_stats(request: web.Request):
+    """
+    Get system performance statistics (CPU, RAM, disk, temperature).
+
+    Returns:
+        System stats including:
+        - cpu_percent: Overall CPU usage percentage
+        - cpu_count: Number of CPU cores
+        - memory_percent: RAM usage percentage
+        - memory_available_mb: Available RAM in MB
+        - memory_total_mb: Total RAM in MB
+        - disk_percent: Disk usage percentage
+        - disk_free_gb: Free disk space in GB
+        - temperature: CPU temperature in Celsius (Pi only)
+        - uptime_seconds: System uptime in seconds
+    """
+    try:
+        stats = await _daemon("system_stats")
+        return _json(stats)
+    except Exception as e:
+        log.error(f"Failed to get system stats: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)

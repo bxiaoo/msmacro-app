@@ -1,6 +1,8 @@
-import { Settings2, Bug, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Settings2, Bug, Trash2, Cpu, HardDrive } from "lucide-react";
 import { ActionButton } from "./ui/action-button";
 import { clsx } from "clsx";
+import { getSystemStats } from "../api";
 
 function LiveSymbol({active = false}) {
     return (
@@ -27,6 +29,73 @@ function AppTitle({active = false}) {
 
 
 
+function SystemStats() {
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const data = await getSystemStats();
+        setStats(data);
+      } catch (err) {
+        console.error("Failed to fetch system stats:", err);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!stats) return null;
+
+  const getCPUColor = (percent) => {
+    if (percent >= 80) return "text-red-600";
+    if (percent >= 60) return "text-yellow-600";
+    return "text-green-600";
+  };
+
+  const getMemColor = (percent) => {
+    if (percent >= 85) return "text-red-600";
+    if (percent >= 70) return "text-yellow-600";
+    return "text-green-600";
+  };
+
+  return (
+    <div className="flex items-center gap-3 text-xs text-gray-600">
+      {/* CPU */}
+      <div className="flex items-center gap-1">
+        <Cpu size={14} className={getCPUColor(stats.cpu_percent)} />
+        <span className={clsx("font-mono font-medium", getCPUColor(stats.cpu_percent))}>
+          {stats.cpu_percent}%
+        </span>
+      </div>
+
+      {/* RAM */}
+      <div className="flex items-center gap-1">
+        <HardDrive size={14} className={getMemColor(stats.memory_percent)} />
+        <span className={clsx("font-mono font-medium", getMemColor(stats.memory_percent))}>
+          {stats.memory_percent}%
+        </span>
+      </div>
+
+      {/* Temperature (Pi only) */}
+      {stats.temperature && (
+        <div className="flex items-center gap-1">
+          <span className={clsx(
+            "font-mono font-medium",
+            stats.temperature >= 70 ? "text-red-600" :
+            stats.temperature >= 60 ? "text-yellow-600" :
+            "text-green-600"
+          )}>
+            {stats.temperature}°C
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Header({
     isActive = false,
   onSettingsClick,
@@ -42,23 +111,26 @@ export function Header({
         <LiveSymbol active={isActive} />
         <AppTitle active={isActive} />
       </div>
-      <div className="content-stretch flex gap-1 items-center justify-start relative shrink-0">
-        <ActionButton
-          Icon={Trash2}
-          onClick={onDeleteSelected}
-          active={false}
-          disabled={!hasSelectedFiles}
-        />
-        <ActionButton
-          Icon={Settings2}
-          onClick={onSettingsClick}
-          active={isSettingsActive}
-        />
-        <ActionButton
-          Icon={Bug}
-          onClick={onDebugClick}
-          active={isDebugActive}
-        />
+      <div className="content-stretch flex gap-4 items-center justify-end relative shrink-0">
+        <SystemStats />
+        <div className="content-stretch flex gap-1 items-center justify-start relative shrink-0">
+          <ActionButton
+            Icon={Trash2}
+            onClick={onDeleteSelected}
+            active={false}
+            disabled={!hasSelectedFiles}
+          />
+          <ActionButton
+            Icon={Settings2}
+            onClick={onSettingsClick}
+            active={isSettingsActive}
+          />
+          <ActionButton
+            Icon={Bug}
+            onClick={onDebugClick}
+            active={isDebugActive}
+          />
+        </div>
       </div>
     </div>
   );

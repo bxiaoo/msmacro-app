@@ -300,3 +300,8 @@ async function API(path, opts = {}) {
       }
     }
   }
+
+  // ---------- System Stats ----------
+  export function getSystemStats() {
+    return API("/api/system/stats");
+  }

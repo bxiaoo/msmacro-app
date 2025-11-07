@@ -11,7 +11,8 @@ dependencies = [
   "evdev",
   "aiohttp",
   "opencv-python",
-  "numpy"
+  "numpy",
+  "psutil"
 ]
 
 [tool.setuptools.packages.find]

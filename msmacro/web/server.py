@@ -38,6 +38,8 @@ from .handlers import (
     api_cv_map_configs_activate,
     api_cv_map_configs_get_active,
     api_cv_map_configs_deactivate,
+    # System handlers
+    api_system_stats,
 )
 
 # ---- Config ----
@@ -115,6 +117,9 @@ def make_app() -> web.Application:
         web.post("/api/cv/map-configs/{name}/activate", api_cv_map_configs_activate),
         web.get("/api/cv/map-configs/active", api_cv_map_configs_get_active),
         web.post("/api/cv/map-configs/deactivate", api_cv_map_configs_deactivate),
+
+        # System information
+        web.get("/api/system/stats", api_system_stats),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),

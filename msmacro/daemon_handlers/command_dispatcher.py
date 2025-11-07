@@ -15,6 +15,7 @@ from .recording_commands import RecordingCommandHandler
 from .playback_commands import PlaybackCommandHandler
 from .skills_commands import SkillsCommandHandler
 from .cv_commands import CVCommandHandler
+from .system_commands import SystemCommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class CommandDispatcher:
         self.playback_handler = PlaybackCommandHandler(daemon)
         self.skills_handler = SkillsCommandHandler(daemon)
         self.cv_handler = CVCommandHandler(daemon)
+        self.system_handler = SystemCommandHandler(daemon)
 
     async def dispatch(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -113,6 +115,10 @@ class CommandDispatcher:
             return await self.cv_handler.cv_start(msg)
         elif cmd == "cv_stop":
             return await self.cv_handler.cv_stop(msg)
+
+        # System information commands
+        elif cmd == "system_stats":
+            return await self.system_handler.system_stats(msg)
 
         # Unknown command
         else:
