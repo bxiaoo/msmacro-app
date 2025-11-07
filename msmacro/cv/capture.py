@@ -11,9 +11,11 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 import cv2
+import numpy as np
 
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
+from .region_analysis import detect_and_crop_white_frame, Region
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,27 @@ class CVCapture:
             self._shared_meta_path = self._shared_frame_path.with_suffix(".json")
         else:
             self._shared_meta_path = None
+
+        # White frame detection configuration
+        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "false").lower() in ("true", "1", "yes")
+        self._white_frame_threshold = int(os.environ.get("MSMACRO_CV_WHITE_THRESHOLD", "240"))
+        self._white_frame_min_pixels = int(os.environ.get("MSMACRO_CV_WHITE_MIN_PIXELS", "100"))
+
+        # Parse scan region from env (format: "x,y,width,height" or empty for default)
+        scan_region_str = os.environ.get("MSMACRO_CV_WHITE_SCAN_REGION", "").strip()
+        if scan_region_str:
+            try:
+                parts = [int(p.strip()) for p in scan_region_str.split(",")]
+                if len(parts) == 4:
+                    self._white_frame_scan_region = Region(x=parts[0], y=parts[1], width=parts[2], height=parts[3])
+                else:
+                    logger.warning(f"Invalid MSMACRO_CV_WHITE_SCAN_REGION format: {scan_region_str}, using default")
+                    self._white_frame_scan_region = None
+            except ValueError as e:
+                logger.warning(f"Failed to parse MSMACRO_CV_WHITE_SCAN_REGION: {e}, using default")
+                self._white_frame_scan_region = None
+        else:
+            self._white_frame_scan_region = None  # Use default from detect_and_crop_white_frame
 
         # Capture state
         self._capture: Optional[cv2.VideoCapture] = None
@@ -392,6 +415,27 @@ class CVCapture:
                     time.sleep(0.5)
                     continue
 
+                # White frame detection and cropping (if enabled)
+                if self._detect_white_frame:
+                    cropped_frame = detect_and_crop_white_frame(
+                        frame,
+                        scan_region=self._white_frame_scan_region,
+                        threshold=self._white_frame_threshold,
+                        min_white_pixels=self._white_frame_min_pixels
+                    )
+
+                    # Delete original frame to free memory
+                    del frame
+
+                    if cropped_frame is not None:
+                        # Use cropped frame
+                        frame = cropped_frame
+                    else:
+                        # No white frame detected - create blank error image
+                        # Create a small gray image with text indicating no frame detected
+                        error_img = self._create_no_frame_error_image()
+                        frame = error_img
+
                 # Get frame dimensions before encoding
                 height, width = frame.shape[:2]
 
@@ -534,6 +578,33 @@ class CVCapture:
     def _get_last_error(self) -> Optional[Dict[str, Any]]:
         with self._error_lock:
             return dict(self._last_error) if self._last_error else None
+
+    def _create_no_frame_error_image(self) -> "np.ndarray":
+        """
+        Create a blank error image to display when no white frame is detected.
+
+        Returns:
+            numpy array containing a gray image with error text
+        """
+        # Create a 320x240 gray image
+        img = np.full((240, 320, 3), 64, dtype=np.uint8)  # Dark gray background
+
+        # Add text
+        text = "No white frame detected"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        font_thickness = 2
+        text_color = (200, 200, 200)  # Light gray
+
+        # Get text size to center it
+        text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+        text_x = (320 - text_size[0]) // 2
+        text_y = (240 + text_size[1]) // 2
+
+        # Draw text
+        cv2.putText(img, text, (text_x, text_y), font, font_scale, text_color, font_thickness)
+
+        return img
 
 
 # Global capture instance

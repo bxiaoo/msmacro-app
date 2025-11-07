@@ -303,6 +303,113 @@ def visualize_region(
     return result
 
 
+def detect_white_frame_bounds(
+    frame: np.ndarray,
+    scan_region: Optional[Region] = None,
+    threshold: int = 240,
+    min_white_pixels: int = 100
+) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Detect white frame boundaries in a scan region.
+
+    This function finds the bounding box of white pixels that form a frame/border.
+    Useful for detecting UI elements with white borders.
+
+    Args:
+        frame: Input frame (BGR or grayscale numpy array)
+        scan_region: Region to scan (default: top-left 300x200 pixels)
+        threshold: Minimum pixel value to consider "white" (0-255, default: 240)
+        min_white_pixels: Minimum white pixels required for detection (default: 100)
+
+    Returns:
+        Tuple of (x, y, width, height) in absolute pixels, or None if not detected
+
+    Example:
+        >>> bounds = detect_white_frame_bounds(frame)
+        >>> if bounds:
+        >>>     x, y, w, h = bounds
+        >>>     cropped = frame[y:y+h, x:x+w]
+    """
+    # Default scan region: top-left 300x200 pixels
+    if scan_region is None:
+        scan_region = Region(x=0, y=0, width=300, height=200)
+
+    # Extract scan region
+    roi = extract_region(frame, scan_region)
+    frame_height, frame_width = frame.shape[:2]
+    scan_x, scan_y, scan_w, scan_h = scan_region.to_absolute(frame_width, frame_height)
+
+    # Convert to grayscale if needed
+    if len(roi.shape) == 3:
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = roi
+
+    # Create binary mask of white pixels
+    _, white_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+
+    # Count white pixels
+    white_pixel_count = np.sum(white_mask > 0)
+    if white_pixel_count < min_white_pixels:
+        return None
+
+    # Find contours of white regions
+    contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return None
+
+    # Find the largest contour (likely the white frame)
+    largest_contour = max(contours, key=cv2.contourArea)
+
+    # Get bounding rectangle
+    x, y, w, h = cv2.boundingRect(largest_contour)
+
+    # Convert to absolute frame coordinates
+    abs_x = scan_x + x
+    abs_y = scan_y + y
+
+    # Ensure bounds are within frame
+    abs_x = max(0, min(abs_x, frame_width - 1))
+    abs_y = max(0, min(abs_y, frame_height - 1))
+    w = max(1, min(w, frame_width - abs_x))
+    h = max(1, min(h, frame_height - abs_y))
+
+    return (abs_x, abs_y, w, h)
+
+
+def detect_and_crop_white_frame(
+    frame: np.ndarray,
+    scan_region: Optional[Region] = None,
+    threshold: int = 240,
+    min_white_pixels: int = 100
+) -> Optional[np.ndarray]:
+    """
+    Detect and crop to white frame region in one operation.
+
+    Args:
+        frame: Input frame (BGR or grayscale numpy array)
+        scan_region: Region to scan (default: top-left 300x200 pixels)
+        threshold: Minimum pixel value to consider "white" (0-255, default: 240)
+        min_white_pixels: Minimum white pixels required for detection (default: 100)
+
+    Returns:
+        Cropped frame containing the white frame region, or None if not detected
+
+    Example:
+        >>> cropped = detect_and_crop_white_frame(frame)
+        >>> if cropped is not None:
+        >>>     cv2.imwrite("white_frame.jpg", cropped)
+    """
+    bounds = detect_white_frame_bounds(frame, scan_region, threshold, min_white_pixels)
+
+    if bounds is None:
+        return None
+
+    x, y, w, h = bounds
+    return frame[y:y+h, x:x+w]
+
+
 # Common region presets for 1280x720 and 1920x1080 screens
 REGIONS = {
     # Top-left corner (200x100 pixels)
