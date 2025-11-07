@@ -15,6 +15,14 @@ class FrameMetadata:
     width: int
     height: int
     size_bytes: int
+    # Region detection info (optional)
+    region_detected: bool = False
+    region_x: int = 0
+    region_y: int = 0
+    region_width: int = 0
+    region_height: int = 0
+    region_confidence: float = 0.0
+    region_white_ratio: float = 0.0
 
 
 class FrameBuffer:
@@ -30,7 +38,20 @@ class FrameBuffer:
         self._frame_data: Optional[bytes] = None
         self._metadata: Optional[FrameMetadata] = None
 
-    def update(self, jpeg_data: bytes, width: int, height: int, timestamp: Optional[float] = None) -> None:
+    def update(
+        self,
+        jpeg_data: bytes,
+        width: int,
+        height: int,
+        timestamp: Optional[float] = None,
+        region_detected: bool = False,
+        region_x: int = 0,
+        region_y: int = 0,
+        region_width: int = 0,
+        region_height: int = 0,
+        region_confidence: float = 0.0,
+        region_white_ratio: float = 0.0
+    ) -> None:
         """
         Update the buffer with a new JPEG-encoded frame.
 
@@ -39,12 +60,24 @@ class FrameBuffer:
             width: Frame width in pixels
             height: Frame height in pixels
             timestamp: Optional precomputed timestamp to associate with the frame
+            region_detected: Whether white frame region was detected
+            region_x, region_y: Region top-left coordinates
+            region_width, region_height: Region dimensions
+            region_confidence: Detection confidence (0.0-1.0)
+            region_white_ratio: Ratio of white pixels in region
         """
         metadata = FrameMetadata(
             timestamp=timestamp if timestamp is not None else time.time(),
             width=width,
             height=height,
-            size_bytes=len(jpeg_data)
+            size_bytes=len(jpeg_data),
+            region_detected=region_detected,
+            region_x=region_x,
+            region_y=region_y,
+            region_width=region_width,
+            region_height=region_height,
+            region_confidence=region_confidence,
+            region_white_ratio=region_white_ratio
         )
 
         with self._lock:

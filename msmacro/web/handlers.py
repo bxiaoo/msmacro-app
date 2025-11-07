@@ -535,6 +535,21 @@ async def api_cv_screenshot(request: web.Request):
                 header_key = f"X-CV-Frame-{key.replace('_', '-').title()}"
                 headers[header_key] = str(metadata[key])
 
+        # Add region detection metadata to headers
+        region_keys = (
+            "region_detected",
+            "region_x",
+            "region_y",
+            "region_width",
+            "region_height",
+            "region_confidence",
+            "region_white_ratio"
+        )
+        for key in region_keys:
+            if key in metadata:
+                header_key = f"X-CV-Region-{key.replace('_', '-').title()}"
+                headers[header_key] = str(metadata[key])
+
     return web.Response(body=jpeg_data, content_type="image/jpeg", headers=headers)
 
 

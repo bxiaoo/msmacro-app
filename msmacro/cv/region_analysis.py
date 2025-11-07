@@ -378,6 +378,118 @@ def detect_white_frame_bounds(
     return (abs_x, abs_y, w, h)
 
 
+def detect_top_left_white_frame(
+    frame: np.ndarray,
+    max_region_width: int = 800,
+    max_region_height: int = 600,
+    threshold: int = 240,
+    min_white_ratio: float = 0.85,
+    edge_margin: int = 20
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect white frame content in the top-left area of the frame.
+
+    Optimized for detecting content with white borders/backgrounds that appear
+    in the top-left corner of screenshots. Returns both the detected region and
+    analysis metadata.
+
+    Args:
+        frame: Input frame (BGR or grayscale numpy array)
+        max_region_width: Maximum width to search (default: 800)
+        max_region_height: Maximum height to search (default: 600)
+        threshold: Minimum pixel value to consider "white" (0-255, default: 240)
+        min_white_ratio: Minimum ratio of white pixels (0.0-1.0, default: 0.85)
+        edge_margin: Margin from edges to exclude (pixels, default: 20)
+
+    Returns:
+        Dict with keys:
+            - 'detected' (bool): Whether white frame was detected
+            - 'x', 'y', 'width', 'height' (int): Detected region coordinates
+            - 'white_ratio' (float): Ratio of white pixels in region
+            - 'avg_brightness' (float): Average brightness
+            - 'confidence' (float): Detection confidence (0.0-1.0)
+        Or None if detection fails
+
+    Example:
+        >>> result = detect_top_left_white_frame(frame)
+        >>> if result and result['detected']:
+        >>>     x, y, w, h = result['x'], result['y'], result['width'], result['height']
+        >>>     cropped = frame[y:y+h, x:x+w]
+    """
+    frame_height, frame_width = frame.shape[:2]
+
+    # Limit search region
+    search_width = min(max_region_width, frame_width - edge_margin)
+    search_height = min(max_region_height, frame_height - edge_margin)
+
+    # Convert to grayscale
+    if len(frame.shape) == 3:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = frame
+
+    # Extract top-left region for analysis
+    top_left = gray[edge_margin:edge_margin + search_height, edge_margin:edge_margin + search_width]
+
+    # Create binary mask of white pixels
+    _, white_mask = cv2.threshold(top_left, threshold, 255, cv2.THRESH_BINARY)
+
+    # Find white pixel regions
+    white_pixels = np.sum(white_mask > 0)
+    total_pixels = white_mask.size
+    white_ratio = white_pixels / total_pixels if total_pixels > 0 else 0.0
+
+    # Find contours to locate white regions
+    contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    result = {
+        "detected": False,
+        "white_ratio": white_ratio,
+        "avg_brightness": float(np.mean(top_left)),
+        "white_pixels": int(white_pixels),
+        "total_pixels": int(total_pixels),
+        "threshold": threshold,
+        "confidence": 0.0,
+    }
+
+    if not contours or white_ratio < min_white_ratio:
+        return result
+
+    # Find largest contour (main white region)
+    largest_contour = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest_contour)
+
+    # Convert back to absolute frame coordinates (accounting for edge_margin)
+    abs_x = edge_margin + x
+    abs_y = edge_margin + y
+
+    # Clamp to frame boundaries
+    abs_x = max(0, min(abs_x, frame_width - 1))
+    abs_y = max(0, min(abs_y, frame_height - 1))
+    w = max(1, min(w, frame_width - abs_x))
+    h = max(1, min(h, frame_height - abs_y))
+
+    # Analyze the detected region for quality
+    region_roi = gray[abs_y:abs_y + h, abs_x:abs_x + w]
+    _, region_mask = cv2.threshold(region_roi, threshold, 255, cv2.THRESH_BINARY)
+    region_white_ratio = np.sum(region_mask > 0) / region_mask.size
+
+    # Confidence: how "white" is the detected region
+    confidence = min(1.0, region_white_ratio)
+
+    result.update({
+        "detected": region_white_ratio >= min_white_ratio,
+        "x": int(abs_x),
+        "y": int(abs_y),
+        "width": int(w),
+        "height": int(h),
+        "region_white_ratio": float(region_white_ratio),
+        "confidence": float(confidence),
+    })
+
+    return result
+
+
 def detect_and_crop_white_frame(
     frame: np.ndarray,
     scan_region: Optional[Region] = None,

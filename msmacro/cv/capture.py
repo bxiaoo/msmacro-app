@@ -15,7 +15,7 @@ import numpy as np
 
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
-from .region_analysis import detect_and_crop_white_frame, Region
+from .region_analysis import detect_and_crop_white_frame, detect_top_left_white_frame, Region
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ class CVCapture:
             self._shared_meta_path = None
 
         # White frame detection configuration
-        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "false").lower() in ("true", "1", "yes")
-        self._white_frame_threshold = int(os.environ.get("MSMACRO_CV_WHITE_THRESHOLD", "240"))
+        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "true").lower() in ("true", "1", "yes")
+        self._white_frame_threshold = int(os.environ.get("MSMACRO_CV_WHITE_THRESHOLD", "220"))
         self._white_frame_min_pixels = int(os.environ.get("MSMACRO_CV_WHITE_MIN_PIXELS", "100"))
 
         # Parse scan region from env (format: "x,y,width,height" or empty for default)
@@ -415,29 +415,49 @@ class CVCapture:
                     time.sleep(0.5)
                     continue
 
-                # White frame detection and cropping (if enabled)
-                if self._detect_white_frame:
-                    cropped_frame = detect_and_crop_white_frame(
-                        frame,
-                        scan_region=self._white_frame_scan_region,
-                        threshold=self._white_frame_threshold,
-                        min_white_pixels=self._white_frame_min_pixels
-                    )
+                # Detect white frame region (always do analysis, but crop only if enabled)
+                region_detected = False
+                region_x, region_y = 0, 0
+                region_width, region_height = 0, 0
+                region_confidence, region_white_ratio = 0.0, 0.0
 
-                    # Delete original frame to free memory
-                    del frame
+                detection_result = detect_top_left_white_frame(
+                    frame,
+                    threshold=self._white_frame_threshold,
+                    min_white_ratio=0.75
+                )
 
-                    if cropped_frame is not None:
-                        # Use cropped frame
-                        frame = cropped_frame
-                    else:
-                        # No white frame detected - create blank error image
-                        # Create a small gray image with text indicating no frame detected
-                        error_img = self._create_no_frame_error_image()
-                        frame = error_img
+                if detection_result and detection_result.get("detected"):
+                    region_detected = True
+                    region_x = detection_result.get("x", 0)
+                    region_y = detection_result.get("y", 0)
+                    region_width = detection_result.get("width", 0)
+                    region_height = detection_result.get("height", 0)
+                    region_confidence = detection_result.get("confidence", 0.0)
+                    region_white_ratio = detection_result.get("region_white_ratio", 0.0)
 
-                # Get frame dimensions before encoding
-                height, width = frame.shape[:2]
+                # Crop frame if enabled and white frame detected
+                if self._detect_white_frame and region_detected:
+                    try:
+                        cropped_frame = frame[
+                            region_y:region_y + region_height,
+                            region_x:region_x + region_width
+                        ]
+                        if cropped_frame is not None and cropped_frame.size > 0:
+                            # Use cropped frame
+                            del frame
+                            frame = cropped_frame
+                            # Update dimensions to match cropped frame
+                            height, width = frame.shape[:2]
+                        else:
+                            # Crop failed, use full frame
+                            height, width = frame.shape[:2]
+                    except Exception as crop_err:
+                        logger.debug(f"Frame cropping failed: {crop_err}, using full frame")
+                        height, width = frame.shape[:2]
+                else:
+                    # Get frame dimensions before encoding (raw camera feed always shown)
+                    height, width = frame.shape[:2]
 
                 # Encode as JPEG
                 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
@@ -462,11 +482,35 @@ class CVCapture:
 
                 timestamp = time.time()
 
-                # Store in buffer
-                self.frame_buffer.update(jpeg_bytes, width, height, timestamp=timestamp)
+                # Store in buffer with region metadata
+                self.frame_buffer.update(
+                    jpeg_bytes,
+                    width,
+                    height,
+                    timestamp=timestamp,
+                    region_detected=region_detected,
+                    region_x=region_x,
+                    region_y=region_y,
+                    region_width=region_width,
+                    region_height=region_height,
+                    region_confidence=region_confidence,
+                    region_white_ratio=region_white_ratio
+                )
 
                 # Write to shared filesystem location for cross-process access
-                self._write_shared_frame(jpeg_bytes, width, height, timestamp)
+                self._write_shared_frame(
+                    jpeg_bytes,
+                    width,
+                    height,
+                    timestamp,
+                    region_detected=region_detected,
+                    region_x=region_x,
+                    region_y=region_y,
+                    region_width=region_width,
+                    region_height=region_height,
+                    region_confidence=region_confidence,
+                    region_white_ratio=region_white_ratio
+                )
 
                 self._frames_captured += 1
                 self._last_frame_time = timestamp
@@ -526,8 +570,21 @@ class CVCapture:
         """
         return self.frame_buffer.get_latest()
 
-    def _write_shared_frame(self, jpeg_bytes: bytes, width: int, height: int, timestamp: float) -> None:
-        """Persist latest frame to shared memory for other processes."""
+    def _write_shared_frame(
+        self,
+        jpeg_bytes: bytes,
+        width: int,
+        height: int,
+        timestamp: float,
+        region_detected: bool = False,
+        region_x: int = 0,
+        region_y: int = 0,
+        region_width: int = 0,
+        region_height: int = 0,
+        region_confidence: float = 0.0,
+        region_white_ratio: float = 0.0
+    ) -> None:
+        """Persist latest frame and region metadata to shared memory for other processes."""
         if not self._shared_frame_path:
             return
 
@@ -551,6 +608,13 @@ class CVCapture:
                     "height": height,
                     "timestamp": timestamp,
                     "size_bytes": len(jpeg_bytes),
+                    "region_detected": region_detected,
+                    "region_x": region_x,
+                    "region_y": region_y,
+                    "region_width": region_width,
+                    "region_height": region_height,
+                    "region_confidence": region_confidence,
+                    "region_white_ratio": region_white_ratio,
                 }
                 meta_tmp = meta_path.with_name(meta_path.name + ".tmp")
                 with open(meta_tmp, "w", encoding="utf-8") as fh:
