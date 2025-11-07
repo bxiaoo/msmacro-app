@@ -41,19 +41,21 @@ When you click the **Create Configuration** or **New** button:
    - **Real-time preview** appears below controls
 
 2. **Adjust Detection Area with Live Feedback**
-   - **Y Axis Control**: Adjust vertical position
-     - Click **-** button to move up 10 pixels
-     - Click **+** button to move down 10 pixels
-     - Or type exact Y coordinate in the center input
-   - **X Axis Control**: Adjust horizontal position
-     - Click **-** button to move left 10 pixels
-     - Click **+** button to move right 10 pixels
-     - Or type exact X coordinate in the center input
+   - **Height Control**: Adjust vertical size (detection region height)
+     - Click **-** button to decrease by 10 pixels
+     - Click **+** button to increase by 10 pixels
+     - Or type exact height value in the center input
+   - **Width Control**: Adjust horizontal size (detection region width)
+     - Click **-** button to decrease by 10 pixels
+     - Click **+** button to increase by 10 pixels
+     - Or type exact width value in the center input
+   - **Fixed Position**: Top-left corner stays at (68, 56)
    - **Preview Updates**: After you stop adjusting (0.5s delay)
      - Shows **cropped mini-map region only** (not entire screen)
+     - Region grows/shrinks from the fixed top-left anchor point
      - Red border indicates detection boundary
      - Coordinates displayed below preview
-     - Allows you to verify positioning before saving
+     - Allows you to verify size before saving
 
 3. **Save Configuration**
    - Click **Save Configuration** (blue button)
@@ -143,20 +145,21 @@ Screen (1280x720)
 ```
 
 **Four Corner Points:**
-- **Top-Left (TL)**: (tl_x, tl_y) - Configurable starting point
+- **Top-Left (TL)**: (tl_x, tl_y) - Fixed anchor point at (68, 56)
 - **Top-Right (TR)**: (tl_x + width, tl_y)
 - **Bottom-Left (BL)**: (tl_x, tl_y + height)
 - **Bottom-Right (BR)**: (tl_x + width, tl_y + height)
 
 ### Adjustment Increments
 
-- **Y Axis**: Vertical position, 10-pixel increments
-- **X Axis**: Horizontal position, 10-pixel increments
+- **Height**: Vertical size adjustment, 10-pixel increments
+- **Width**: Horizontal size adjustment, 10-pixel increments
 
 **Example:**
-- Start: (68, 56)
-- Click Y+ 3 times: (68, 86) - moved down 30px
-- Click X- 2 times: (48, 86) - moved left 20px
+- Start: Top-left (68, 56), Size 340×86
+- Click Height+ 3 times: Size becomes 340×116 (height +30px)
+- Click Width+ 2 times: Size becomes 360×116 (width +20px)
+- Top-left corner remains at (68, 56) throughout
 
 ## Performance Guidelines
 

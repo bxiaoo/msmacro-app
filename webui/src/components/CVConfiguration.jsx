@@ -31,7 +31,7 @@ export function CVConfiguration() {
   const [isCreating, setIsCreating] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [configName, setConfigName] = useState('')
-  const [coords, setCoords] = useState({ x: 68, y: 56, width: 340, height: 86 })
+  const [coords, setCoords] = useState({ tl_x: 68, tl_y: 56, width: 340, height: 86 })
 
   // Real-time preview state
   const [miniMapPreviewUrl, setMiniMapPreviewUrl] = useState(null)
@@ -63,7 +63,7 @@ export function CVConfiguration() {
 
   const handleCreateConfig = () => {
     setIsCreating(true)
-    setCoords({ x: 68, y: 56, width: 340, height: 86 })
+    setCoords({ tl_x: 68, tl_y: 56, width: 340, height: 86 })
     setConfigName('')
   }
 
@@ -79,7 +79,7 @@ export function CVConfiguration() {
     }
 
     try {
-      await createMapConfig(configName, coords.x, coords.y, coords.width, coords.height)
+      await createMapConfig(configName, coords.tl_x, coords.tl_y, coords.width, coords.height)
       await loadMapConfigs()
       setIsCreating(false)
       setShowSaveDialog(false)
@@ -116,7 +116,7 @@ export function CVConfiguration() {
   const adjustCoord = (axis, delta) => {
     setCoords(prev => ({
       ...prev,
-      [axis]: Math.max(0, prev[axis] + delta)
+      [axis]: Math.max(1, prev[axis] + delta)
     }))
   }
 
@@ -195,7 +195,7 @@ export function CVConfiguration() {
 
       // Set new timer (500ms delay)
       debounceTimerRef.current = setTimeout(() => {
-        setMiniMapPreviewUrl(getMiniMapPreviewURL(coords.x, coords.y, coords.width, coords.height))
+        setMiniMapPreviewUrl(getMiniMapPreviewURL(coords.tl_x, coords.tl_y, coords.width, coords.height))
       }, 500)
     } else {
       // Clear preview when not creating
@@ -443,36 +443,36 @@ export function CVConfiguration() {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Y Axis (Vertical)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Height (Vertical Size)</label>
           <div className="flex items-center gap-2">
-            <Button onClick={() => adjustCoord('y', -10)} variant="default" size="sm">
+            <Button onClick={() => adjustCoord('height', -10)} variant="default" size="sm">
               <Minus size={16} />
             </Button>
             <Input
               type="number"
-              value={coords.y}
-              onChange={(e) => setCoords({ ...coords, y: parseInt(e.target.value) || 0 })}
+              value={coords.height}
+              onChange={(e) => setCoords({ ...coords, height: Math.max(1, parseInt(e.target.value) || 1) })}
               className="text-center"
             />
-            <Button onClick={() => adjustCoord('y', 10)} variant="default" size="sm">
+            <Button onClick={() => adjustCoord('height', 10)} variant="default" size="sm">
               <Plus size={16} />
             </Button>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">X Axis (Horizontal)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Width (Horizontal Size)</label>
           <div className="flex items-center gap-2">
-            <Button onClick={() => adjustCoord('x', -10)} variant="default" size="sm">
+            <Button onClick={() => adjustCoord('width', -10)} variant="default" size="sm">
               <Minus size={16} />
             </Button>
             <Input
               type="number"
-              value={coords.x}
-              onChange={(e) => setCoords({ ...coords, x: parseInt(e.target.value) || 0 })}
+              value={coords.width}
+              onChange={(e) => setCoords({ ...coords, width: Math.max(1, parseInt(e.target.value) || 1) })}
               className="text-center"
             />
-            <Button onClick={() => adjustCoord('x', 10)} variant="default" size="sm">
+            <Button onClick={() => adjustCoord('width', 10)} variant="default" size="sm">
               <Plus size={16} />
             </Button>
           </div>
@@ -494,7 +494,7 @@ export function CVConfiguration() {
               }}
             />
             <p className="text-xs text-gray-500 mt-2">
-              Position: ({coords.x}, {coords.y}) · Size: {coords.width}×{coords.height}
+              Position: ({coords.tl_x}, {coords.tl_y}) · Size: {coords.width}×{coords.height}
             </p>
           </div>
         ) : (
