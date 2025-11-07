@@ -11,6 +11,15 @@ from ..utils.config import SETTINGS
 from ..io.ipc import send
 from .validation import safe_record_path
 
+# Optional imports for mini-map preview
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    log.warning("cv2/numpy not available - mini-map preview endpoint will be disabled")
+
 log = logging.getLogger(__name__)
 
 _frame_path_env = os.environ.get("MSMACRO_CV_FRAME_PATH", "/dev/shm/msmacro_cv_frame.jpg").strip()
@@ -551,6 +560,109 @@ async def api_cv_screenshot(request: web.Request):
                 headers[header_key] = str(metadata[key])
 
     return web.Response(body=jpeg_data, content_type="image/jpeg", headers=headers)
+
+
+async def api_cv_minimap_preview(request: web.Request):
+    """
+    Get cropped mini-map preview image for configuration.
+
+    Query parameters:
+    - x: Top-left X coordinate (default: 68)
+    - y: Top-left Y coordinate (default: 56)
+    - w: Width (default: 340)
+    - h: Height (default: 86)
+    - t: Timestamp for cache busting (ignored)
+
+    Returns: Cropped JPEG image with red border
+    """
+    if not CV2_AVAILABLE:
+        return _json({"error": "cv2/numpy not available"}, 503)
+
+    if SHARED_FRAME_PATH is None:
+        log.error("Shared frame path not configured; set MSMACRO_CV_FRAME_PATH")
+        return _json({"error": "shared frame path not configured"}, 503)
+
+    # Parse query parameters
+    try:
+        x = int(request.query.get('x', 68))
+        y = int(request.query.get('y', 56))
+        w = int(request.query.get('w', 340))
+        h = int(request.query.get('h', 86))
+    except (ValueError, TypeError):
+        return _json({"error": "invalid coordinate parameters"}, 400)
+
+    # Validate coordinates
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        return _json({"error": "coordinates must be non-negative and dimensions positive"}, 400)
+
+    if x + w > 1280 or y + h > 720:
+        return _json({"error": "coordinates out of bounds (max 1280x720)"}, 400)
+
+    # Get CV status
+    try:
+        status = await _daemon("cv_status")
+    except Exception as e:
+        log.warning("Failed to fetch CV status for mini-map preview: %s", e)
+        return _json({"error": str(e)}, 503)
+
+    if not status.get("capturing") or not status.get("has_frame"):
+        log.debug("Mini-map preview requested but capture inactive or no recent frame")
+        return _json({"error": "no frame available"}, 404)
+
+    # Read shared frame
+    try:
+        jpeg_data = SHARED_FRAME_PATH.read_bytes()
+    except FileNotFoundError:
+        log.debug("Shared CV frame missing at %s", SHARED_FRAME_PATH)
+        return _json({"error": "no frame available"}, 404)
+    except Exception as e:
+        log.warning("Failed to read shared CV frame for mini-map preview: %s", e)
+        return _json({"error": "failed to read frame"}, 500)
+
+    try:
+        # Decode JPEG to numpy array
+        nparr = np.frombuffer(jpeg_data, dtype=np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return _json({"error": "failed to decode frame"}, 500)
+
+        # Crop to region
+        cropped = frame[y:y+h, x:x+w]
+
+        if cropped.size == 0:
+            return _json({"error": "invalid crop region"}, 400)
+
+        # Draw red border (2px thick)
+        cv2.rectangle(cropped, (0, 0), (w-1, h-1), (0, 0, 255), 2)
+
+        # Encode as JPEG
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+        success, jpeg_encoded = cv2.imencode('.jpg', cropped, encode_param)
+
+        if not success:
+            return _json({"error": "failed to encode cropped frame"}, 500)
+
+        # Return cropped JPEG
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-MiniMap-X": str(x),
+            "X-MiniMap-Y": str(y),
+            "X-MiniMap-Width": str(w),
+            "X-MiniMap-Height": str(h),
+        }
+
+        return web.Response(
+            body=jpeg_encoded.tobytes(),
+            content_type="image/jpeg",
+            headers=headers
+        )
+
+    except Exception as e:
+        log.error("Mini-map preview processing error: %s", e)
+        return _json({"error": f"processing failed: {str(e)}"}, 500)
 
 
 async def api_cv_start(request: web.Request):

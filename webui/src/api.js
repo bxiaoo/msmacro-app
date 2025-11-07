@@ -214,6 +214,11 @@ async function API(path, opts = {}) {
     });
   }
 
+  export function getMiniMapPreviewURL(x, y, w, h) {
+    // Return URL with cache busting timestamp
+    return `/api/cv/mini-map-preview?x=${x}&y=${y}&w=${w}&h=${h}&t=${Date.now()}`;
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

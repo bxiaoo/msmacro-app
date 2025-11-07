@@ -38,8 +38,9 @@ When you click the **Create Configuration** or **New** button:
    - Shows coordinate adjustment controls
    - Default starting position: (68, 56)
    - Default size: 340×86 pixels (optimized for mini-maps)
+   - **Real-time preview** appears below controls
 
-2. **Adjust Detection Area**
+2. **Adjust Detection Area with Live Feedback**
    - **Y Axis Control**: Adjust vertical position
      - Click **-** button to move up 10 pixels
      - Click **+** button to move down 10 pixels
@@ -48,6 +49,11 @@ When you click the **Create Configuration** or **New** button:
      - Click **-** button to move left 10 pixels
      - Click **+** button to move right 10 pixels
      - Or type exact X coordinate in the center input
+   - **Preview Updates**: After you stop adjusting (0.5s delay)
+     - Shows **cropped mini-map region only** (not entire screen)
+     - Red border indicates detection boundary
+     - Coordinates displayed below preview
+     - Allows you to verify positioning before saving
 
 3. **Save Configuration**
    - Click **Save Configuration** (blue button)
@@ -61,15 +67,20 @@ To enable mini-map detection:
 
 1. Find the config in the list
 2. Check the checkbox next to its name
-3. The active config will be used for all detection
-4. **Camera preview will now appear** showing the detected area
-5. Preview updates every 2 seconds with the active config name displayed
+3. **Live thumbnail appears** inside the config card
+   - Shows cropped mini-map region (not entire screen)
+   - Updates every 2 seconds automatically
+   - Red border shows detection boundary
+   - Caption: "Live preview (updates every 2s)"
+4. **Camera preview section appears** at the bottom (if scrolled down)
+   - Shows full detection view
+   - Updates every 2 seconds with active config name
 
 **Performance Impact:**
 - Detection now processes only your configured region
 - CPU usage drops significantly (from ~50% to ~10-15%)
 - Frame rate may improve on Raspberry Pi
-- Preview shows mini-map area with red rectangle and confidence badge
+- Thumbnail and preview show mini-map area only
 
 ### 4. Deactivate Configuration
 

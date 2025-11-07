@@ -8,7 +8,8 @@ import {
   createMapConfig,
   deleteMapConfig,
   activateMapConfig,
-  deactivateMapConfig
+  deactivateMapConfig,
+  getMiniMapPreviewURL
 } from '../api'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -31,6 +32,11 @@ export function CVConfiguration() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [configName, setConfigName] = useState('')
   const [coords, setCoords] = useState({ x: 68, y: 56, width: 340, height: 86 })
+
+  // Real-time preview state
+  const [miniMapPreviewUrl, setMiniMapPreviewUrl] = useState(null)
+  const [activeThumbnailUrl, setActiveThumbnailUrl] = useState(null)
+  const debounceTimerRef = useRef(null)
 
   const formatTimestamp = (ts) => {
     if (ts === null || ts === undefined) return '—'
@@ -179,6 +185,55 @@ export function CVConfiguration() {
     return () => clearInterval(interval)
   }, [])
 
+  // Update mini-map preview when coords change (debounced)
+  useEffect(() => {
+    if (isCreating) {
+      // Clear existing timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+
+      // Set new timer (500ms delay)
+      debounceTimerRef.current = setTimeout(() => {
+        setMiniMapPreviewUrl(getMiniMapPreviewURL(coords.x, coords.y, coords.width, coords.height))
+      }, 500)
+    } else {
+      // Clear preview when not creating
+      setMiniMapPreviewUrl(null)
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [coords, isCreating])
+
+  // Update thumbnail for active config (every 2 seconds)
+  useEffect(() => {
+    if (activeConfig) {
+      const updateThumbnail = () => {
+        setActiveThumbnailUrl(getMiniMapPreviewURL(
+          activeConfig.tl_x,
+          activeConfig.tl_y,
+          activeConfig.width,
+          activeConfig.height
+        ))
+      }
+
+      // Initial update
+      updateThumbnail()
+
+      // Refresh every 2 seconds
+      const interval = setInterval(updateThumbnail, 2000)
+
+      return () => clearInterval(interval)
+    } else {
+      setActiveThumbnailUrl(null)
+    }
+  }, [activeConfig])
+
   const renderStatusBadge = () => {
     if (loading) {
       return (
@@ -326,30 +381,51 @@ export function CVConfiguration() {
         {mapConfigs.map((config) => (
           <div
             key={config.name}
-            className="bg-gray-50 rounded-lg p-4 flex items-center justify-between"
+            className="bg-gray-50 rounded-lg p-4"
           >
-            <div className="flex items-center gap-3">
-              <Checkbox
-                checked={config.is_active}
-                onChange={() => handleActivateConfig(config)}
-              />
-              <div>
-                <div className="text-sm font-medium text-gray-900">{config.name}</div>
-                <div className="text-xs text-gray-500">
-                  Position: ({config.tl_x}, {config.tl_y}) · Size: {config.width}×{config.height}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  checked={config.is_active}
+                  onChange={() => handleActivateConfig(config)}
+                />
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{config.name}</div>
+                  <div className="text-xs text-gray-500">
+                    Position: ({config.tl_x}, {config.tl_y}) · Size: {config.width}×{config.height}
+                  </div>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handleDeleteConfig(config.name)}
+                  variant="ghost"
+                  size="sm"
+                  disabled={config.is_active}
+                >
+                  <Trash2 size={16} />
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => handleDeleteConfig(config.name)}
-                variant="ghost"
-                size="sm"
-                disabled={config.is_active}
-              >
-                <Trash2 size={16} />
-              </Button>
-            </div>
+
+            {/* Thumbnail for active config */}
+            {config.is_active && activeThumbnailUrl && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <img
+                  key={activeThumbnailUrl}
+                  src={activeThumbnailUrl}
+                  alt="Active mini-map preview"
+                  className="w-full h-auto rounded border border-gray-300"
+                  style={{ maxHeight: '100px', objectFit: 'contain' }}
+                  onError={() => {
+                    console.error('Failed to load thumbnail')
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  Live preview (updates every 2s)
+                </p>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -403,10 +479,30 @@ export function CVConfiguration() {
         </div>
       </div>
 
+      {/* Real-time Preview */}
       <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <p className="text-xs text-gray-500">
-          Size: {coords.width}×{coords.height} (default for mini-maps)
-        </p>
+        <h4 className="text-sm font-medium text-gray-700 mb-2">Preview</h4>
+        {miniMapPreviewUrl ? (
+          <div>
+            <img
+              key={miniMapPreviewUrl}
+              src={miniMapPreviewUrl}
+              alt="Mini-map preview"
+              className="w-full h-auto rounded border border-gray-300"
+              onError={() => {
+                console.error('Failed to load mini-map preview')
+              }}
+            />
+            <p className="text-xs text-gray-500 mt-2">
+              Position: ({coords.x}, {coords.y}) · Size: {coords.width}×{coords.height}
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+            <Camera size={32} className="mb-2" />
+            <p className="text-sm">Loading preview...</p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">

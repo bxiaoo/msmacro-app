@@ -28,6 +28,7 @@ from .handlers import (
     # CV handlers
     api_cv_status,
     api_cv_screenshot,
+    api_cv_minimap_preview,
     api_cv_start,
     api_cv_stop,
     # CV map config handlers
@@ -103,6 +104,7 @@ def make_app() -> web.Application:
         # CV (Computer Vision) management
         web.get("/api/cv/status", api_cv_status),
         web.get("/api/cv/screenshot", api_cv_screenshot),
+        web.get("/api/cv/mini-map-preview", api_cv_minimap_preview),
         web.post("/api/cv/start", api_cv_start),
         web.post("/api/cv/stop", api_cv_stop),
 
