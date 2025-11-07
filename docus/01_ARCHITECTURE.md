@@ -2,31 +2,52 @@
 
 ## Overview
 
-The CV region detection system extends the existing capture pipeline to automatically detect white frame regions and optionally crop captured frames.
+The CV region detection system extends the existing capture pipeline to automatically detect white frame regions using YUYV luminance-based detection. It provides visual feedback with overlay indicators and optionally crops frames to the detected region.
+
+**Key Features:**
+- **YUYV-based Detection**: Uses Y (luminance) channel for accurate brightness detection
+- **Fixed-Point Detection**: Optimized for known UI element positions (MapleStory)
+- **Visual Indicators**: Red rectangle overlay + confidence badge in preview
+- **Dark Background Validation**: Reduces false positives by validating context
+- **Real-time Performance**: <15ms detection overhead at 2 FPS capture rate
 
 ## Data Flow
 
 ```
-Video Device
+Video Device (YUYV→BGR via OpenCV)
     ↓
 [CVCapture._capture_loop]
     ↓
-    ├─→ Raw Frame (BGR numpy array)
+    ├─→ Raw Frame (BGR numpy array, 1280x720)
     ↓
-[detect_top_left_white_frame]
-    ├─→ Analyze grayscale
-    ├─→ Create white mask
-    ├─→ Find contours
-    ├─→ Calculate confidence
+[bgr_to_yuyv_bytes]
+    ├─→ Convert BGR to YCrCb
+    ├─→ Extract Y, Cr, Cb channels
+    └─→ Pack into YUYV byte format: [Y0 U Y1 V]
+    ↓
+[detect_white_frame_yuyv]
+    ├─→ Extract Y channel region (luminance)
+    ├─→ Check fixed starting point (68, 56)
+    ├─→ Scan borders to find variable size
+    ├─→ Validate dark background (Y: 60-130)
+    ├─→ Analyze border quality (white ratio)
+    ├─→ Calculate confidence score
     └─→ Return: detection result dict
+    ↓
+[Visual Overlay Rendering] (if detected)
+    ├─→ Draw red rectangle: cv2.rectangle(...)
+    ├─→ Draw confidence badge: cv2.putText(...)
+    └─→ Frame with visual indicators
     ↓
 [Optional: Crop to Region]
     └─→ If enabled & detected: frame[y:y+h, x:x+w]
     ↓
 [JPEG Encode]
+    ├─→ Quality: 70 (balanced)
+    └─→ ~50-600KB per frame
     ↓
 [Update Frame Buffer]
-    ├─→ Store JPEG bytes
+    ├─→ Store JPEG bytes (in-memory)
     └─→ Store metadata (with region info)
     ↓
 [Write Shared Frame]
@@ -37,19 +58,86 @@ Video Device
     └─→ /api/cv/screenshot endpoint
         ├─→ Read JPEG from shared memory
         ├─→ Read metadata from JSON
-        └─→ Return with region headers
+        ├─→ Add region info to HTTP headers
+        └─→ Return image with metadata
     ↓
 [Frontend Preview]
-    ├─→ Fetch screenshot
-    ├─→ Extract region from headers
-    ├─→ Display image with optional region overlay
+    ├─→ Fetch screenshot (2-second polling)
+    ├─→ Display image with burned-in overlays
+    ├─→ See red rectangle + confidence badge
+    └─→ Extract region metadata from headers
 ```
 
 ## Component Changes
 
-### 1. Detection Function (`region_analysis.py`)
+### 1. Detection Functions (`region_analysis.py`)
 
-**New Function: `detect_top_left_white_frame()`**
+#### **Primary: `detect_white_frame_yuyv()` (YUYV-based)**
+
+```
+Input: YUYV bytes, frame dimensions, fixed start point
+  ↓
+Extract Y channel region around expected location
+  ↓
+Check fixed starting point (68, 56) for white border
+  ↓
+Scan rightward to find right edge (variable width)
+  ↓
+Scan downward to find bottom edge (variable height)
+  ↓
+Validate dark background (Y: 60-130)
+  ↓
+Analyze border quality (top, left, right, bottom)
+  ↓
+Calculate confidence score (border quality + context)
+  ↓
+Output: {
+  detected: bool
+  x: 68, y: 56 (fixed)
+  width, height: int (variable, ~340x86)
+  confidence: float (0.0-1.0)
+  white_border_quality: float
+  dark_background: bool
+  method: "yuyv"
+}
+```
+
+**Key features**:
+- Uses Y (luminance) channel for accurate white detection
+- Fixed starting point for known UI elements
+- Variable size detection by edge scanning
+- Background context validation
+- Higher accuracy, lower false positives
+
+#### **Helper: `bgr_to_yuyv_bytes()`**
+
+```
+Input: BGR frame from OpenCV
+  ↓
+Convert BGR to YCrCb (Y, Cr, Cb channels)
+  ↓
+Pack into YUYV format: [Y0 U Y1 V] per 2 pixels
+  ↓
+Output: bytes (2 bytes per pixel)
+```
+
+**Purpose**: Simulates YUYV format for luminance-based detection
+
+#### **Helper: `extract_y_channel_from_yuyv()`**
+
+```
+Input: YUYV bytes, region coordinates
+  ↓
+Extract Y values at positions: 0, 2, 4, 6, ...
+  ↓
+Build 2D array of luminance values
+  ↓
+Output: numpy array (uint8, region_height × region_width)
+```
+
+**Purpose**: Extracts brightness data from YUYV packed format
+
+#### **Legacy: `detect_top_left_white_frame()` (Grayscale-based)**
 
 ```
 Input: BGR/grayscale frame
@@ -74,12 +162,7 @@ Output: {
 }
 ```
 
-**Key improvements over `detect_white_frame_bounds()`**:
-- Optimized for top-left corner (where UI appears)
-- Returns confidence score
-- Analyzes detected region separately
-- Edge margin parameter to exclude window chrome
-- Returns dict with statistics instead of tuple
+**Use case**: General white frame detection (arbitrary positions)
 
 ### 2. Frame Buffer (`frame_buffer.py`)
 

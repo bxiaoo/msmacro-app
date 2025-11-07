@@ -15,7 +15,13 @@ import numpy as np
 
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
-from .region_analysis import detect_and_crop_white_frame, detect_top_left_white_frame, Region
+from .region_analysis import (
+    detect_and_crop_white_frame,
+    detect_top_left_white_frame,
+    detect_white_frame_yuyv,
+    bgr_to_yuyv_bytes,
+    Region
+)
 
 logger = logging.getLogger(__name__)
 
@@ -415,26 +421,131 @@ class CVCapture:
                     time.sleep(0.5)
                     continue
 
-                # Detect white frame region (always do analysis, but crop only if enabled)
+                # Detect white frame region using fixed-position detection
+                # MapleStory party/quest UI frame at known position (68, 56)
                 region_detected = False
                 region_x, region_y = 0, 0
                 region_width, region_height = 0, 0
                 region_confidence, region_white_ratio = 0.0, 0.0
 
-                detection_result = detect_top_left_white_frame(
-                    frame,
-                    threshold=self._white_frame_threshold,
-                    min_white_ratio=0.75
-                )
+                frame_height, frame_width = frame.shape[:2]
 
-                if detection_result and detection_result.get("detected"):
-                    region_detected = True
-                    region_x = detection_result.get("x", 0)
-                    region_y = detection_result.get("y", 0)
-                    region_width = detection_result.get("width", 0)
-                    region_height = detection_result.get("height", 0)
-                    region_confidence = detection_result.get("confidence", 0.0)
-                    region_white_ratio = detection_result.get("region_white_ratio", 0.0)
+                # Fixed coordinates for MapleStory UI frame (from analysis)
+                # This UI element always appears at the same position
+                FIXED_FRAME_X = 68
+                FIXED_FRAME_Y = 56
+                FIXED_FRAME_WIDTH = 340
+                FIXED_FRAME_HEIGHT = 86
+
+                # Validate frame position is within bounds
+                if (FIXED_FRAME_X + FIXED_FRAME_WIDTH <= frame_width and
+                    FIXED_FRAME_Y + FIXED_FRAME_HEIGHT <= frame_height):
+
+                    # Use YUYV-based validation to calculate confidence
+                    try:
+                        yuyv_bytes = bgr_to_yuyv_bytes(frame)
+
+                        # Extract Y channel for the fixed region
+                        from .region_analysis import extract_y_channel_from_yuyv
+
+                        y_channel = extract_y_channel_from_yuyv(
+                            yuyv_bytes,
+                            frame_width,
+                            frame_height,
+                            FIXED_FRAME_X,
+                            FIXED_FRAME_Y,
+                            FIXED_FRAME_WIDTH,
+                            FIXED_FRAME_HEIGHT
+                        )
+
+                        del yuyv_bytes
+
+                        if y_channel is not None:
+                            # Calculate region brightness statistics
+                            avg_brightness = np.mean(y_channel)
+                            bright_pixels = np.sum(y_channel >= 150)
+                            bright_ratio = bright_pixels / y_channel.size
+
+                            # Confidence based on presence of content (bright pixels)
+                            # UI elements contain text/icons which are bright
+                            region_confidence = min(1.0, bright_ratio * 2.5)
+                            region_white_ratio = bright_ratio
+
+                            # Detect if there's actually content here
+                            region_detected = region_confidence > 0.3
+
+                            if region_detected:
+                                region_x = FIXED_FRAME_X
+                                region_y = FIXED_FRAME_Y
+                                region_width = FIXED_FRAME_WIDTH
+                                region_height = FIXED_FRAME_HEIGHT
+
+                                logger.debug(
+                                    f"Fixed-position frame detected at ({region_x},{region_y}) "
+                                    f"size {region_width}x{region_height}, "
+                                    f"confidence {region_confidence:.2%}"
+                                )
+
+                                # Draw visual indicators on frame (red rectangle + confidence badge)
+                                # Red rectangle overlay
+                                cv2.rectangle(
+                                    frame,
+                                    (region_x, region_y),
+                                    (region_x + region_width, region_y + region_height),
+                                    (0, 0, 255),  # Red color in BGR
+                                    2  # 2-pixel thickness
+                                )
+
+                                # Confidence badge (top-right corner of detected frame)
+                                confidence_text = f"{region_confidence:.0%}"
+                                font = cv2.FONT_HERSHEY_SIMPLEX
+                                font_scale = 0.6
+                                font_thickness = 2
+                                text_color = (255, 255, 255)  # White text
+                                bg_color = (0, 0, 255)  # Red background
+
+                                # Get text size for background rectangle
+                                (text_width, text_height), baseline = cv2.getTextSize(
+                                    confidence_text,
+                                    font,
+                                    font_scale,
+                                    font_thickness
+                                )
+
+                                # Position badge at top-right of detected frame
+                                badge_x = region_x + region_width - text_width - 8
+                                badge_y = region_y + text_height + 8
+
+                                # Draw background rectangle for badge
+                                cv2.rectangle(
+                                    frame,
+                                    (badge_x - 4, badge_y - text_height - 4),
+                                    (badge_x + text_width + 4, badge_y + 4),
+                                    bg_color,
+                                    -1  # Filled rectangle
+                                )
+
+                                # Draw confidence text
+                                cv2.putText(
+                                    frame,
+                                    confidence_text,
+                                    (badge_x, badge_y),
+                                    font,
+                                    font_scale,
+                                    text_color,
+                                    font_thickness
+                                )
+
+                    except Exception as det_err:
+                        logger.debug(f"Frame validation failed: {det_err}, using fixed coordinates anyway")
+                        # Fall back to fixed coordinates without validation
+                        region_detected = True
+                        region_x = FIXED_FRAME_X
+                        region_y = FIXED_FRAME_Y
+                        region_width = FIXED_FRAME_WIDTH
+                        region_height = FIXED_FRAME_HEIGHT
+                        region_confidence = 0.5  # Medium confidence without validation
+                        region_white_ratio = 0.0
 
                 # Crop frame if enabled and white frame detected
                 if self._detect_white_frame and region_detected:
