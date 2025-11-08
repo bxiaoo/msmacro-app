@@ -52,13 +52,33 @@ def check_daemon_status():
         from msmacro.utils.config import SETTINGS
         socket_path = Path(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"))
 
+        # If default socket doesn't exist, try common alternatives
         if not socket_path.exists():
-            print(f"❌ Daemon socket not found: {socket_path}")
-            print("\n  Start daemon with:")
-            print("    python -m msmacro daemon")
-            print("  OR")
-            print("    sudo systemctl start msmacro")
-            return False
+            alternatives = [
+                Path("/run/user/1000/msmacro.sock"),  # systemd user runtime
+                Path(f"/run/user/{os.getuid()}/msmacro.sock"),  # current user
+            ]
+
+            for alt_path in alternatives:
+                if alt_path.exists():
+                    print(f"ℹ️  Default socket not found: {socket_path}")
+                    print(f"✓ Found socket at: {alt_path}")
+                    socket_path = alt_path
+                    # Update environment for subsequent calls
+                    os.environ["MSMACRO_SOCKET"] = str(socket_path)
+                    break
+            else:
+                print(f"❌ Daemon socket not found: {socket_path}")
+                print("\n  Also checked:")
+                for alt_path in alternatives:
+                    print(f"    {alt_path}")
+                print("\n  Start daemon with:")
+                print("    python -m msmacro daemon")
+                print("  OR")
+                print("    sudo systemctl start msmacro")
+                print("\n  If using systemd, set environment variable:")
+                print("    export MSMACRO_SOCKET=/run/user/1000/msmacro.sock")
+                return False
 
         print(f"✓ Daemon socket exists: {socket_path}")
 
