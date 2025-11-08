@@ -183,6 +183,30 @@ class CVCommandHandler:
         # Get raw minimap
         minimap_result = capture.get_raw_minimap()
 
+        # If None but active config exists and capture is running, wait for it to be populated
+        # This handles the race condition where user activates config and immediately tries calibration
+        if minimap_result is None:
+            try:
+                from ..cv.map_config import get_manager
+                manager = get_manager()
+                active_config = manager.get_active_config()
+
+                if active_config and status.get('capturing'):
+                    # Active config exists and capture is running
+                    # Wait up to 2 seconds for capture loop to populate raw minimap
+                    logger.info("Active config detected, waiting for raw minimap to be captured...")
+                    for attempt in range(20):  # 20 x 0.1s = 2 seconds
+                        await asyncio.sleep(0.1)
+                        minimap_result = capture.get_raw_minimap()
+                        if minimap_result is not None:
+                            logger.info(f"Raw minimap available after {(attempt + 1) * 0.1:.1f}s")
+                            break
+                    else:
+                        logger.warning("Timed out waiting for raw minimap after 2 seconds")
+            except Exception as e:
+                logger.warning(f"Error checking active config during wait: {e}")
+
+        # If still None after waiting, return detailed error
         if minimap_result is None:
             details: Dict[str, Any] = {
                 "capturing": status.get("capturing", False),

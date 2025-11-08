@@ -558,51 +558,51 @@ export function CVConfiguration() {
             </div>
           )}
 
-          {/* Full-Screen Capture Preview */}
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-gray-900">Live Capture Preview</h2>
-            <div className="bg-gray-100 rounded-lg p-4">
-              {status?.has_frame && fullScreenUrl ? (
-                <div className="relative">
-                  {fullScreenError ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-gray-400">
-                      <AlertCircle size={48} className="mb-3 text-red-500" />
-                      <p className="text-sm font-medium">Preview unavailable</p>
-                      <p className="text-xs mt-1 text-gray-500">
-                        Waiting for the next frame from the capture device…
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <img
-                        key={fullScreenUrl}
-                        src={fullScreenUrl}
-                        alt="Full Screen Capture"
-                        className="w-full h-auto rounded border border-gray-300 shadow-sm"
-                        style={{ maxWidth: '100%', margin: '0 auto', display: 'block' }}
-                        onLoad={() => setFullScreenError(false)}
-                        onError={() => {
-                          console.error('Failed to load full screen preview')
-                          setFullScreenError(true)
-                        }}
-                      />
-                      <div className="mt-2 text-xs text-gray-500 text-center">
-                        Updates every 2 seconds · Full capture: {status?.frame?.width || 1280}×{status?.frame?.height || 720}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-24 text-gray-400">
-                  <Camera size={64} className="mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">No frames captured yet</p>
-                  <p className="text-xs mt-1 text-gray-500">
-                    {status?.capturing ? 'Waiting for capture device…' : 'Start CV capture to see preview'}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+          {/*/!* Full-Screen Capture Preview *!/*/}
+          {/*<div className="space-y-3">*/}
+          {/*  <h2 className="text-lg font-semibold text-gray-900">Live Capture Preview</h2>*/}
+          {/*  <div className="bg-gray-100 rounded-lg p-4">*/}
+          {/*    {status?.has_frame && fullScreenUrl ? (*/}
+          {/*      <div className="relative">*/}
+          {/*        {fullScreenError ? (*/}
+          {/*          <div className="flex flex-col items-center justify-center py-24 text-gray-400">*/}
+          {/*            <AlertCircle size={48} className="mb-3 text-red-500" />*/}
+          {/*            <p className="text-sm font-medium">Preview unavailable</p>*/}
+          {/*            <p className="text-xs mt-1 text-gray-500">*/}
+          {/*              Waiting for the next frame from the capture device…*/}
+          {/*            </p>*/}
+          {/*          </div>*/}
+          {/*        ) : (*/}
+          {/*          <>*/}
+          {/*            <img*/}
+          {/*              key={fullScreenUrl}*/}
+          {/*              src={fullScreenUrl}*/}
+          {/*              alt="Full Screen Capture"*/}
+          {/*              className="w-full h-auto rounded border border-gray-300 shadow-sm"*/}
+          {/*              style={{ maxWidth: '100%', margin: '0 auto', display: 'block' }}*/}
+          {/*              onLoad={() => setFullScreenError(false)}*/}
+          {/*              onError={() => {*/}
+          {/*                console.error('Failed to load full screen preview')*/}
+          {/*                setFullScreenError(true)*/}
+          {/*              }}*/}
+          {/*            />*/}
+          {/*            <div className="mt-2 text-xs text-gray-500 text-center">*/}
+          {/*              Updates every 2 seconds · Full capture: {status?.frame?.width || 1280}×{status?.frame?.height || 720}*/}
+          {/*            </div>*/}
+          {/*          </>*/}
+          {/*        )}*/}
+          {/*      </div>*/}
+          {/*    ) : (*/}
+          {/*      <div className="flex flex-col items-center justify-center py-24 text-gray-400">*/}
+          {/*        <Camera size={64} className="mb-3 text-gray-300" />*/}
+          {/*        <p className="text-sm font-medium">No frames captured yet</p>*/}
+          {/*        <p className="text-xs mt-1 text-gray-500">*/}
+          {/*          {status?.capturing ? 'Waiting for capture device…' : 'Start CV capture to see preview'}*/}
+          {/*        </p>*/}
+          {/*      </div>*/}
+          {/*    )}*/}
+          {/*  </div>*/}
+          {/*</div>*/}
 
           {/* Map Configuration Section */}
           <div className="space-y-3">
