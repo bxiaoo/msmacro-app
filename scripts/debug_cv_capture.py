@@ -99,16 +99,21 @@ def check_daemon_status():
 
 
 def check_cv_capture():
-    """Check CV capture status."""
+    """Check CV capture status via daemon IPC."""
     print("\n" + "="*70)
-    print("3. CV CAPTURE STATUS")
+    print("3. CV CAPTURE STATUS (via daemon)")
     print("="*70)
 
     try:
-        from msmacro.cv.capture import get_capture_instance
+        from msmacro.utils.config import SETTINGS
+        from msmacro.io.ipc import send
+        import asyncio
 
-        capture = get_capture_instance()
-        status = capture.get_status()
+        async def get_cv_status():
+            socket_path = SETTINGS.socket_path
+            return await send(socket_path, {"cmd": "cv_status"})
+
+        status = asyncio.run(get_cv_status())
 
         print(f"  Connected: {status.get('connected')}")
         print(f"  Capturing: {status.get('capturing')}")
@@ -127,6 +132,12 @@ def check_cv_capture():
             print(f"    Path: {status['device'].get('path')}")
             print(f"    Name: {status['device'].get('name')}")
 
+        if status.get('frame'):
+            print(f"\n  Frame:")
+            print(f"    Size: {status['frame'].get('width')}x{status['frame'].get('height')}")
+            print(f"    Age: {status['frame'].get('age_seconds'):.1f}s")
+            print(f"    Data: {status['frame'].get('size_bytes')} bytes")
+
         if status.get('capturing') and status.get('has_frame'):
             print("\n✓ CV capture is working!")
             return True
@@ -134,6 +145,8 @@ def check_cv_capture():
             print("\n❌ CV capture is NOT running")
             print("\n  Start with:")
             print("    python -m msmacro ctl cv-start")
+            print("  OR")
+            print("    curl -X POST http://localhost:8787/api/cv/start")
             return False
         else:
             print("\n⚠️  CV capture is running but no frames yet")
@@ -181,50 +194,45 @@ def check_map_config():
 
 
 def test_frame_capture():
-    """Try to capture a test frame."""
+    """Try to get a frame via daemon IPC."""
     print("\n" + "="*70)
-    print("5. TEST FRAME CAPTURE")
+    print("5. TEST FRAME CAPTURE (via daemon)")
     print("="*70)
 
     try:
-        from msmacro.cv.capture import get_capture_instance
+        from msmacro.utils.config import SETTINGS
+        from msmacro.io.ipc import send
         import asyncio
 
-        capture = get_capture_instance()
+        async def get_frame():
+            socket_path = SETTINGS.socket_path
+            return await send(socket_path, {"cmd": "cv_get_frame"})
 
-        # Auto-start if not running
-        if not capture.get_status().get('capturing'):
-            print("  Starting CV capture...")
+        print("  Requesting frame from daemon...")
+        result = asyncio.run(get_frame())
 
-            async def start_capture():
-                await capture.start()
+        if "frame" in result:
+            print(f"\n✓ Successfully got frame from daemon!")
 
-            try:
-                asyncio.run(start_capture())
-                print("  ✓ CV capture started")
-            except Exception as e:
-                print(f"  ❌ Failed to start capture: {e}")
-                return False
+            # Decode to check metadata
+            import base64
+            frame_b64 = result["frame"]
+            frame_bytes = base64.b64decode(frame_b64)
+            print(f"  Frame data size: {len(frame_bytes)} bytes")
 
-        # Wait for frame
-        import time
-        print("  Waiting for first frame...")
-        for i in range(10):
-            time.sleep(0.5)
-            result = capture.get_latest_frame()
-            if result is not None:
-                frame_data, metadata = result
-                print(f"\n✓ Successfully captured frame!")
-                print(f"  Size: {metadata.width}x{metadata.height}")
-                print(f"  Data size: {len(frame_data)} bytes")
-                print(f"  Region detected: {metadata.region_detected}")
-                if metadata.region_detected:
-                    print(f"  Region: ({metadata.region_x}, {metadata.region_y}) "
-                          f"{metadata.region_width}x{metadata.region_height}")
-                return True
+            if "metadata" in result:
+                meta = result["metadata"]
+                print(f"  Size: {meta.get('width')}x{meta.get('height')}")
+                print(f"  Region detected: {meta.get('region_detected')}")
+                if meta.get('region_detected'):
+                    print(f"  Region: ({meta.get('region_x')}, {meta.get('region_y')}) "
+                          f"{meta.get('region_width')}x{meta.get('region_height')}")
+                    print(f"  Confidence: {meta.get('region_confidence', 0):.1%}")
 
-        print("  ❌ Timed out waiting for frame")
-        return False
+            return True
+        else:
+            print("  ❌ No frame data in response")
+            return False
 
     except Exception as e:
         print(f"❌ Frame capture test failed: {e}")
