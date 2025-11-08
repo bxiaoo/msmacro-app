@@ -42,6 +42,29 @@ def check_video_devices():
     return True
 
 
+def find_socket_path():
+    """Find the daemon socket path, trying common locations."""
+    from msmacro.utils.config import SETTINGS
+
+    socket_path = Path(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"))
+
+    # If default socket doesn't exist, try common alternatives
+    if not socket_path.exists():
+        alternatives = [
+            Path("/run/user/1000/msmacro.sock"),  # systemd user runtime
+            Path(f"/run/user/{os.getuid()}/msmacro.sock"),  # current user
+        ]
+
+        for alt_path in alternatives:
+            if alt_path.exists():
+                socket_path = alt_path
+                # Update environment for subsequent calls
+                os.environ["MSMACRO_SOCKET"] = str(socket_path)
+                break
+
+    return socket_path
+
+
 def check_daemon_status():
     """Check if daemon is running."""
     print("\n" + "="*70)
@@ -49,36 +72,24 @@ def check_daemon_status():
     print("="*70)
 
     try:
-        from msmacro.utils.config import SETTINGS
-        socket_path = Path(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"))
+        socket_path = find_socket_path()
 
-        # If default socket doesn't exist, try common alternatives
         if not socket_path.exists():
+            print(f"❌ Daemon socket not found: {socket_path}")
+            print("\n  Also checked:")
             alternatives = [
-                Path("/run/user/1000/msmacro.sock"),  # systemd user runtime
-                Path(f"/run/user/{os.getuid()}/msmacro.sock"),  # current user
+                Path("/run/user/1000/msmacro.sock"),
+                Path(f"/run/user/{os.getuid()}/msmacro.sock"),
             ]
-
             for alt_path in alternatives:
-                if alt_path.exists():
-                    print(f"ℹ️  Default socket not found: {socket_path}")
-                    print(f"✓ Found socket at: {alt_path}")
-                    socket_path = alt_path
-                    # Update environment for subsequent calls
-                    os.environ["MSMACRO_SOCKET"] = str(socket_path)
-                    break
-            else:
-                print(f"❌ Daemon socket not found: {socket_path}")
-                print("\n  Also checked:")
-                for alt_path in alternatives:
-                    print(f"    {alt_path}")
-                print("\n  Start daemon with:")
-                print("    python -m msmacro daemon")
-                print("  OR")
-                print("    sudo systemctl start msmacro")
-                print("\n  If using systemd, set environment variable:")
-                print("    export MSMACRO_SOCKET=/run/user/1000/msmacro.sock")
-                return False
+                print(f"    {alt_path}")
+            print("\n  Start daemon with:")
+            print("    python -m msmacro daemon")
+            print("  OR")
+            print("    sudo systemctl start msmacro")
+            print("\n  If using systemd, set environment variable:")
+            print("    export MSMACRO_SOCKET=/run/user/1000/msmacro.sock")
+            return False
 
         print(f"✓ Daemon socket exists: {socket_path}")
 
@@ -105,13 +116,18 @@ def check_cv_capture():
     print("="*70)
 
     try:
-        from msmacro.utils.config import SETTINGS
         from msmacro.io.ipc import send
         import asyncio
 
+        socket_path = find_socket_path()
+
+        if not socket_path.exists():
+            print(f"❌ Daemon socket not found: {socket_path}")
+            print("   Cannot check CV capture status without daemon")
+            return False
+
         async def get_cv_status():
-            socket_path = SETTINGS.socket_path
-            return await send(socket_path, {"cmd": "cv_status"})
+            return await send(str(socket_path), {"cmd": "cv_status"})
 
         status = asyncio.run(get_cv_status())
 
@@ -200,13 +216,18 @@ def test_frame_capture():
     print("="*70)
 
     try:
-        from msmacro.utils.config import SETTINGS
         from msmacro.io.ipc import send
         import asyncio
 
+        socket_path = find_socket_path()
+
+        if not socket_path.exists():
+            print(f"❌ Daemon socket not found: {socket_path}")
+            print("   Cannot test frame capture without daemon")
+            return False
+
         async def get_frame():
-            socket_path = SETTINGS.socket_path
-            return await send(socket_path, {"cmd": "cv_get_frame"})
+            return await send(str(socket_path), {"cmd": "cv_get_frame"})
 
         print("  Requesting frame from daemon...")
         result = asyncio.run(get_frame())
