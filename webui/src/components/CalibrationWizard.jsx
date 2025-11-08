@@ -30,10 +30,28 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
     setLoading(true);
     setError(null);
     try {
-      // Fetch truly lossless raw minimap (before JPEG compression)
-      // This eliminates all compression artifacts for accurate color calibration
       const response = await fetch(`/api/cv/raw-minimap?t=${Date.now()}`);
-      if (!response.ok) throw new Error(`Failed to load frame: ${response.statusText}`);
+
+      if (!response.ok) {
+        let message = `Failed to load frame (HTTP ${response.status})`;
+        try {
+          const data = await response.json();
+          if (data?.message) {
+            message = data.message;
+            if (data.details?.active_config === null) {
+              message += " Configure and activate a CV map region first.";
+            }
+          }
+        } catch {
+          try {
+            const text = await response.text();
+            if (text) message = text;
+          } catch {
+            /* no-op */
+          }
+        }
+        throw new Error(message);
+      }
 
       const blob = await response.blob();
       const dataUrl = await new Promise((resolve) => {

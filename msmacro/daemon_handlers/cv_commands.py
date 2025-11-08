@@ -184,7 +184,24 @@ class CVCommandHandler:
         minimap_result = capture.get_raw_minimap()
 
         if minimap_result is None:
-            raise RuntimeError("No raw minimap available - ensure active map config is set")
+            details: Dict[str, Any] = {
+                "capturing": status.get("capturing", False),
+                "region_detected": False,
+            }
+            try:
+                from ..cv.map_config import get_manager
+                manager = get_manager()
+                active_config = manager.get_active_config()
+                details["active_config"] = active_config.to_dict() if active_config else None
+            except Exception:
+                details["active_config"] = None
+
+            return {
+                "success": False,
+                "error": "no_minimap",
+                "message": "No raw minimap available. Activate a CV map configuration and wait for capture to detect the minimap region.",
+                "details": details,
+            }
 
         raw_crop, metadata = minimap_result
 
@@ -199,6 +216,7 @@ class CVCommandHandler:
 
         # Encode as base64 for JSON transport
         payload: Dict[str, Any] = {
+            "success": True,
             "minimap": base64.b64encode(png_bytes).decode('ascii'),
             "format": "png"
         }

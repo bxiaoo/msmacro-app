@@ -1144,13 +1144,28 @@ async def api_cv_raw_minimap(request: web.Request):
         # Get raw minimap via IPC
         result = await _daemon("cv_get_raw_minimap")
 
-        if "error" in result:
-            return web.Response(status=500, text=result["error"])
+        if not result.get("success", True):
+            error_code = result.get("error", "unknown")
+            status_code = 404 if error_code == "no_minimap" else 503
+            return _json(
+                {
+                    "error": error_code,
+                    "message": result.get("message", "Unable to load raw minimap."),
+                    "details": result.get("details"),
+                },
+                status=status_code,
+            )
 
         # Extract PNG data
         minimap_b64 = result.get("minimap")
         if not minimap_b64:
-            return web.Response(status=404, text="No raw minimap available")
+            return _json(
+                {
+                    "error": "no_minimap",
+                    "message": "No raw minimap available (missing data).",
+                },
+                status=404,
+            )
 
         metadata = result.get("metadata", {})
 
@@ -1201,8 +1216,17 @@ async def api_cv_detection_preview(request: web.Request):
     try:
         # Get raw minimap
         minimap_result = await _daemon("cv_get_raw_minimap")
-        if "error" in minimap_result:
-            return web.Response(status=500, text=minimap_result["error"])
+        if not minimap_result.get("success", True):
+            error_code = minimap_result.get("error", "unknown")
+            status_code = 404 if error_code == "no_minimap" else 503
+            return _json(
+                {
+                    "error": error_code,
+                    "message": minimap_result.get("message", "Unable to load raw minimap."),
+                    "details": minimap_result.get("details"),
+                },
+                status=status_code,
+            )
 
         # Get detection status
         detection_result = await _daemon("object_detection_status")
