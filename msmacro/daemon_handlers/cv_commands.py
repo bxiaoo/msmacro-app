@@ -539,6 +539,10 @@ class CVCommandHandler:
                 x2 = min(w, x + 2)
                 
                 region = frame_bgr[y1:y2, x1:x2]
+                if region.size == 0:
+                    logger.debug("Skipped calibration sample with empty region at (%s,%s)", x, y)
+                    continue
+
                 hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
                 hsv_samples.extend(hsv_region.reshape(-1, 3))
             

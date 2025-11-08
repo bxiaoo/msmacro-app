@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { clsx } from "clsx";
 
@@ -22,6 +22,14 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [naturalSize, setNaturalSize] = useState({ width: 340, height: 86 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const didDragRef = useRef(false);
+  const containerRef = useRef(null);
+  const imgRef = useRef(null);
 
   const REQUIRED_SAMPLES = 5;
 
@@ -61,6 +69,7 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
       });
 
       setCurrentFrame(dataUrl);
+      setPan({ x: 0, y: 0 });
       setFrameTimestamp(Date.now());
     } catch (err) {
       setError(err.message);
@@ -79,18 +88,34 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
 
   // Handle click on frame
   const handleFrameClick = async (e) => {
-    if (step !== "collect") return;
-    if (samples.length >= REQUIRED_SAMPLES) return;
+    if (step !== "collect" || samples.length >= REQUIRED_SAMPLES) return;
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
 
-    const rect = e.target.getBoundingClientRect();
-    const x = Math.round((e.clientX - rect.left) / zoom);
-    const y = Math.round((e.clientY - rect.top) / zoom);
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const displayX = e.clientX - rect.left;
+    const displayY = e.clientY - rect.top;
+
+    // Convert screen point → image space (account for pan + zoom)
+    const x = Math.round((displayX - pan.x) / zoom);
+    const y = Math.round((displayY - pan.y) / zoom);
+
+    if (Number.isNaN(x) || Number.isNaN(y)) {
+      setError("Click inside the minimap area.");
+      return;
+    }
+
+    const clampedX = Math.max(0, Math.min(naturalSize.width - 1, x));
+    const clampedY = Math.max(0, Math.min(naturalSize.height - 1, y));
 
     // Add sample
     const newSample = {
       frame: currentFrame.split(',')[1], // Remove data:image/png;base64, prefix
-      x,
-      y,
+      x: clampedX,
+      y: clampedY,
       timestamp: Date.now()
     };
 
@@ -172,6 +197,40 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
     }
   };
 
+  const handleImgLoad = (e) => {
+    const naturalWidth = e.target.naturalWidth || naturalSize.width;
+    const naturalHeight = e.target.naturalHeight || naturalSize.height;
+    setNaturalSize({ width: naturalWidth, height: naturalHeight });
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleMouseDown = (e) => {
+    if (step !== "collect") return;
+    e.preventDefault();
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    panStartRef.current = { ...pan };
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      didDragRef.current = true;
+    }
+    setPan({
+      x: panStartRef.current.x + dx,
+      y: panStartRef.current.y + dy,
+    });
+  };
+
+  useEffect(() => {
+    const handleMouseUp = () => setIsDragging(false);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
   return (
     <div className="fixed inset-0 bg-gray-900/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-auto">
@@ -251,17 +310,30 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
               </div>
 
               {/* Frame Display */}
-              {currentFrame && (
-                <div className="border border-gray-300 rounded-lg overflow-hidden w-full">
-                  <img
-                    src={currentFrame}
-                    alt="Minimap"
-                    className="cursor-crosshair block w-full h-auto"
-                    style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                    onClick={handleFrameClick}
-                  />
-                </div>
-              )}
+                  {currentFrame && (
+                    <div
+                      ref={containerRef}
+                      className="border border-gray-300 rounded-lg overflow-hidden w-full min-h-[260px] bg-gray-100 cursor-grab active:cursor-grabbing"
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onClick={handleFrameClick}
+                    >
+                      <img
+                        ref={imgRef}
+                        src={currentFrame}
+                        alt="Minimap"
+                        onLoad={handleImgLoad}
+                        className="select-none pointer-events-none"
+                        style={{
+                          width: naturalSize.width,
+                          height: naturalSize.height,
+                          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                          transformOrigin: "top left",
+                          userSelect: "none",
+                        }}
+                      />
+                    </div>
+                  )}
 
               {loading && (
                 <div className="text-center text-gray-600">
