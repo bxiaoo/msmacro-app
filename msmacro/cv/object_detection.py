@@ -110,6 +110,11 @@ class MinimapObjectDetector:
         self._last_player_pos: Optional[Tuple[int, int]] = None
         self._detection_count = 0
         
+        # Performance tracking
+        self._total_time_ms = 0.0
+        self._max_time_ms = 0.0
+        self._min_time_ms = float('inf')
+        
         logger.info("MinimapObjectDetector initialized")
         logger.warning("Using PLACEHOLDER HSV ranges - MUST calibrate on test Pi with YUYV frames")
     
@@ -123,24 +128,37 @@ class MinimapObjectDetector:
         Returns:
             DetectionResult with player position and other_players status
         """
+        start_time = time.perf_counter()
         self._detection_count += 1
         
         try:
             player = self._detect_player(frame)
             other_players = self._detect_other_players(frame)
             
-            return DetectionResult(
+            result = DetectionResult(
                 player=player,
                 other_players=other_players,
                 timestamp=time.time()
             )
         except Exception as e:
             logger.error(f"Detection failed: {e}", exc_info=True)
-            return DetectionResult(
+            result = DetectionResult(
                 player=PlayerPosition(detected=False),
                 other_players=OtherPlayersStatus(detected=False),
                 timestamp=time.time()
             )
+        finally:
+            # Track performance
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            self._total_time_ms += elapsed_ms
+            self._max_time_ms = max(self._max_time_ms, elapsed_ms)
+            self._min_time_ms = min(self._min_time_ms, elapsed_ms)
+            
+            # Log warning if detection exceeds 5ms target
+            if elapsed_ms > 5.0:
+                logger.warning(f"Detection slow: {elapsed_ms:.2f}ms (target <5ms)")
+        
+        return result
     
     def _create_color_mask(self, 
                           frame: np.ndarray,
@@ -432,3 +450,32 @@ class MinimapObjectDetector:
             'player_mask': player_mask,
             'other_players_mask': other_players_mask
         }
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """
+        Get detection performance statistics.
+        
+        Returns:
+            Dictionary with avg_ms, max_ms, min_ms, count
+        """
+        if self._detection_count == 0:
+            return {
+                "avg_ms": 0.0,
+                "max_ms": 0.0,
+                "min_ms": 0.0,
+                "count": 0
+            }
+        
+        return {
+            "avg_ms": self._total_time_ms / self._detection_count,
+            "max_ms": self._max_time_ms,
+            "min_ms": self._min_time_ms if self._min_time_ms != float('inf') else 0.0,
+            "count": self._detection_count
+        }
+    
+    def reset_performance_stats(self):
+        """Reset performance tracking counters."""
+        self._total_time_ms = 0.0
+        self._max_time_ms = 0.0
+        self._min_time_ms = float('inf')
+        self._detection_count = 0

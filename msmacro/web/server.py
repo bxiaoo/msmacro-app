@@ -43,6 +43,9 @@ from .handlers import (
     api_object_detection_start,
     api_object_detection_stop,
     api_object_detection_config,
+    api_object_detection_config_save,
+    api_object_detection_config_export,
+    api_object_detection_performance,
     # System handlers
     api_system_stats,
 )
@@ -128,6 +131,9 @@ def make_app() -> web.Application:
         web.post("/api/cv/object-detection/start", api_object_detection_start),
         web.post("/api/cv/object-detection/stop", api_object_detection_stop),
         web.post("/api/cv/object-detection/config", api_object_detection_config),
+        web.post("/api/cv/object-detection/config/save", api_object_detection_config_save),
+        web.get("/api/cv/object-detection/config/export", api_object_detection_config_export),
+        web.get("/api/cv/object-detection/performance", api_object_detection_performance),
 
         # System information
         web.get("/api/system/stats", api_system_stats),

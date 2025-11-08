@@ -380,6 +380,17 @@ async def api_events(request: web.Request):
                 last_files_msum = msum
                 await send_event({"type": "files", "files": files})
 
+            # Check for object detection updates
+            try:
+                obj_det = await _daemon("object_detection_status")
+                if obj_det.get("enabled") and obj_det.get("last_result"):
+                    await send_event({
+                        "type": "object_detection",
+                        "result": obj_det["last_result"]
+                    })
+            except Exception:
+                pass
+
             # Send heartbeat
             with contextlib.suppress(Exception):
                 await resp.write(b": hb\n\n")
@@ -982,4 +993,59 @@ async def api_object_detection_config(request: web.Request):
         return _json(result)
     except Exception as e:
         log.error(f"Failed to update object detection config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_config_save(request: web.Request):
+    """
+    Save current object detection config to disk.
+    
+    JSON Body (optional):
+        metadata: Optional metadata dict (e.g., calibration_source)
+    
+    Returns:
+        Success status and config file path
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    
+    metadata = body.get("metadata", {})
+    
+    try:
+        result = await _daemon("object_detection_config_save", metadata=metadata)
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to save object detection config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_config_export(request: web.Request):
+    """
+    Export current object detection config as JSON.
+    
+    Returns:
+        Config dictionary
+    """
+    try:
+        result = await _daemon("object_detection_config_export")
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to export object detection config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_performance(request: web.Request):
+    """
+    Get object detection performance statistics.
+    
+    Returns:
+        Performance stats (avg_ms, max_ms, min_ms, count)
+    """
+    try:
+        result = await _daemon("object_detection_performance")
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to get object detection performance: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)

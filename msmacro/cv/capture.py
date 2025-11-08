@@ -866,16 +866,22 @@ class CVCapture:
                 - max_blob_size: int
                 - min_circularity: float
                 - temporal_smoothing: bool
+                
+        If config is None, loads from:
+            1. Config file (~/.local/share/msmacro/object_detection_config.json)
+            2. Environment variables (MSMACRO_PLAYER_COLOR_*)
+            3. Defaults (placeholder HSV ranges)
         """
         from .object_detection import MinimapObjectDetector, DetectorConfig
+        from .detection_config import load_config
         
         try:
             if config:
                 # Create DetectorConfig from dict
                 detector_config = DetectorConfig(**config)
             else:
-                # Use defaults (placeholder HSV ranges)
-                detector_config = DetectorConfig()
+                # Load from config file/env/defaults
+                detector_config = load_config()
             
             with self._detection_lock:
                 self._object_detector = MinimapObjectDetector(detector_config)

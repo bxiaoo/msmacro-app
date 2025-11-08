@@ -283,3 +283,95 @@ class CVCommandHandler:
         except Exception as e:
             logger.error(f"Failed to update object detection config: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+    
+    async def object_detection_config_save(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Save current object detection config to disk.
+        
+        Args:
+            msg: IPC message with optional "metadata" key
+        
+        Returns:
+            Dictionary with "success" and "path" keys
+        """
+        from ..cv.detection_config import save_config, get_config_path
+        
+        capture = get_capture_instance()
+        
+        if not capture._object_detector:
+            return {"success": False, "error": "Object detection not initialized"}
+        
+        try:
+            config = capture._object_detector.config
+            metadata = msg.get("metadata", {})
+            
+            save_config(config, metadata)
+            
+            return {
+                "success": True,
+                "path": str(get_config_path())
+            }
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    async def object_detection_config_export(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Export current object detection config as dict.
+        
+        Args:
+            msg: IPC message (unused)
+        
+        Returns:
+            Dictionary with "success" and "config" keys
+        """
+        capture = get_capture_instance()
+        
+        if not capture._object_detector:
+            return {"success": False, "error": "Object detection not initialized"}
+        
+        try:
+            config = capture._object_detector.config
+            
+            return {
+                "success": True,
+                "config": {
+                    "player_hsv_lower": list(config.player_hsv_lower),
+                    "player_hsv_upper": list(config.player_hsv_upper),
+                    "other_player_hsv_ranges": [
+                        {"hsv_lower": list(lower), "hsv_upper": list(upper)}
+                        for lower, upper in config.other_player_hsv_ranges
+                    ],
+                    "min_blob_size": config.min_blob_size,
+                    "max_blob_size": config.max_blob_size,
+                    "min_circularity": config.min_circularity,
+                    "min_circularity_other": config.min_circularity_other,
+                    "temporal_smoothing": config.temporal_smoothing,
+                    "smoothing_alpha": config.smoothing_alpha
+                }
+            }
+        except Exception as e:
+            logger.error(f"Failed to export config: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    async def object_detection_performance(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get object detection performance statistics.
+        
+        Args:
+            msg: IPC message (unused)
+        
+        Returns:
+            Dictionary with performance stats (avg_ms, max_ms, min_ms, count)
+        """
+        capture = get_capture_instance()
+        
+        if not capture._object_detector:
+            return {"success": False, "error": "Object detection not initialized"}
+        
+        try:
+            stats = capture._object_detector.get_performance_stats()
+            return {"success": True, "stats": stats}
+        except Exception as e:
+            logger.error(f"Failed to get performance stats: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
