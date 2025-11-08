@@ -29,6 +29,10 @@ class MockState:
         self.current_playing_file = None
         self.skills = {}  # Mock skills storage
         self.skill_counter = 0
+        
+        # Object detection state
+        self.object_detection_enabled = False
+        self.last_detection_result = None
 
         # Build initial tree
         self._rebuild_tree()
@@ -710,6 +714,17 @@ def make_app() -> web.Application:
         web.get("/api/skills/selected", api_skills_selected),
         web.put("/api/skills/reorder", api_skills_reorder),
 
+        # Object Detection management
+        web.get("/api/cv/object-detection/status", api_object_detection_status),
+        web.post("/api/cv/object-detection/start", api_object_detection_start),
+        web.post("/api/cv/object-detection/stop", api_object_detection_stop),
+        web.post("/api/cv/object-detection/config", api_object_detection_config),
+        web.post("/api/cv/object-detection/config/save", api_object_detection_config_save),
+        web.get("/api/cv/object-detection/config/export", api_object_detection_config_export),
+        web.get("/api/cv/object-detection/performance", api_object_detection_performance),
+        web.get("/api/cv/frame-lossless", api_cv_frame_lossless),
+        web.post("/api/cv/object-detection/calibrate", api_object_detection_calibrate),
+
         # Health check
         web.get("/api/ping", api_ping),
     ])
@@ -844,6 +859,176 @@ async def api_skills_reorder(request: web.Request) -> web.Response:
     # Return updated skills sorted by order
     updated_skills = sorted(mock_state.skills.values(), key=lambda s: s.get("order", 0))
     return json_response(updated_skills)
+
+# ========== Object Detection Endpoints ==========
+
+async def api_object_detection_status(request: web.Request) -> web.Response:
+    """Get object detection status and latest result."""
+    # Simulate detection results when enabled
+    if mock_state.object_detection_enabled:
+        # Generate random player position
+        mock_state.last_detection_result = {
+            "player": {
+                "detected": random.random() > 0.1,  # 90% detection rate
+                "x": random.randint(50, 290),
+                "y": random.randint(10, 76),
+                "confidence": random.uniform(0.7, 0.95)
+            },
+            "other_players": {
+                "detected": random.random() > 0.7,  # 30% chance of other players
+                "count": random.randint(1, 3) if random.random() > 0.7 else 0
+            },
+            "timestamp": time.time()
+        }
+    
+    return json_response({
+        "enabled": mock_state.object_detection_enabled,
+        "last_result": mock_state.last_detection_result
+    })
+
+async def api_object_detection_start(request: web.Request) -> web.Response:
+    """Start object detection."""
+    print("🎯 Starting object detection...")
+    mock_state.object_detection_enabled = True
+    await broadcast_event("object_detection", {"enabled": True})
+    return json_response({"success": True})
+
+async def api_object_detection_stop(request: web.Request) -> web.Response:
+    """Stop object detection."""
+    print("🛑 Stopping object detection...")
+    mock_state.object_detection_enabled = False
+    mock_state.last_detection_result = None
+    await broadcast_event("object_detection", {"enabled": False})
+    return json_response({"success": True})
+
+async def api_object_detection_config(request: web.Request) -> web.Response:
+    """Update object detection configuration."""
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"error": "Invalid JSON"}, 400)
+    
+    print(f"⚙️ Updating object detection config: {body}")
+    # In mock, just acknowledge
+    return json_response({"success": True})
+
+async def api_object_detection_config_save(request: web.Request) -> web.Response:
+    """Save object detection config to disk."""
+    print("💾 Saving object detection config...")
+    return json_response({
+        "success": True,
+        "path": "/mock/config/object_detection_config.json"
+    })
+
+async def api_object_detection_config_export(request: web.Request) -> web.Response:
+    """Export object detection config."""
+    return json_response({
+        "success": True,
+        "config": {
+            "player_hsv_lower": [20, 100, 100],
+            "player_hsv_upper": [30, 255, 255],
+            "other_player_hsv_ranges": [
+                {"hsv_lower": [0, 100, 100], "hsv_upper": [10, 255, 255]},
+                {"hsv_lower": [170, 100, 100], "hsv_upper": [180, 255, 255]}
+            ],
+            "min_blob_size": 3,
+            "max_blob_size": 15,
+            "min_circularity": 0.6,
+            "min_circularity_other": 0.5,
+            "temporal_smoothing": True,
+            "smoothing_alpha": 0.3
+        }
+    })
+
+async def api_object_detection_performance(request: web.Request) -> web.Response:
+    """Get object detection performance stats."""
+    return json_response({
+        "success": True,
+        "stats": {
+            "avg_ms": random.uniform(2.0, 4.0),
+            "max_ms": random.uniform(5.0, 8.0),
+            "min_ms": random.uniform(1.0, 2.0),
+            "count": random.randint(100, 500)
+        }
+    })
+
+async def api_cv_frame_lossless(request: web.Request) -> web.Response:
+    """Serve a lossless PNG frame for calibration."""
+    # Generate a simple mock frame (solid color with a dot)
+    import numpy as np
+    import cv2
+    import base64
+    
+    # Create 340x86 minimap (typical size)
+    frame = np.zeros((86, 340, 3), dtype=np.uint8)
+    frame[:] = (50, 50, 50)  # Dark gray background
+    
+    # Add a yellow dot for player (simulated)
+    center_x = random.randint(50, 290)
+    center_y = random.randint(20, 66)
+    cv2.circle(frame, (center_x, center_y), 4, (0, 255, 255), -1)  # Yellow in BGR
+    
+    # Add random red dots for other players
+    for _ in range(random.randint(0, 3)):
+        x = random.randint(30, 310)
+        y = random.randint(10, 76)
+        cv2.circle(frame, (x, y), 3, (0, 0, 255), -1)  # Red in BGR
+    
+    # Encode as PNG
+    success, png_bytes = cv2.imencode('.png', frame)
+    if not success:
+        return web.Response(status=500, text="Failed to encode frame")
+    
+    return web.Response(
+        body=png_bytes.tobytes(),
+        content_type="image/png",
+        headers={"Cache-Control": "no-cache"}
+    )
+
+async def api_object_detection_calibrate(request: web.Request) -> web.Response:
+    """Mock calibration endpoint."""
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"success": False, "error": "Invalid JSON"}, 400)
+    
+    color_type = body.get("color_type", "player")
+    samples = body.get("samples", [])
+    
+    print(f"🎨 Calibrating {color_type} with {len(samples)} samples...")
+    
+    # Simulate calibration results
+    if color_type == "player":
+        # Yellow ranges
+        hsv_lower = [20, 100, 100]
+        hsv_upper = [30, 255, 255]
+    else:
+        # Red ranges
+        hsv_lower = [0, 100, 100]
+        hsv_upper = [10, 255, 255]
+    
+    # Generate a mock mask (white pixels on black background)
+    import numpy as np
+    import cv2
+    import base64
+    
+    mask = np.zeros((86, 340), dtype=np.uint8)
+    # Simulate detected regions
+    for _ in range(random.randint(1, 3)):
+        x = random.randint(50, 290)
+        y = random.randint(20, 66)
+        cv2.circle(mask, (x, y), 5, 255, -1)
+    
+    _, mask_png = cv2.imencode('.png', mask)
+    mask_b64 = base64.b64encode(mask_png.tobytes()).decode('ascii')
+    
+    return json_response({
+        "success": True,
+        "color_type": color_type,
+        "hsv_lower": hsv_lower,
+        "hsv_upper": hsv_upper,
+        "preview_mask": mask_b64
+    })
 
 def main():
     """Run the mock server."""

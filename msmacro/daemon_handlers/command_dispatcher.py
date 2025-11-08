@@ -125,6 +125,14 @@ class CommandDispatcher:
             return await self.cv_handler.object_detection_stop(msg)
         elif cmd == "object_detection_config":
             return await self.cv_handler.object_detection_config(msg)
+        elif cmd == "object_detection_config_save":
+            return await self.cv_handler.object_detection_config_save(msg)
+        elif cmd == "object_detection_config_export":
+            return await self.cv_handler.object_detection_config_export(msg)
+        elif cmd == "object_detection_performance":
+            return await self.cv_handler.object_detection_performance(msg)
+        elif cmd == "object_detection_calibrate":
+            return await self.cv_handler.object_detection_calibrate(msg)
 
         # System information commands
         elif cmd == "system_stats":

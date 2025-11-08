@@ -375,3 +375,96 @@ class CVCommandHandler:
         except Exception as e:
             logger.error(f"Failed to get performance stats: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+    
+    async def object_detection_calibrate(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-calibrate HSV ranges from user clicks on frames.
+        
+        Args:
+            msg: IPC message with:
+                - color_type: "player" or "other_player"
+                - samples: List of {frame_base64, x, y} dicts
+        
+        Returns:
+            Dictionary with calibrated HSV ranges and preview mask
+        """
+        import base64
+        import cv2
+        import numpy as np
+        
+        try:
+            color_type = msg.get("color_type", "player")
+            samples = msg.get("samples", [])
+            
+            if not samples or len(samples) < 3:
+                return {"success": False, "error": "Need at least 3 samples"}
+            
+            hsv_samples = []
+            
+            # Process each sample
+            for sample in samples:
+                frame_b64 = sample.get("frame")
+                x = sample.get("x")
+                y = sample.get("y")
+                
+                if not frame_b64 or x is None or y is None:
+                    continue
+                
+                # Decode frame
+                img_bytes = base64.b64decode(frame_b64)
+                img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+                frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                
+                if frame_bgr is None:
+                    continue
+                
+                # Sample 3x3 region around click
+                h, w = frame_bgr.shape[:2]
+                y1 = max(0, y - 1)
+                y2 = min(h, y + 2)
+                x1 = max(0, x - 1)
+                x2 = min(w, x + 2)
+                
+                region = frame_bgr[y1:y2, x1:x2]
+                hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+                hsv_samples.extend(hsv_region.reshape(-1, 3))
+            
+            if not hsv_samples:
+                return {"success": False, "error": "No valid samples collected"}
+            
+            # Calculate percentile ranges (5th to 95th percentile)
+            hsv_array = np.array(hsv_samples)
+            hsv_min = np.percentile(hsv_array, 5, axis=0)
+            hsv_max = np.percentile(hsv_array, 95, axis=0)
+            
+            # Add 20% margin for robustness
+            margin = (hsv_max - hsv_min) * 0.2
+            hsv_lower = np.maximum(hsv_min - margin, [0, 0, 0])
+            hsv_upper = np.minimum(hsv_max + margin, [179, 255, 255])
+            
+            # Generate preview mask using latest frame
+            preview_b64 = samples[-1].get("frame")
+            img_bytes = base64.b64decode(preview_b64)
+            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+            preview_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            
+            hsv_frame = cv2.cvtColor(preview_frame, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv_frame, hsv_lower.astype(np.uint8), hsv_upper.astype(np.uint8))
+            
+            # Encode mask as PNG
+            _, mask_png = cv2.imencode('.png', mask)
+            mask_b64 = base64.b64encode(mask_png.tobytes()).decode('ascii')
+            
+            logger.info(f"Calibrated {color_type}: HSV lower={hsv_lower.astype(int).tolist()}, upper={hsv_upper.astype(int).tolist()}")
+            
+            return {
+                "success": True,
+                "color_type": color_type,
+                "hsv_lower": hsv_lower.astype(int).tolist(),
+                "hsv_upper": hsv_upper.astype(int).tolist(),
+                "preview_mask": mask_b64
+            }
+            
+        except Exception as e:
+            logger.error(f"Calibration failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}

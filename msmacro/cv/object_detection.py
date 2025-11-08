@@ -63,23 +63,23 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow point) - PLACEHOLDER VALUES
-    # These are initial estimates for JPEG images and MUST be
-    # calibrated on test Pi with real YUYV frames
-    player_hsv_lower: Tuple[int, int, int] = (20, 100, 100)
-    player_hsv_upper: Tuple[int, int, int] = (30, 255, 255)
-    
-    # Other players detection (red points) - PLACEHOLDER VALUES
+    # Player detection (yellow point) - PLACEHOLDER VALUES FOR JPEG DEVELOPMENT
+    # These are widened ranges to handle JPEG compression artifacts
+    # MUST be recalibrated on test Pi with real YUYV frames for production
+    player_hsv_lower: Tuple[int, int, int] = (15, 60, 80)    # Widened from (20, 100, 100)
+    player_hsv_upper: Tuple[int, int, int] = (40, 255, 255)  # Widened from (30, 255, 255)
+
+    # Other players detection (red points) - PLACEHOLDER VALUES FOR JPEG DEVELOPMENT
     # Red wraps around in HSV, need two ranges
-    # Range 1: 0-10 (lower red)
+    # MUST be recalibrated on test Pi with real YUYV frames for production
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
-    
+
     # Blob filtering
     min_blob_size: int = 3  # Minimum diameter in pixels
     max_blob_size: int = 15  # Maximum diameter in pixels
     min_circularity: float = 0.6  # Minimum circularity for player
     min_circularity_other: float = 0.5  # Minimum circularity for other players
-    
+
     # Temporal smoothing
     temporal_smoothing: bool = True
     smoothing_alpha: float = 0.3  # EMA alpha (0-1, higher = less smoothing)
@@ -87,10 +87,10 @@ class DetectorConfig:
     def __post_init__(self):
         """Initialize default values."""
         if self.other_player_hsv_ranges is None:
-            # Default red ranges for JPEG (PLACEHOLDER)
+            # Default red ranges for JPEG (PLACEHOLDER - widened for compression tolerance)
             self.other_player_hsv_ranges = [
-                ((0, 100, 100), (10, 255, 255)),      # Lower red
-                ((170, 100, 100), (180, 255, 255))    # Upper red
+                ((0, 70, 70), (12, 255, 255)),      # Lower red (widened)
+                ((168, 70, 70), (180, 255, 255))    # Upper red (widened)
             ]
 
 
@@ -154,9 +154,9 @@ class MinimapObjectDetector:
             self._max_time_ms = max(self._max_time_ms, elapsed_ms)
             self._min_time_ms = min(self._min_time_ms, elapsed_ms)
             
-            # Log warning if detection exceeds 5ms target
-            if elapsed_ms > 5.0:
-                logger.warning(f"Detection slow: {elapsed_ms:.2f}ms (target <5ms)")
+            # Log warning if detection exceeds 15ms target (YUYV on Pi 4)
+            if elapsed_ms > 15.0:
+                logger.warning(f"Detection slow: {elapsed_ms:.2f}ms (target <15ms for YUYV on Pi 4)")
         
         return result
     

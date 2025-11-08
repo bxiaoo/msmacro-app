@@ -1049,3 +1049,87 @@ async def api_object_detection_performance(request: web.Request):
     except Exception as e:
         log.error(f"Failed to get object detection performance: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)
+
+
+async def api_cv_frame_lossless(request: web.Request):
+    """
+    Serve latest CV frame as lossless PNG (not JPEG).
+    For calibration UI to avoid compression artifacts.
+    
+    Returns:
+        PNG image of minimap region (340x86)
+    """
+    try:
+        # Get frame via IPC
+        result = await _daemon("cv_get_frame")
+        
+        if "error" in result:
+            return web.Response(status=500, text=result["error"])
+        
+        # Frame is base64-encoded JPEG from daemon
+        # Decode and re-encode as PNG for lossless quality
+        import base64
+        import cv2
+        import numpy as np
+        
+        frame_b64 = result.get("frame")
+        if not frame_b64:
+            return web.Response(status=500, text="No frame data")
+        
+        # Decode JPEG
+        img_bytes = base64.b64decode(frame_b64)
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return web.Response(status=500, text="Failed to decode frame")
+        
+        # Encode as PNG (lossless)
+        success, png_bytes = cv2.imencode('.png', frame)
+        
+        if not success:
+            return web.Response(status=500, text="PNG encoding failed")
+        
+        return web.Response(
+            body=png_bytes.tobytes(),
+            content_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+        
+    except Exception as e:
+        log.error(f"Failed to serve lossless frame: {e}", exc_info=True)
+        return web.Response(status=500, text=str(e))
+
+
+async def api_object_detection_calibrate(request: web.Request):
+    """
+    Auto-calibrate HSV color ranges from user click samples.
+    
+    Request body:
+        {
+            "color_type": "player" | "other_player",
+            "samples": [
+                {"frame": "base64_png", "x": int, "y": int},
+                ...
+            ]
+        }
+    
+    Returns:
+        {
+            "success": bool,
+            "hsv_lower": [h, s, v],
+            "hsv_upper": [h, s, v],
+            "preview_mask": "base64_png"
+        }
+    """
+    try:
+        body = await request.json()
+        result = await _daemon("object_detection_calibrate", **body)
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to calibrate: {e}", exc_info=True)
+        return _json({"success": False, "error": str(e)}, 500)

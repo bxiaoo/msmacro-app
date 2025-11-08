@@ -6,12 +6,15 @@ import {
 } from "../api";
 import { Button } from "./ui/button";
 import { clsx } from "clsx";
+import { CalibrationWizard } from "./CalibrationWizard";
 
 export function ObjectDetection() {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [error, setError] = useState(null);
+  const [showCalibration, setShowCalibration] = useState(false);
+  const [calibrationType, setCalibrationType] = useState("player");
 
   // Fetch initial status
   useEffect(() => {
@@ -108,6 +111,36 @@ export function ObjectDetection() {
           <p className="text-red-800 text-sm">{error}</p>
         </div>
       )}
+
+      {/* Calibration Section */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+        <h3 className="font-semibold text-indigo-900 mb-2">Color Calibration</h3>
+        <p className="text-sm text-indigo-800 mb-3">
+          Click to calibrate HSV color ranges for accurate detection with real YUYV frames.
+        </p>
+        <div className="flex gap-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCalibrationType("player");
+              setShowCalibration(true);
+            }}
+          >
+            Calibrate Player Color
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCalibrationType("other_player");
+              setShowCalibration(true);
+            }}
+          >
+            Calibrate Other Players
+          </Button>
+        </div>
+      </div>
 
       {/* Warning about placeholder HSV */}
       {enabled && (
@@ -274,6 +307,19 @@ export function ObjectDetection() {
             <li>• Updates continuously at 2 FPS</li>
           </ul>
         </div>
+      )}
+
+      {/* Calibration Wizard Modal */}
+      {showCalibration && (
+        <CalibrationWizard
+          colorType={calibrationType}
+          onComplete={(result) => {
+            console.log("Calibration complete:", result);
+            setShowCalibration(false);
+            fetchStatus(); // Refresh to show updated detection
+          }}
+          onCancel={() => setShowCalibration(false)}
+        />
       )}
     </div>
   );

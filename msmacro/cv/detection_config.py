@@ -113,14 +113,14 @@ def save_config(config: DetectorConfig, metadata: Optional[Dict[str, Any]] = Non
 def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
     """Convert nested config dict to flat dict for DetectorConfig."""
     flat = {}
-    
+
     # Player config
     if "player" in nested:
         player = nested["player"]
         if "color_range" in player:
             cr = player["color_range"]
-            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (20, 100, 100)))
-            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (30, 255, 255)))
+            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (15, 60, 80)))     # Widened defaults
+            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (40, 255, 255)))   # Widened defaults
         flat["min_blob_size"] = player.get("blob_size_min", 3)
         flat["max_blob_size"] = player.get("blob_size_max", 15)
         flat["min_circularity"] = player.get("circularity_min", 0.6)
@@ -185,8 +185,8 @@ def _load_from_env() -> Dict[str, Any]:
 def _dict_to_config(config_dict: Dict[str, Any]) -> DetectorConfig:
     """Convert flat dict to DetectorConfig instance."""
     return DetectorConfig(
-        player_hsv_lower=config_dict.get("player_hsv_lower", (20, 100, 100)),
-        player_hsv_upper=config_dict.get("player_hsv_upper", (30, 255, 255)),
+        player_hsv_lower=config_dict.get("player_hsv_lower", (15, 60, 80)),     # Widened defaults
+        player_hsv_upper=config_dict.get("player_hsv_upper", (40, 255, 255)),   # Widened defaults
         other_player_hsv_ranges=config_dict.get("other_player_hsv_ranges", None),
         min_blob_size=config_dict.get("min_blob_size", 3),
         max_blob_size=config_dict.get("max_blob_size", 15),
