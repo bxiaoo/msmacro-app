@@ -10,11 +10,11 @@ This folder contains comprehensive documentation of the MSMacro Computer Vision 
 The msmacro-app CV capture system provides:
 
 ### ✅ Map Configuration System
-1. **User-defined minimap regions** - Fixed top-left position with adjustable width/height
-2. **Multiple saved configurations** - Switch between different game locations
-3. **Live preview** - Real-time minimap region display in web UI
+1. **Manual minimap regions** - User-defined regions via web UI (fixed top-left at 68,56 with adjustable width/height)
+2. **Multiple saved configurations** - Switch between different game maps/locations
+3. **Live preview** - Real-time minimap region display with optional overlays
 4. **Performance optimization** - Process only the configured region, not entire screen
-5. **No auto-detection** - Region is manually defined by user, not detected by CV
+5. **No auto-detection** - All regions manually configured by user
 
 ### ✅ Object Detection System
 1. **Player position tracking** - Detect yellow player dot on minimap
@@ -78,34 +78,33 @@ if (data.last_result?.player?.detected) {
 
 ## Modified Files
 
-### Core Detection
-- `msmacro/cv/region_analysis.py` - New `detect_top_left_white_frame()` function
-- `msmacro/cv/capture.py` - Integration of detection into capture pipeline
-- `msmacro/cv/frame_buffer.py` - Extended metadata with region fields
+### Core Modules
+- `msmacro/cv/capture.py` - Frame capture with manual map config support
+- `msmacro/cv/frame_buffer.py` - Thread-safe frame storage with metadata
+- `msmacro/cv/map_config.py` - Map configuration persistence
+- `msmacro/cv/object_detection.py` - HSV-based player/other-player detection
 
 ### API Layer
-- `msmacro/web/handlers.py` - Region metadata in HTTP headers
+- `msmacro/web/handlers.py` - REST API for config, preview, detection
 
-### Demo Scripts
-- `scripts/cv_detect_improved.py` - New improved detection demo script
+### Web UI
+- `webui/src/components/CVConfiguration.jsx` - Map config management
+- `webui/src/components/ObjectDetection.jsx` - Detection UI with live preview
+- `webui/src/components/CalibrationWizard.jsx` - HSV color calibration
 
 ## Key Classes and Functions
 
-### `detect_top_left_white_frame()`
-Optimized detection for white frames in top-left corner. Returns dict with:
-- `detected` (bool) - Whether white frame was found
-- `x`, `y`, `width`, `height` (int) - Region coordinates
-- `confidence` (float) - Detection confidence 0.0-1.0
-- `region_white_ratio` (float) - Whiteness of detected region
-- Other stats for debugging
+### `MapConfigManager`
+Manages saved map configurations:
+- `create_config()` - Save new minimap region
+- `activate_config()` - Switch active region
+- `list_configs()` - Get all saved configs
 
 ### `FrameMetadata`
-Extended dataclass with region fields:
-- `region_detected` - Whether region was detected
-- `region_x`, `region_y` - Top-left coordinates
-- `region_width`, `region_height` - Dimensions
-- `region_confidence` - Confidence score
-- `region_white_ratio` - Whiteness ratio
+Dataclass with region fields (from active map config):
+- `region_detected` - Whether map config is active
+- `region_x`, `region_y` - Top-left coordinates (e.g., 68, 56)
+- `region_width`, `region_height` - Dimensions (e.g., 340, 86)
 
 ## Common Tasks
 
@@ -124,51 +123,63 @@ Extended dataclass with region fields:
 ## Environment Variables
 
 ```bash
-# Enable white frame detection and auto-cropping
-MSMACRO_CV_DETECT_WHITE_FRAME=true
+# Shared frame paths
+MSMACRO_CV_FRAME_PATH=/dev/shm/msmacro_cv_frame.jpg
+MSMACRO_CV_META_PATH=/dev/shm/msmacro_cv_frame.json
 
-# White pixel threshold (0-255, default: 240)
-MSMACRO_CV_WHITE_THRESHOLD=240
+# Map config storage
+MSMACRO_CONFIG_DIR=~/.local/share/msmacro
 
-# Minimum white pixels for detection (default: 100)
-MSMACRO_CV_WHITE_MIN_PIXELS=100
-
-# Custom scan region (format: "x,y,width,height")
-MSMACRO_CV_WHITE_SCAN_REGION="0,0,800,600"
+# Object detection (HSV ranges calibrated via web UI)
+MSMACRO_PLAYER_COLOR_H_MIN=15
+MSMACRO_PLAYER_COLOR_H_MAX=40
 ```
 
 ## Testing
 
 ```bash
-# Run improved detection demo
-python scripts/cv_detect_improved.py --start-capture
+# Start daemon
+python -m msmacro daemon
 
-# With custom settings
-python scripts/cv_detect_improved.py \
-    --threshold 230 \
-    --ratio 0.85 \
-    --save-viz /tmp/detection_ \
-    --start-capture
+# Test map config API
+curl http://localhost:8787/api/cv/map-configs
 
-# Test API
-curl -i http://localhost:8787/api/cv/screenshot | grep "X-CV-Region"
+# Test preview endpoint
+curl http://localhost:8787/api/cv/mini-map-preview?x=68&y=56&w=340&h=86 -o preview.png
+
+# Test lossless frame (requires active config)
+curl http://localhost:8787/api/cv/frame-lossless -o minimap.png
 ```
 
-## Key Improvements
+## Key Features
 
-1. **Smart Detection** - Focuses on top-left corner where UI content typically appears
-2. **Confidence Scoring** - Know how reliable each detection is
-3. **Memory Efficient** - Cropped frames reduce JPEG size and bandwidth
-4. **Backward Compatible** - All features are optional, existing code unaffected
-5. **Well-Integrated** - Region data flows through capture → buffer → API → frontend
-6. **Configurable** - Multiple parameters for different scenarios
+1. **Manual Configuration** - User defines minimap region via web UI, no auto-detection
+2. **Multiple Configs** - Save and switch between different game maps
+3. **Live Preview** - Real-time PNG preview with optional overlays
+4. **Object Detection** - HSV-based player/other-player tracking with calibration wizard
+5. **Performance** - <15ms detection on Raspberry Pi 4, 2 FPS capture rate
+6. **API-Driven** - Full REST API for all config and detection operations
 
 ## Next Steps
 
 1. Read **01_ARCHITECTURE.md** to understand the system design
 2. Check **03_CONFIGURATION.md** to tune parameters for your use case
-3. Look at **06_EXAMPLES.md** for implementation patterns
-4. Review **07_TROUBLESHOOTING.md** for common issues
+3. Look at **06_MAP_CONFIGURATION.md** for manual region configuration
+4. Review **08_OBJECT_DETECTION.md** for detection implementation
+
+## Recent Changes (2025-11-08)
+
+### ✅ White Frame Detection Removal
+- Removed legacy white frame auto-detection logic (600+ lines)
+- All minimap regions now manually configured via web UI
+- Simplified codebase: removed deprecated env vars
+- See **WHITE_FRAME_REMOVAL_MIGRATION.md** for migration details
+
+### ✅ Preview & Calibration Enhancements  
+- Mini-map preview now PNG by default (optional overlay)
+- Responsive calibration wizard with full-width preview
+- Object Detection UI with live player marker overlay
+- Fixed `other_player_hsv_ranges` config bug
 
 ---
 

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { Camera, AlertCircle, CheckCircle, XCircle, Plus, Trash2, Minus } from 'lucide-react'
 import {
   getCVStatus,
-  getCVScreenshotURL,
   startCVCapture,
   listMapConfigs,
   createMapConfig,
@@ -20,7 +19,6 @@ export function CVConfiguration() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [previewUrl, setPreviewUrl] = useState(null)
   const [imageError, setImageError] = useState(false)
   const lastFrameLoggedRef = useRef(null)
   const lastErrorLoggedRef = useRef(null)
@@ -33,9 +31,9 @@ export function CVConfiguration() {
   const [configName, setConfigName] = useState('')
   const [coords, setCoords] = useState({ tl_x: 68, tl_y: 56, width: 340, height: 86 })
 
-  // Real-time preview state
-  const [miniMapPreviewUrl, setMiniMapPreviewUrl] = useState(null)
-  const [activeThumbnailUrl, setActiveThumbnailUrl] = useState(null)
+  // Preview state - shows active minimap region only
+  const [livePreviewUrl, setLivePreviewUrl] = useState(null)
+  const [createPreviewUrl, setCreatePreviewUrl] = useState(null)
   const debounceTimerRef = useRef(null)
 
   const formatTimestamp = (ts) => {
@@ -162,14 +160,6 @@ export function CVConfiguration() {
           console.info('CV capture recovered')
           lastErrorLoggedRef.current = null
         }
-
-        // Refresh screenshot if we have frames
-        if (data.has_frame) {
-          setPreviewUrl(getCVScreenshotURL())
-          setImageError(false)
-        } else {
-          setPreviewUrl(null)
-        }
       } catch (err) {
         setError(err.message || 'Failed to get CV status')
         setLoading(false)
@@ -185,24 +175,18 @@ export function CVConfiguration() {
     return () => clearInterval(interval)
   }, [])
 
-  // Update mini-map preview when coords change (debounced)
+  // Update create preview when coords change (debounced)
   useEffect(() => {
     if (isCreating) {
-      // Clear existing timer
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
-
-      // Set new timer (500ms delay)
       debounceTimerRef.current = setTimeout(() => {
-        setMiniMapPreviewUrl(getMiniMapPreviewURL(coords.tl_x, coords.tl_y, coords.width, coords.height))
+        setCreatePreviewUrl(getMiniMapPreviewURL(coords.tl_x, coords.tl_y, coords.width, coords.height))
       }, 500)
     } else {
-      // Clear preview when not creating
-      setMiniMapPreviewUrl(null)
+      setCreatePreviewUrl(null)
     }
-
-    // Cleanup on unmount
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
@@ -210,29 +194,21 @@ export function CVConfiguration() {
     }
   }, [coords, isCreating])
 
-  // Update thumbnail for active config (every 2 seconds)
+  // Update live preview for active config (every 2 seconds)
   useEffect(() => {
-    if (activeConfig) {
-      const updateThumbnail = () => {
-        setActiveThumbnailUrl(getMiniMapPreviewURL(
-          activeConfig.tl_x,
-          activeConfig.tl_y,
-          activeConfig.width,
-          activeConfig.height
-        ))
+    if (activeConfig && status?.has_frame) {
+      const updatePreview = () => {
+        setLivePreviewUrl(`/api/cv/frame-lossless?t=${Date.now()}`)
+        setImageError(false)
       }
-
-      // Initial update
-      updateThumbnail()
-
-      // Refresh every 2 seconds
-      const interval = setInterval(updateThumbnail, 2000)
-
+      
+      updatePreview()
+      const interval = setInterval(updatePreview, 2000)
       return () => clearInterval(interval)
     } else {
-      setActiveThumbnailUrl(null)
+      setLivePreviewUrl(null)
     }
-  }, [activeConfig])
+  }, [activeConfig, status?.has_frame])
 
   const renderStatusBadge = () => {
     if (loading) {
@@ -408,24 +384,7 @@ export function CVConfiguration() {
               </div>
             </div>
 
-            {/* Thumbnail for active config */}
-            {config.is_active && activeThumbnailUrl && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <img
-                  key={activeThumbnailUrl}
-                  src={activeThumbnailUrl}
-                  alt="Active mini-map preview"
-                  className="w-full h-auto rounded border border-gray-300"
-                  style={{ maxHeight: '100px', objectFit: 'contain' }}
-                  onError={() => {
-                    console.error('Failed to load thumbnail')
-                  }}
-                />
-                <p className="text-xs text-gray-500 mt-1 text-center">
-                  Live preview (updates every 2s)
-                </p>
-              </div>
-            )}
+            {/* No inline preview - moved to top of list */}
           </div>
         ))}
       </div>
@@ -441,7 +400,7 @@ export function CVConfiguration() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="flex flex-col gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Height (Vertical Size)</label>
           <div className="flex items-center gap-2">
@@ -482,11 +441,11 @@ export function CVConfiguration() {
       {/* Real-time Preview */}
       <div className="bg-white rounded-lg p-4 border border-gray-200">
         <h4 className="text-sm font-medium text-gray-700 mb-2">Preview</h4>
-        {miniMapPreviewUrl ? (
+        {createPreviewUrl ? (
           <div>
             <img
-              key={miniMapPreviewUrl}
-              src={miniMapPreviewUrl}
+              key={createPreviewUrl}
+              src={createPreviewUrl}
               alt="Mini-map preview"
               className="w-full h-auto rounded border border-gray-300"
               onError={() => {
@@ -580,60 +539,13 @@ export function CVConfiguration() {
             </div>
           )}
 
+
+
           {/* Map Configuration Section */}
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-900">Mini-Map Configuration</h2>
             {renderMapConfigSection()}
           </div>
-
-          {/* Screenshot Preview (only when active config exists) */}
-          {activeConfig && (
-            <div className="space-y-3">
-              <h2 className="text-lg font-semibold text-gray-900">Live Preview</h2>
-              <div className="bg-gray-100 rounded-lg p-4">
-                {status?.has_frame && previewUrl ? (
-                  <div className="relative">
-                    {imageError ? (
-                      <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                        <AlertCircle size={36} className="mb-2 text-red-500" />
-                        <p className="text-sm">Preview unavailable</p>
-                        <p className="text-xs mt-1 text-gray-500">
-                          Waiting for the next frame from the capture device…
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <img
-                          key={previewUrl}
-                          src={previewUrl}
-                          alt="Captured Screenshot"
-                          className="w-full h-auto rounded border border-gray-300 shadow-sm"
-                          onLoad={() => setImageError(false)}
-                          onError={() => {
-                            console.error('Failed to load screenshot')
-                            setImageError(true)
-                          }}
-                        />
-                        <div className="mt-2 text-xs text-gray-500 text-center">
-                          Updates every 2 seconds · Active: {activeConfig.name}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                    <Camera size={48} className="mb-3" />
-                    <p className="text-sm">No frame available</p>
-                    <p className="text-xs mt-1">
-                      {status?.connected
-                        ? 'Waiting for capture to start...'
-                        : 'Connect an HDMI capture device'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Device Info Grid (only when active config exists) */}
           {activeConfig && (
@@ -642,6 +554,54 @@ export function CVConfiguration() {
               {renderStats()}
             </div>
           )}
+
+            {/* Live Minimap Preview (only when active config exists) */}
+            {activeConfig && (
+                <div className="space-y-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
+                    <div className="bg-gray-100 rounded-lg p-4">
+                        {status?.has_frame && livePreviewUrl ? (
+                            <div className="relative">
+                                {imageError ? (
+                                    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                                        <AlertCircle size={36} className="mb-2 text-red-500" />
+                                        <p className="text-sm">Preview unavailable</p>
+                                        <p className="text-xs mt-1 text-gray-500">
+                                            Waiting for the next frame from the capture device…
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <img
+                                            key={livePreviewUrl}
+                                            src={livePreviewUrl}
+                                            alt="Live Minimap"
+                                            className="w-full h-auto rounded border border-gray-300 shadow-sm"
+                                            style={{ maxWidth: '800px', margin: '0 auto', display: 'block' }}
+                                            onLoad={() => setImageError(false)}
+                                            onError={() => {
+                                                console.error('Failed to load live preview')
+                                                setImageError(true)
+                                            }}
+                                        />
+                                        <div className="mt-2 text-xs text-gray-500 text-center">
+                                            Updates every 2 seconds · Active: {activeConfig.name} · {activeConfig.width}×{activeConfig.height}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                                <Camera size={48} className="mb-3 text-gray-300" />
+                                <p className="text-sm font-medium">No frames captured yet</p>
+                                <p className="text-xs mt-1 text-gray-500">
+                                    {status?.capturing ? 'Waiting for capture device…' : 'Start CV capture to see preview'}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
         </div>
       </div>

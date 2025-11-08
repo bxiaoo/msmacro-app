@@ -15,16 +15,9 @@ import numpy as np
 
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
-from .region_analysis import (
-    # Note: detect_* functions are legacy/deprecated for minimap detection.
-    # With map_config, the region is user-defined (not auto-detected).
-    # These imports kept for backward compatibility.
-    detect_and_crop_white_frame,
-    detect_top_left_white_frame,
-    detect_white_frame_yuyv,
-    bgr_to_yuyv_bytes,
-    Region
-)
+# White frame detection removed - replaced by manual map configuration
+# Only keep bgr_to_yuyv_bytes for potential future use
+from .region_analysis import bgr_to_yuyv_bytes, Region
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +65,8 @@ class CVCapture:
         self._active_map_config = None  # Will be loaded in start()
         self._config_lock = threading.Lock()
 
-        # DEPRECATED: Legacy white frame auto-detection configuration
-        # These settings are no longer used when map_config is active.
-        # With map_config, the minimap region is user-defined (not auto-detected).
-        # Kept for backward compatibility with scripts/tools that don't use map_config.
-        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "false").lower() in ("true", "1", "yes")
-        self._white_frame_threshold = int(os.environ.get("MSMACRO_CV_WHITE_THRESHOLD", "220"))
-        self._white_frame_min_pixels = int(os.environ.get("MSMACRO_CV_WHITE_MIN_PIXELS", "100"))
-        self._white_frame_scan_region = None  # Deprecated
+        # Minimap region is now user-defined via map configuration
+        # No auto-detection - users manually configure minimap position/size
 
         # Capture state
         self._capture: Optional[cv2.VideoCapture] = None
