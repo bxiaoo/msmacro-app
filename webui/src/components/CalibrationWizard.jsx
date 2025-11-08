@@ -166,10 +166,19 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
     setLoading(true);
     setError(null);
     try {
-      const config = {
-        [`${colorType}_hsv_lower`]: calibrationResult.hsv_lower,
-        [`${colorType}_hsv_upper`]: calibrationResult.hsv_upper
-      };
+      let config;
+      if (colorType === "player") {
+        config = {
+          player_hsv_lower: calibrationResult.hsv_lower,
+          player_hsv_upper: calibrationResult.hsv_upper,
+        };
+      } else {
+        config = {
+          other_player_hsv_ranges: [
+            [calibrationResult.hsv_lower, calibrationResult.hsv_upper],
+          ],
+        };
+      }
 
       const response = await fetch('/api/cv/object-detection/config', {
         method: 'POST',
