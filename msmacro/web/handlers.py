@@ -898,3 +898,88 @@ async def api_system_stats(request: web.Request):
     except Exception as e:
         log.error(f"Failed to get system stats: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_status(request: web.Request):
+    """
+    Get object detection status and latest result.
+    
+    Returns:
+        Object detection status with:
+        - enabled: Boolean
+        - last_result: Latest detection result (or null)
+    """
+    try:
+        result = await _daemon("object_detection_status")
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to get object detection status: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_start(request: web.Request):
+    """
+    Start object detection.
+    
+    JSON Body (optional):
+        config: Detector configuration dict
+    
+    Returns:
+        Success status
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    
+    config = body.get("config")
+    
+    try:
+        result = await _daemon("object_detection_start", config=config)
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to start object detection: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_stop(request: web.Request):
+    """
+    Stop object detection.
+    
+    Returns:
+        Success status
+    """
+    try:
+        result = await _daemon("object_detection_stop")
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to stop object detection: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_object_detection_config(request: web.Request):
+    """
+    Update object detection configuration.
+    
+    JSON Body:
+        config: New detector configuration dict
+    
+    Returns:
+        Success status
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return _json({"error": "Invalid JSON body"}, 400)
+    
+    config = body.get("config")
+    
+    if not config:
+        return _json({"error": "config field required"}, 400)
+    
+    try:
+        result = await _daemon("object_detection_config", config=config)
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to update object detection config: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)

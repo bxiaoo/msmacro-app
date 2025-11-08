@@ -12,6 +12,7 @@ Main documentation files for users and operators:
 - **05_API_REFERENCE.md** - REST API reference
 - **06_MAP_CONFIGURATION.md** - Map configuration user guide
 - **07_SYSTEM_MONITORING.md** - System stats and performance monitoring
+- **08_OBJECT_DETECTION.md** - Minimap object detection (player/other players)
 
 ## Testing Documentation
 
@@ -19,6 +20,8 @@ Testing guides and procedures (for development/QA):
 
 - **testing/MAP_CONFIG_TESTING_GUIDE.md** - Manual testing guide for map configuration
 - **testing/MAP_CONFIG_FIX_SUMMARY.md** - Map configuration logic fix summary
+- **testing/SYSTEM_STATS_IMPLEMENTATION.md** - System stats implementation notes
+- **testing/OBJECT_DETECTION_IMPLEMENTATION_PLAN.md** - Object detection 4-phase plan
 
 ## Archived Documentation
 

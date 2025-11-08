@@ -38,6 +38,11 @@ from .handlers import (
     api_cv_map_configs_activate,
     api_cv_map_configs_get_active,
     api_cv_map_configs_deactivate,
+    # Object detection handlers
+    api_object_detection_status,
+    api_object_detection_start,
+    api_object_detection_stop,
+    api_object_detection_config,
     # System handlers
     api_system_stats,
 )
@@ -117,6 +122,12 @@ def make_app() -> web.Application:
         web.post("/api/cv/map-configs/{name}/activate", api_cv_map_configs_activate),
         web.get("/api/cv/map-configs/active", api_cv_map_configs_get_active),
         web.post("/api/cv/map-configs/deactivate", api_cv_map_configs_deactivate),
+        
+        # Object Detection management
+        web.get("/api/cv/object-detection/status", api_object_detection_status),
+        web.post("/api/cv/object-detection/start", api_object_detection_start),
+        web.post("/api/cv/object-detection/stop", api_object_detection_stop),
+        web.post("/api/cv/object-detection/config", api_object_detection_config),
 
         # System information
         web.get("/api/system/stats", api_system_stats),

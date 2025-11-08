@@ -107,6 +107,12 @@ class CVCapture:
         self._last_frame_time = 0.0
         self._error_lock = threading.Lock()
         self._last_error: Optional[Dict[str, Any]] = None
+        
+        # Object detection
+        self._object_detector = None
+        self._object_detection_enabled = False
+        self._last_detection_result = None
+        self._detection_lock = threading.Lock()
 
     def get_status(self) -> Dict[str, Any]:
         """
@@ -609,6 +615,32 @@ class CVCapture:
                 else:
                     # Get frame dimensions before encoding (raw camera feed always shown)
                     height, width = frame.shape[:2]
+                
+                # Run object detection if enabled
+                if self._object_detection_enabled and region_detected:
+                    try:
+                        with self._detection_lock:
+                            if self._object_detector:
+                                # Extract minimap region for detection
+                                minimap_frame = frame[
+                                    region_y:region_y + region_height,
+                                    region_x:region_x + region_width
+                                ]
+                                
+                                # Run detection
+                                detection_result = self._object_detector.detect(minimap_frame)
+                                self._last_detection_result = detection_result
+                                
+                                # Emit SSE event (if needed)
+                                try:
+                                    from ..events import emit
+                                    emit("OBJECT_DETECTED", detection_result.to_dict())
+                                except Exception:
+                                    pass  # Event emission failure shouldn't break capture
+                                
+                                del minimap_frame
+                    except Exception as det_err:
+                        logger.debug(f"Object detection failed: {det_err}")
 
                 # Encode as JPEG
                 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
@@ -820,6 +852,58 @@ class CVCapture:
         cv2.putText(img, text, (text_x, text_y), font, font_scale, text_color, font_thickness)
 
         return img
+    
+    def enable_object_detection(self, config: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Enable object detection on minimap frames.
+        
+        Args:
+            config: Optional detector configuration dict with keys:
+                - player_hsv_lower: Tuple[int, int, int]
+                - player_hsv_upper: Tuple[int, int, int]
+                - other_player_hsv_ranges: List[Tuple[Tuple, Tuple]]
+                - min_blob_size: int
+                - max_blob_size: int
+                - min_circularity: float
+                - temporal_smoothing: bool
+        """
+        from .object_detection import MinimapObjectDetector, DetectorConfig
+        
+        try:
+            if config:
+                # Create DetectorConfig from dict
+                detector_config = DetectorConfig(**config)
+            else:
+                # Use defaults (placeholder HSV ranges)
+                detector_config = DetectorConfig()
+            
+            with self._detection_lock:
+                self._object_detector = MinimapObjectDetector(detector_config)
+                self._object_detection_enabled = True
+                logger.info("Object detection enabled")
+        except Exception as e:
+            logger.error(f"Failed to enable object detection: {e}", exc_info=True)
+            raise CVCaptureError(f"Failed to enable object detection: {e}")
+    
+    def disable_object_detection(self) -> None:
+        """Disable object detection."""
+        with self._detection_lock:
+            self._object_detection_enabled = False
+            self._object_detector = None
+            self._last_detection_result = None
+            logger.info("Object detection disabled")
+    
+    def get_last_detection_result(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the latest object detection result.
+        
+        Returns:
+            Detection result dict or None if no detection has run
+        """
+        with self._detection_lock:
+            if self._last_detection_result:
+                return self._last_detection_result.to_dict()
+            return None
 
 
 # Global capture instance

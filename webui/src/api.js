@@ -305,3 +305,28 @@ async function API(path, opts = {}) {
   export function getSystemStats() {
     return API("/api/system/stats");
   }
+
+  // ---------- Object Detection ----------
+  export function getObjectDetectionStatus() {
+    return API("/api/cv/object-detection/status");
+  }
+
+  export function startObjectDetection(config = null) {
+    return API("/api/cv/object-detection/start", {
+      method: "POST",
+      body: JSON.stringify({ config })
+    });
+  }
+
+  export function stopObjectDetection() {
+    return API("/api/cv/object-detection/stop", {
+      method: "POST"
+    });
+  }
+
+  export function updateObjectDetectionConfig(config) {
+    return API("/api/cv/object-detection/config", {
+      method: "POST",
+      body: JSON.stringify({ config })
+    });
+  }

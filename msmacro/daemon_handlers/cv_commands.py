@@ -189,3 +189,97 @@ class CVCommandHandler:
             "reloaded": True,
             "active_config": active_config.to_dict() if active_config else None
         }
+    
+    async def object_detection_status(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get object detection status and latest result.
+        
+        Args:
+            msg: IPC message (unused)
+        
+        Returns:
+            Dictionary with:
+                - enabled: Boolean, whether detection is active
+                - last_result: Latest detection result dict (or None)
+        """
+        capture = get_capture_instance()
+        
+        return {
+            "enabled": capture._object_detection_enabled,
+            "last_result": capture.get_last_detection_result()
+        }
+    
+    async def object_detection_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enable object detection with optional configuration.
+        
+        Args:
+            msg: IPC message with optional "config" key containing detector config
+        
+        Returns:
+            Dictionary with "success" key set to True
+        
+        Note:
+            Emits OBJECT_DETECTION_STARTED event on success
+        """
+        capture = get_capture_instance()
+        config = msg.get("config")
+        
+        try:
+            capture.enable_object_detection(config)
+            emit("OBJECT_DETECTION_STARTED")
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Failed to start object detection: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    async def object_detection_stop(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Disable object detection.
+        
+        Args:
+            msg: IPC message (unused)
+        
+        Returns:
+            Dictionary with "success" key set to True
+        
+        Note:
+            Emits OBJECT_DETECTION_STOPPED event on success
+        """
+        capture = get_capture_instance()
+        capture.disable_object_detection()
+        emit("OBJECT_DETECTION_STOPPED")
+        return {"success": True}
+    
+    async def object_detection_config(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update object detection configuration.
+        
+        Args:
+            msg: IPC message with "config" key containing new detector config
+        
+        Returns:
+            Dictionary with "success" key set to True
+        
+        Note:
+            Restarts detection with new config if currently enabled
+        """
+        capture = get_capture_instance()
+        config = msg.get("config")
+        
+        if not config:
+            return {"success": False, "error": "No config provided"}
+        
+        try:
+            # Restart detection with new config
+            was_enabled = capture._object_detection_enabled
+            if was_enabled:
+                capture.disable_object_detection()
+            
+            capture.enable_object_detection(config)
+            
+            emit("OBJECT_DETECTION_CONFIG_UPDATED")
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Failed to update object detection config: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}

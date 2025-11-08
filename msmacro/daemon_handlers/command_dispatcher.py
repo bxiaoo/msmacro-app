@@ -115,6 +115,16 @@ class CommandDispatcher:
             return await self.cv_handler.cv_start(msg)
         elif cmd == "cv_stop":
             return await self.cv_handler.cv_stop(msg)
+        
+        # Object Detection commands
+        elif cmd == "object_detection_status":
+            return await self.cv_handler.object_detection_status(msg)
+        elif cmd == "object_detection_start":
+            return await self.cv_handler.object_detection_start(msg)
+        elif cmd == "object_detection_stop":
+            return await self.cv_handler.object_detection_stop(msg)
+        elif cmd == "object_detection_config":
+            return await self.cv_handler.object_detection_config(msg)
 
         # System information commands
         elif cmd == "system_stats":
