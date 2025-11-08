@@ -194,15 +194,17 @@ class CVCommandHandler:
         if not ret:
             raise RuntimeError("Failed to encode raw minimap as PNG")
 
+        # Convert numpy array to bytes immediately for consistent handling
+        png_bytes = png_data.tobytes()
+
         # Encode as base64 for JSON transport
         payload: Dict[str, Any] = {
-            "minimap": base64.b64encode(png_data.tobytes()).decode('ascii'),
+            "minimap": base64.b64encode(png_bytes).decode('ascii'),
             "format": "png"
         }
 
         # Add metadata
         if metadata is not None:
-            from dataclasses import asdict
             metadata_dict = asdict(metadata)
             # Convert numpy types to Python native types
             for key, value in metadata_dict.items():
@@ -212,7 +214,7 @@ class CVCommandHandler:
                     metadata_dict[key] = value.item()
             payload["metadata"] = metadata_dict
 
-        logger.debug(f"Returning raw minimap: {raw_crop.shape}, PNG size: {len(png_data)} bytes")
+        logger.debug(f"Returning raw minimap: shape={raw_crop.shape}, PNG size: {len(png_bytes)} bytes")
         return payload
 
     async def cv_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
