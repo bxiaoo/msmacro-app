@@ -7,7 +7,8 @@ async def start_server(path, handler, *, mode=0o600):
         with suppress(FileNotFoundError):
             p.unlink()
     p.parent.mkdir(parents=True, exist_ok=True)
-    server = await asyncio.start_unix_server(lambda r, w: _serve_one(r, w, handler), path=path)
+    # Set limit to 2MB to support large frame data transfers (base64-encoded JPEGs can be ~300KB)
+    server = await asyncio.start_unix_server(lambda r, w: _serve_one(r, w, handler), path=path, limit=2**21)
     os.chmod(path, mode)  # owner-only access for security
     return server
 
@@ -30,7 +31,8 @@ async def _serve_one(reader, writer, handler):
             await writer.wait_closed()
 
 async def send(path, payload: dict, timeout=5.0):
-    reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(path), timeout=timeout)
+    # Set limit to 2MB to support large frame data transfers (base64-encoded JPEGs can be ~300KB)
+    reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(path, limit=2**21), timeout=timeout)
     writer.write((json.dumps(payload) + "\n").encode("utf-8"))
     await writer.drain()
     line = await reader.readline()
