@@ -33,6 +33,15 @@ class MockState:
         # Object detection state
         self.object_detection_enabled = False
         self.last_detection_result = None
+        
+        # CV capture state
+        self.cv_connected = True
+        self.cv_capturing = True
+        self.cv_has_frame = True
+        self.cv_frames_captured = random.randint(1000, 5000)
+        self.cv_frames_failed = 0
+        self.map_configs = []
+        self.active_map_config = None
 
         # Build initial tree
         self._rebuild_tree()
@@ -714,6 +723,17 @@ def make_app() -> web.Application:
         web.get("/api/skills/selected", api_skills_selected),
         web.put("/api/skills/reorder", api_skills_reorder),
 
+        # CV (Computer Vision) management
+        web.get("/api/cv/status", api_cv_status),
+        web.get("/api/cv/screenshot", api_cv_screenshot),
+        web.post("/api/cv/start", api_cv_start),
+        web.get("/api/cv/minimap-preview", api_cv_minimap_preview),
+        web.get("/api/cv/map-configs", api_cv_map_configs_list),
+        web.post("/api/cv/map-configs", api_cv_map_configs_create),
+        web.delete("/api/cv/map-configs/{name}", api_cv_map_configs_delete),
+        web.post("/api/cv/map-configs/{name}/activate", api_cv_map_configs_activate),
+        web.post("/api/cv/map-configs/deactivate", api_cv_map_configs_deactivate),
+        
         # Object Detection management
         web.get("/api/cv/object-detection/status", api_object_detection_status),
         web.post("/api/cv/object-detection/start", api_object_detection_start),
@@ -951,6 +971,202 @@ async def api_object_detection_performance(request: web.Request) -> web.Response
             "count": random.randint(100, 500)
         }
     })
+
+async def api_cv_status(request: web.Request) -> web.Response:
+    """Get CV capture status."""
+    frame_time = time.time() - 1.5  # Frame was captured 1.5 seconds ago
+    return json_response({
+        "connected": mock_state.cv_connected,
+        "capturing": mock_state.cv_capturing,
+        "has_frame": mock_state.cv_has_frame,
+        "frames_captured": mock_state.cv_frames_captured,
+        "frames_failed": mock_state.cv_frames_failed,
+        "device": {
+            "name": "Mock HD Capture Card",
+            "path": "/dev/video0"
+        },
+        "capture": {
+            "width": 1280,
+            "height": 720,
+            "fps": 30.0
+        },
+        "frame": {
+            "width": 1280,
+            "height": 720,
+            "timestamp": frame_time,
+            "age_seconds": time.time() - frame_time,
+            "size_bytes": 65536
+        },
+        "last_error": None
+    })
+
+async def api_cv_screenshot(request: web.Request) -> web.Response:
+    """Get full 1280x720 JPEG screenshot."""
+    import numpy as np
+    import cv2
+    
+    # Create 1280x720 frame with gradient background
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    
+    # Create a gradient background (dark blue to black)
+    for y in range(720):
+        intensity = int(50 * (1 - y / 720))
+        frame[y, :] = (intensity, intensity // 2, 0)
+    
+    # Add some mock UI elements
+    # Top bar
+    cv2.rectangle(frame, (0, 0), (1280, 60), (40, 40, 40), -1)
+    cv2.putText(frame, "Mock Game Screen - 1280x720", (20, 35), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    # Add timestamp
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    cv2.putText(frame, timestamp, (1100, 35), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    # Mini-map region (top-left, typical position)
+    minimap_x, minimap_y = 68, 56
+    minimap_w, minimap_h = 340, 86
+    cv2.rectangle(frame, (minimap_x, minimap_y), 
+                  (minimap_x + minimap_w, minimap_y + minimap_h), 
+                  (100, 100, 100), -1)
+    cv2.rectangle(frame, (minimap_x, minimap_y), 
+                  (minimap_x + minimap_w, minimap_y + minimap_h), 
+                  (200, 200, 200), 2)
+    cv2.putText(frame, "Mini-Map", (minimap_x + 10, minimap_y + 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    
+    # Add player dot
+    player_x = random.randint(minimap_x + 20, minimap_x + minimap_w - 20)
+    player_y = random.randint(minimap_y + 20, minimap_y + minimap_h - 20)
+    cv2.circle(frame, (player_x, player_y), 4, (0, 255, 255), -1)
+    
+    # Encode as JPEG
+    success, jpeg_bytes = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not success:
+        return web.Response(status=500, text="Failed to encode frame")
+    
+    return web.Response(
+        body=jpeg_bytes.tobytes(),
+        content_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-CV-Frame-Width": "1280",
+            "X-CV-Frame-Height": "720",
+            "X-CV-Frame-Timestamp": str(time.time())
+        }
+    )
+
+async def api_cv_start(request: web.Request) -> web.Response:
+    """Start CV capture."""
+    mock_state.cv_capturing = True
+    mock_state.cv_has_frame = True
+    print("📷 CV capture started")
+    return json_response({"ok": True, "message": "CV capture started"})
+
+async def api_cv_minimap_preview(request: web.Request) -> web.Response:
+    """Get cropped mini-map preview."""
+    try:
+        x = int(request.query.get('x', 68))
+        y = int(request.query.get('y', 56))
+        w = int(request.query.get('w', 340))
+        h = int(request.query.get('h', 86))
+    except (ValueError, TypeError):
+        return json_response({"error": "Invalid parameters"}, 400)
+    
+    import numpy as np
+    import cv2
+    
+    # Create minimap region
+    frame = np.zeros((h, w, 3), dtype=np.uint8)
+    frame[:] = (50, 50, 50)  # Dark gray
+    
+    # Add border
+    overlay = request.query.get('overlay')
+    if overlay == 'border':
+        cv2.rectangle(frame, (0, 0), (w-1, h-1), (0, 0, 255), 2)
+    
+    # Add player dot
+    center_x = random.randint(w//4, 3*w//4)
+    center_y = random.randint(h//4, 3*h//4)
+    cv2.circle(frame, (center_x, center_y), 4, (0, 255, 255), -1)
+    
+    # Encode as PNG
+    success, png_bytes = cv2.imencode('.png', frame, [int(cv2.IMWRITE_PNG_COMPRESSION), 3])
+    if not success:
+        return web.Response(status=500, text="Failed to encode frame")
+    
+    return web.Response(
+        body=png_bytes.tobytes(),
+        content_type="image/png",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-MiniMap-X": str(x),
+            "X-MiniMap-Y": str(y),
+            "X-MiniMap-Width": str(w),
+            "X-MiniMap-Height": str(h)
+        }
+    )
+
+async def api_cv_map_configs_list(request: web.Request) -> web.Response:
+    """List all map configurations."""
+    return json_response({"configs": mock_state.map_configs})
+
+async def api_cv_map_configs_create(request: web.Request) -> web.Response:
+    """Create a new map configuration."""
+    try:
+        body = await request.json()
+    except Exception:
+        return json_response({"error": "Invalid JSON"}, 400)
+    
+    config = {
+        "name": body["name"],
+        "tl_x": int(body["tl_x"]),
+        "tl_y": int(body["tl_y"]),
+        "width": int(body["width"]),
+        "height": int(body["height"]),
+        "created_at": time.time(),
+        "last_used_at": 0.0,
+        "is_active": False
+    }
+    
+    mock_state.map_configs.append(config)
+    print(f"📋 Created map config: {config['name']}")
+    return json_response({"success": True, "config": config})
+
+async def api_cv_map_configs_delete(request: web.Request) -> web.Response:
+    """Delete a map configuration."""
+    name = request.match_info.get("name")
+    mock_state.map_configs = [c for c in mock_state.map_configs if c["name"] != name]
+    print(f"🗑️  Deleted map config: {name}")
+    return json_response({"success": True})
+
+async def api_cv_map_configs_activate(request: web.Request) -> web.Response:
+    """Activate a map configuration."""
+    name = request.match_info.get("name")
+    
+    # Deactivate all
+    for config in mock_state.map_configs:
+        config["is_active"] = False
+    
+    # Activate the selected one
+    for config in mock_state.map_configs:
+        if config["name"] == name:
+            config["is_active"] = True
+            config["last_used_at"] = time.time()
+            mock_state.active_map_config = config
+            print(f"✅ Activated map config: {name}")
+            return json_response({"success": True, "config": config})
+    
+    return json_response({"error": "Config not found"}, 404)
+
+async def api_cv_map_configs_deactivate(request: web.Request) -> web.Response:
+    """Deactivate current map configuration."""
+    for config in mock_state.map_configs:
+        config["is_active"] = False
+    mock_state.active_map_config = None
+    print("❌ Deactivated all map configs")
+    return json_response({"success": True})
 
 async def api_cv_frame_lossless(request: web.Request) -> web.Response:
     """Serve a lossless PNG frame for calibration."""
