@@ -510,11 +510,13 @@ class CVCapture:
 
                                 # Confidence based on presence of content (bright pixels)
                                 # UI elements contain text/icons which are bright
-                                region_confidence = min(1.0, bright_ratio * 2.5)
-                                region_white_ratio = bright_ratio
+                                # Convert to Python float to avoid numpy type issues
+                                region_confidence = float(min(1.0, bright_ratio * 2.5))
+                                region_white_ratio = float(bright_ratio)
 
                                 # Detect if there's actually content here
-                                region_detected = region_confidence > 0.3
+                                # Convert to Python bool explicitly
+                                region_detected = bool(region_confidence > 0.3)
 
                                 if region_detected:
                                     region_x = FIXED_FRAME_X

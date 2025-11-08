@@ -119,7 +119,20 @@ class CVCommandHandler:
             "frame": base64.b64encode(frame_data).decode('ascii')
         }
         if metadata is not None:
-            payload["metadata"] = asdict(metadata)
+            # Convert metadata to dict and ensure all numpy types are converted to Python types
+            # This is necessary because numpy bool/int/float are not JSON-serializable
+            metadata_dict = asdict(metadata)
+
+            # Convert numpy types to Python native types
+            for key, value in metadata_dict.items():
+                # Handle numpy booleans
+                if hasattr(value, 'item'):  # numpy scalar
+                    metadata_dict[key] = value.item()  # Convert to Python type
+                # Handle numpy floats/ints (also have dtype attribute)
+                elif hasattr(value, 'dtype'):
+                    metadata_dict[key] = value.item()
+
+            payload["metadata"] = metadata_dict
 
         logger.debug(f"Returning frame: {len(frame_data)} bytes, {metadata.width}x{metadata.height}")
         return payload
