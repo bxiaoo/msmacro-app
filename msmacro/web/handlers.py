@@ -1059,7 +1059,8 @@ async def api_cv_frame_lossless(request: web.Request):
     For calibration UI to avoid compression artifacts.
     
     Returns:
-        PNG image of minimap region (340x86)
+        PNG image of ONLY the minimap region (cropped to map_config dimensions)
+        If no map_config is active, returns 404
     """
     try:
         # Get frame via IPC
@@ -1068,8 +1069,16 @@ async def api_cv_frame_lossless(request: web.Request):
         if "error" in result:
             return web.Response(status=500, text=result["error"])
         
+        # Get metadata to check for active region
+        metadata = result.get("metadata")
+        if not metadata or not metadata.get("region_detected"):
+            return web.Response(
+                status=404, 
+                text="No active map configuration. Create and activate a map config first."
+            )
+        
         # Frame is base64-encoded JPEG from daemon
-        # Decode and re-encode as PNG for lossless quality
+        # Decode, extract minimap region, and re-encode as PNG
         import base64
         import cv2
         import numpy as np
@@ -1086,8 +1095,23 @@ async def api_cv_frame_lossless(request: web.Request):
         if frame is None:
             return web.Response(status=500, text="Failed to decode frame")
         
+        # Extract ONLY the minimap region
+        region_x = metadata.get("region_x", 0)
+        region_y = metadata.get("region_y", 0)
+        region_width = metadata.get("region_width", 0)
+        region_height = metadata.get("region_height", 0)
+        
+        # Crop to minimap region
+        minimap_frame = frame[
+            region_y:region_y + region_height,
+            region_x:region_x + region_width
+        ]
+        
+        if minimap_frame.size == 0:
+            return web.Response(status=500, text="Failed to extract minimap region")
+        
         # Encode as PNG (lossless)
-        success, png_bytes = cv2.imencode('.png', frame)
+        success, png_bytes = cv2.imencode('.png', minimap_frame)
         
         if not success:
             return web.Response(status=500, text="PNG encoding failed")
@@ -1098,7 +1122,11 @@ async def api_cv_frame_lossless(request: web.Request):
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
-                "Expires": "0"
+                "Expires": "0",
+                "X-Minimap-X": str(region_x),
+                "X-Minimap-Y": str(region_y),
+                "X-Minimap-Width": str(region_width),
+                "X-Minimap-Height": str(region_height)
             }
         )
         

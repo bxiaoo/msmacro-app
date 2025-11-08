@@ -397,6 +397,8 @@ class CVCommandHandler:
             msg: IPC message with:
                 - color_type: "player" or "other_player"
                 - samples: List of {frame_base64, x, y} dicts
+                  Note: frame_base64 contains ONLY the minimap region (cropped)
+                  Note: x, y are relative to minimap top-left (0, 0)
         
         Returns:
             Dictionary with calibrated HSV ranges and preview mask

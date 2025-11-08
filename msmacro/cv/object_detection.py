@@ -123,10 +123,11 @@ class MinimapObjectDetector:
         Detect objects in minimap frame.
         
         Args:
-            frame: BGR image (cropped minimap region)
+            frame: BGR image (ONLY the minimap region, already cropped from full screen)
         
         Returns:
-            DetectionResult with player position and other_players status
+            DetectionResult with player position and other_players status.
+            All coordinates are relative to minimap top-left corner (0, 0).
         """
         start_time = time.perf_counter()
         self._detection_count += 1
