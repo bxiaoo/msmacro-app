@@ -556,14 +556,16 @@ async def api_cv_screenshot(request: web.Request):
                 headers[header_key] = str(metadata[key])
 
         # Add region detection metadata to headers
+        # Note: region_confidence and region_white_ratio are deprecated (always 0.0)
+        # With map_config, the region is user-defined, not auto-detected
         region_keys = (
             "region_detected",
             "region_x",
             "region_y",
             "region_width",
             "region_height",
-            "region_confidence",
-            "region_white_ratio"
+            "region_confidence",  # Deprecated: always 0.0
+            "region_white_ratio"  # Deprecated: always 0.0
         )
         for key in region_keys:
             if key in metadata:

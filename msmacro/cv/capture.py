@@ -16,6 +16,9 @@ import numpy as np
 from .device import CaptureDevice, find_capture_device_with_retry, list_video_devices, validate_device_access
 from .frame_buffer import FrameBuffer, FrameMetadata
 from .region_analysis import (
+    # Note: detect_* functions are legacy/deprecated for minimap detection.
+    # With map_config, the region is user-defined (not auto-detected).
+    # These imports kept for backward compatibility.
     detect_and_crop_white_frame,
     detect_top_left_white_frame,
     detect_white_frame_yuyv,
@@ -69,26 +72,14 @@ class CVCapture:
         self._active_map_config = None  # Will be loaded in start()
         self._config_lock = threading.Lock()
 
-        # White frame detection configuration (legacy, used when no map config active)
-        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "true").lower() in ("true", "1", "yes")
+        # DEPRECATED: Legacy white frame auto-detection configuration
+        # These settings are no longer used when map_config is active.
+        # With map_config, the minimap region is user-defined (not auto-detected).
+        # Kept for backward compatibility with scripts/tools that don't use map_config.
+        self._detect_white_frame = os.environ.get("MSMACRO_CV_DETECT_WHITE_FRAME", "false").lower() in ("true", "1", "yes")
         self._white_frame_threshold = int(os.environ.get("MSMACRO_CV_WHITE_THRESHOLD", "220"))
         self._white_frame_min_pixels = int(os.environ.get("MSMACRO_CV_WHITE_MIN_PIXELS", "100"))
-
-        # Parse scan region from env (format: "x,y,width,height" or empty for default)
-        scan_region_str = os.environ.get("MSMACRO_CV_WHITE_SCAN_REGION", "").strip()
-        if scan_region_str:
-            try:
-                parts = [int(p.strip()) for p in scan_region_str.split(",")]
-                if len(parts) == 4:
-                    self._white_frame_scan_region = Region(x=parts[0], y=parts[1], width=parts[2], height=parts[3])
-                else:
-                    logger.warning(f"Invalid MSMACRO_CV_WHITE_SCAN_REGION format: {scan_region_str}, using default")
-                    self._white_frame_scan_region = None
-            except ValueError as e:
-                logger.warning(f"Failed to parse MSMACRO_CV_WHITE_SCAN_REGION: {e}, using default")
-                self._white_frame_scan_region = None
-        else:
-            self._white_frame_scan_region = None  # Use default from detect_and_crop_white_frame
+        self._white_frame_scan_region = None  # Deprecated
 
         # Capture state
         self._capture: Optional[cv2.VideoCapture] = None
@@ -460,165 +451,58 @@ class CVCapture:
                     time.sleep(0.5)
                     continue
 
-                # Detect white frame region using map config or fixed-position detection
+                # Use manually-defined minimap region from map config
+                # When map_config is active, the region is NOT auto-detected - it's user-defined
+                # CV2 only detects objects (player, enemies) WITHIN the user-defined region
                 region_detected = False
                 region_x, region_y = 0, 0
                 region_width, region_height = 0, 0
-                region_confidence, region_white_ratio = 0.0, 0.0
 
                 frame_height, frame_width = frame.shape[:2]
 
-                # Get detection coordinates from active map config
+                # Get user-defined minimap coordinates from active map config
                 with self._config_lock:
                     active_config = self._active_map_config
 
                 if active_config:
-                    # Use map config coordinates (user-configured)
-                    FIXED_FRAME_X = active_config.tl_x
-                    FIXED_FRAME_Y = active_config.tl_y
-                    FIXED_FRAME_WIDTH = active_config.width
-                    FIXED_FRAME_HEIGHT = active_config.height
+                    # Use map config coordinates directly (no auto-detection)
+                    region_x = active_config.tl_x
+                    region_y = active_config.tl_y
+                    region_width = active_config.width
+                    region_height = active_config.height
 
-                    # Validate frame position is within bounds
-                    if (FIXED_FRAME_X + FIXED_FRAME_WIDTH <= frame_width and
-                        FIXED_FRAME_Y + FIXED_FRAME_HEIGHT <= frame_height):
+                    # Validate region is within frame bounds
+                    if (region_x + region_width <= frame_width and
+                        region_y + region_height <= frame_height):
+                        region_detected = True
+                        
+                        logger.debug(
+                            f"Using user-defined minimap region at ({region_x},{region_y}) "
+                            f"size {region_width}x{region_height}"
+                        )
 
-                        # Use YUYV-based validation to calculate confidence
-                        try:
-                            yuyv_bytes = bgr_to_yuyv_bytes(frame)
-
-                            # Extract Y channel for the fixed region
-                            from .region_analysis import extract_y_channel_from_yuyv
-
-                            y_channel = extract_y_channel_from_yuyv(
-                                yuyv_bytes,
-                                frame_width,
-                                frame_height,
-                                FIXED_FRAME_X,
-                                FIXED_FRAME_Y,
-                                FIXED_FRAME_WIDTH,
-                                FIXED_FRAME_HEIGHT
-                            )
-
-                            del yuyv_bytes
-
-                            if y_channel is not None:
-                                # Calculate region brightness statistics
-                                avg_brightness = np.mean(y_channel)
-                                bright_pixels = np.sum(y_channel >= 150)
-                                bright_ratio = bright_pixels / y_channel.size
-
-                                # Confidence based on presence of content (bright pixels)
-                                # UI elements contain text/icons which are bright
-                                # Convert to Python float to avoid numpy type issues
-                                region_confidence = float(min(1.0, bright_ratio * 2.5))
-                                region_white_ratio = float(bright_ratio)
-
-                                # Detect if there's actually content here
-                                # Convert to Python bool explicitly
-                                region_detected = bool(region_confidence > 0.3)
-
-                                if region_detected:
-                                    region_x = FIXED_FRAME_X
-                                    region_y = FIXED_FRAME_Y
-                                    region_width = FIXED_FRAME_WIDTH
-                                    region_height = FIXED_FRAME_HEIGHT
-
-                                    logger.debug(
-                                        f"Fixed-position frame detected at ({region_x},{region_y}) "
-                                        f"size {region_width}x{region_height}, "
-                                        f"confidence {region_confidence:.2%}"
-                                    )
-
-                                    # Draw visual indicators on frame (red rectangle + confidence badge)
-                                    # Red rectangle overlay
-                                    cv2.rectangle(
-                                        frame,
-                                        (region_x, region_y),
-                                        (region_x + region_width, region_y + region_height),
-                                        (0, 0, 255),  # Red color in BGR
-                                        2  # 2-pixel thickness
-                                    )
-
-                                    # Confidence badge (top-right corner of detected frame)
-                                    confidence_text = f"{region_confidence:.0%}"
-                                    font = cv2.FONT_HERSHEY_SIMPLEX
-                                    font_scale = 0.6
-                                    font_thickness = 2
-                                    text_color = (255, 255, 255)  # White text
-                                    bg_color = (0, 0, 255)  # Red background
-
-                                    # Get text size for background rectangle
-                                    (text_width, text_height), baseline = cv2.getTextSize(
-                                        confidence_text,
-                                        font,
-                                        font_scale,
-                                        font_thickness
-                                    )
-
-                                    # Position badge at top-right of detected frame
-                                    badge_x = region_x + region_width - text_width - 8
-                                    badge_y = region_y + text_height + 8
-
-                                    # Draw background rectangle for badge
-                                    cv2.rectangle(
-                                        frame,
-                                        (badge_x - 4, badge_y - text_height - 4),
-                                        (badge_x + text_width + 4, badge_y + 4),
-                                        bg_color,
-                                        -1  # Filled rectangle
-                                    )
-
-                                    # Draw confidence text
-                                    cv2.putText(
-                                        frame,
-                                        confidence_text,
-                                        (badge_x, badge_y),
-                                        font,
-                                        font_scale,
-                                        text_color,
-                                        font_thickness
-                                    )
-
-                        except Exception as det_err:
-                            logger.debug(f"Frame validation failed: {det_err}, using fixed coordinates anyway")
-                            # Fall back to fixed coordinates without validation
-                            region_detected = True
-                            region_x = FIXED_FRAME_X
-                            region_y = FIXED_FRAME_Y
-                            region_width = FIXED_FRAME_WIDTH
-                            region_height = FIXED_FRAME_HEIGHT
-                            region_confidence = 0.5  # Medium confidence without validation
-                            region_white_ratio = 0.0
+                        # Draw visual indicator on frame (red rectangle)
+                        cv2.rectangle(
+                            frame,
+                            (region_x, region_y),
+                            (region_x + region_width, region_y + region_height),
+                            (0, 0, 255),  # Red color in BGR
+                            2  # 2-pixel thickness
+                        )
+                    else:
+                        logger.warning(
+                            f"Map config region ({region_x},{region_y}) "
+                            f"size {region_width}x{region_height} is out of bounds "
+                            f"for frame size {frame_width}x{frame_height}"
+                        )
                 else:
-                    # No active map config - skip CV detection to prevent Pi overload
-                    # Detection will be enabled when user creates and activates a map config
-                    logger.debug("No active map config - CV detection disabled")
+                    # No active map config - skip minimap detection
+                    logger.debug("No active map config - minimap detection disabled")
 
-                # Crop frame if enabled and white frame detected
-                if self._detect_white_frame and region_detected:
-                    try:
-                        cropped_frame = frame[
-                            region_y:region_y + region_height,
-                            region_x:region_x + region_width
-                        ]
-                        if cropped_frame is not None and cropped_frame.size > 0:
-                            # Use cropped frame
-                            del frame
-                            frame = cropped_frame
-                            # Update dimensions to match cropped frame
-                            height, width = frame.shape[:2]
-                        else:
-                            # Crop failed, use full frame
-                            height, width = frame.shape[:2]
-                    except Exception as crop_err:
-                        logger.debug(f"Frame cropping failed: {crop_err}, using full frame")
-                        height, width = frame.shape[:2]
-                else:
-                    # Get frame dimensions before encoding (raw camera feed always shown)
-                    height, width = frame.shape[:2]
+                # Always use full frame (no cropping) - the red rectangle shows the minimap region
+                height, width = frame.shape[:2]
                 
-                # Run object detection if enabled
+                # Run object detection if enabled (only detects objects within the minimap region)
                 if self._object_detection_enabled and region_detected:
                     try:
                         with self._detection_lock:
@@ -677,9 +561,7 @@ class CVCapture:
                     region_x=region_x,
                     region_y=region_y,
                     region_width=region_width,
-                    region_height=region_height,
-                    region_confidence=region_confidence,
-                    region_white_ratio=region_white_ratio
+                    region_height=region_height
                 )
 
                 # Write to shared filesystem location for cross-process access
@@ -692,9 +574,7 @@ class CVCapture:
                     region_x=region_x,
                     region_y=region_y,
                     region_width=region_width,
-                    region_height=region_height,
-                    region_confidence=region_confidence,
-                    region_white_ratio=region_white_ratio
+                    region_height=region_height
                 )
 
                 self._frames_captured += 1
