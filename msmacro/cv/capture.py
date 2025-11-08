@@ -468,14 +468,16 @@ class CVCapture:
                             f"size {region_width}x{region_height}"
                         )
 
-                        # Draw visual indicator on frame (red rectangle)
-                        cv2.rectangle(
-                            frame,
-                            (region_x, region_y),
-                            (region_x + region_width, region_y + region_height),
-                            (0, 0, 255),  # Red color in BGR
-                            2  # 2-pixel thickness
-                        )
+                        # Draw visual indicator ONLY when object detection is active
+                        # This shows which area CV2 is processing for object detection
+                        if self._object_detection_enabled:
+                            cv2.rectangle(
+                                frame,
+                                (region_x, region_y),
+                                (region_x + region_width, region_y + region_height),
+                                (0, 0, 255),  # Red color in BGR
+                                2  # 2-pixel thickness
+                            )
                     else:
                         logger.warning(
                             f"Map config region ({region_x},{region_y}) "
