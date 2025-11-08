@@ -90,11 +90,16 @@ def capture_yuyv_dataset(output_dir: Path, count: int = 60, interval: float = 2.
 
     # Check if capture is running
     try:
-        test_frame, test_meta = capture.get_latest_frame()
-        if test_frame is None:
+        result = capture.get_latest_frame()
+        if result is None:
             print("ERROR: No frame available from capture")
-            print("Start CV capture first: /api/cv/start")
+            print("\nMake sure CV capture is started first:")
+            print("  CLI: python -m msmacro ctl cv-start")
+            print("  API: curl -X POST http://localhost:5050/api/cv/start")
+            print("  Web UI: Navigate to http://localhost:5050 and enable CV capture")
             return 1
+
+        test_frame, test_meta = result
         print(f"✓ CV capture is active (frame size: {test_frame.shape})")
     except Exception as e:
         print(f"ERROR: Failed to get frame: {e}")
@@ -126,12 +131,14 @@ def capture_yuyv_dataset(output_dir: Path, count: int = 60, interval: float = 2.
 
             try:
                 # Get latest frame
-                frame_bgr, metadata = capture.get_latest_frame()
+                result = capture.get_latest_frame()
 
-                if frame_bgr is None:
+                if result is None:
                     print("❌ FAILED (no frame)")
                     failed += 1
                     continue
+
+                frame_bgr, metadata = result
 
                 # Extract minimap region if region detection is enabled
                 if hasattr(metadata, 'region_detected') and metadata.region_detected:
