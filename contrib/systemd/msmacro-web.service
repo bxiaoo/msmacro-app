@@ -7,6 +7,8 @@ Wants=msmacro.service network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/msmacro-app
+User=bxiao
+Group=input
 Environment=PATH=/opt/msmacro-app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Environment=MSMACRO_RECDIR=/home/bxiao/.local/share/msmacro/records
 Environment=MSMACRO_SOCKET=/run/user/1000/msmacro.sock

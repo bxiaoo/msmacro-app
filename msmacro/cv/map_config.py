@@ -7,6 +7,7 @@ for performance optimization on Raspberry Pi.
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -111,12 +112,21 @@ class MapConfigManager:
             config_file: Path to config file. If None, uses default location.
         """
         if config_file is None:
-            # Default location: ~/.local/share/msmacro/map_configs.json
-            data_dir = Path.home() / '.local' / 'share' / 'msmacro'
-            data_dir.mkdir(parents=True, exist_ok=True)
-            config_file = data_dir / 'map_configs.json'
+            # Check for environment variable override
+            config_path_env = os.environ.get('MSMACRO_MAP_CONFIG_FILE')
+            if config_path_env:
+                config_file = Path(config_path_env)
+                # Ensure parent directory exists
+                config_file.parent.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Using map config file from environment: {config_file}")
+            else:
+                # Default location: ~/.local/share/msmacro/map_configs.json
+                data_dir = Path.home() / '.local' / 'share' / 'msmacro'
+                data_dir.mkdir(parents=True, exist_ok=True)
+                config_file = data_dir / 'map_configs.json'
 
         self.config_file = config_file
+        self._config_file = config_file  # Expose for diagnostics
         self._configs: Dict[str, MapConfig] = {}
         self._active_config_name: Optional[str] = None
         self._lock = Lock()
