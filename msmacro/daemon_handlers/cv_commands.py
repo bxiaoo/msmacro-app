@@ -450,7 +450,7 @@ class CVCommandHandler:
                     "player_hsv_lower": list(config.player_hsv_lower),
                     "player_hsv_upper": list(config.player_hsv_upper),
                     "other_player_hsv_ranges": [
-                        {"hsv_lower": list(lower), "hsv_upper": list(upper)}
+                        [list(lower), list(upper)]
                         for lower, upper in config.other_player_hsv_ranges
                     ],
                     "min_blob_size": config.min_blob_size,

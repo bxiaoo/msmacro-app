@@ -777,8 +777,26 @@ class CVCapture:
         
         try:
             if config:
-                # Create DetectorConfig from dict
-                detector_config = DetectorConfig(**config)
+                # Filter config to only include valid DetectorConfig fields
+                valid_fields = {
+                    'player_hsv_lower', 'player_hsv_upper', 'other_player_hsv_ranges',
+                    'min_blob_size', 'max_blob_size', 'min_circularity', 'min_circularity_other',
+                    'temporal_smoothing', 'smoothing_alpha'
+                }
+                filtered_config = {k: v for k, v in config.items() if k in valid_fields}
+                
+                # Convert nested lists to tuples for hsv ranges
+                if 'player_hsv_lower' in filtered_config:
+                    filtered_config['player_hsv_lower'] = tuple(filtered_config['player_hsv_lower'])
+                if 'player_hsv_upper' in filtered_config:
+                    filtered_config['player_hsv_upper'] = tuple(filtered_config['player_hsv_upper'])
+                if 'other_player_hsv_ranges' in filtered_config:
+                    filtered_config['other_player_hsv_ranges'] = [
+                        (tuple(lower), tuple(upper))
+                        for lower, upper in filtered_config['other_player_hsv_ranges']
+                    ]
+                
+                detector_config = DetectorConfig(**filtered_config)
             else:
                 # Load from config file/env/defaults
                 detector_config = load_config()
