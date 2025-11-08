@@ -38,10 +38,19 @@ class OtherPlayersStatus:
     """Other players detection status."""
     detected: bool  # True if any other players present
     count: int = 0  # Number of other players detected
+    positions: List[Tuple[int, int]] = None  # [(x, y), ...] positions for visualization
+
+    def __post_init__(self):
+        if self.positions is None:
+            self.positions = []
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        return {
+            'detected': self.detected,
+            'count': self.count,
+            'positions': [{'x': x, 'y': y} for x, y in self.positions]
+        }
 
 
 @dataclass
@@ -338,10 +347,14 @@ class MinimapObjectDetector:
         
         # Remove duplicates (same position detected in multiple ranges)
         unique_blobs = self._deduplicate_blobs(all_blobs, distance_threshold=5)
-        
+
+        # Extract positions for visualization/debugging
+        positions = [tuple(blob['center']) for blob in unique_blobs]
+
         return OtherPlayersStatus(
             detected=len(unique_blobs) > 0,
-            count=len(unique_blobs)
+            count=len(unique_blobs),
+            positions=positions
         )
     
     def _deduplicate_blobs(self, blobs: List[Dict], distance_threshold: float = 5.0) -> List[Dict]:
@@ -410,8 +423,16 @@ class MinimapObjectDetector:
                        (x + 12, y - 12),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
         
-        # Draw other players indicator
+        # Draw other players
         if result.other_players.detected:
+            # Draw each other player position as red circle
+            for x, y in result.other_players.positions:
+                cv2.circle(vis, (x, y), 6, (0, 0, 255), 2)  # Red circle
+                cv2.drawMarker(vis, (x, y), (0, 0, 255),
+                              markerType=cv2.MARKER_CROSS,
+                              markerSize=8, thickness=1)
+
+            # Draw count label
             label = f"Other Players: {result.other_players.count}"
             cv2.putText(vis, label,
                        (10, 20),

@@ -2,6 +2,146 @@
 
 ## HTTP Endpoints
 
+**Last Updated:** 2025-11-08  
+**Status:** Current Production API
+
+### Map Configuration Endpoints
+
+#### GET /api/cv/map-configs
+
+List all saved map configurations.
+
+**Request:**
+```http
+GET /api/cv/map-configs HTTP/1.1
+```
+
+**Response:**
+```json
+{
+  "configs": [
+    {
+      "name": "Henesys Mini-Map",
+      "tl_x": 68,
+      "tl_y": 56,
+      "width": 340,
+      "height": 86,
+      "created_at": 1699564800.0,
+      "last_used_at": 1699565000.0,
+      "is_active": true
+    }
+  ]
+}
+```
+
+#### POST /api/cv/map-configs
+
+Create a new map configuration.
+
+**Request:**
+```http
+POST /api/cv/map-configs HTTP/1.1
+Content-Type: application/json
+
+{
+  "name": "Henesys Mini-Map",
+  "tl_x": 68,
+  "tl_y": 56,
+  "width": 340,
+  "height": 86
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "config": {
+    "name": "Henesys Mini-Map",
+    "tl_x": 68,
+    "tl_y": 56,
+    "width": 340,
+    "height": 86,
+    "is_active": false
+  }
+}
+```
+
+#### DELETE /api/cv/map-configs/{name}
+
+Delete a map configuration (must be inactive).
+
+**Request:**
+```http
+DELETE /api/cv/map-configs/Henesys%20Mini-Map HTTP/1.1
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "message": "Configuration deleted"
+}
+```
+
+#### POST /api/cv/map-configs/{name}/activate
+
+Activate a map configuration.
+
+**Request:**
+```http
+POST /api/cv/map-configs/Henesys%20Mini-Map/activate HTTP/1.1
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "config": {
+    "name": "Henesys Mini-Map",
+    "tl_x": 68,
+    "tl_y": 56,
+    "width": 340,
+    "height": 86,
+    "is_active": true
+  }
+}
+```
+
+#### GET /api/cv/map-configs/active
+
+Get the currently active configuration.
+
+**Response:**
+```json
+{
+  "config": {
+    "name": "Henesys Mini-Map",
+    "tl_x": 68,
+    "tl_y": 56,
+    "width": 340,
+    "height": 86,
+    "is_active": true
+  }
+}
+```
+
+#### POST /api/cv/map-configs/deactivate
+
+Deactivate the current configuration.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "message": "Configuration deactivated"
+}
+```
+
+---
+
+### CV Capture Endpoints
+
 ### GET /api/cv/screenshot
 
 Retrieves the latest captured frame as JPEG with region detection metadata.
@@ -156,6 +296,350 @@ curl http://localhost:8787/api/cv/screenshot -o screenshot.jpg
 # Show only region headers
 curl -s -i http://localhost:8787/api/cv/screenshot | grep "X-CV-Region"
 ```
+
+#### GET /api/cv/mini-map-preview
+
+Get minimap region preview (PNG, raw by default).
+
+2025-11 Update:
+- Default: raw crop, no overlays, PNG (prevents quality loss in calibration)
+- Optional: `overlay=border` draws legacy red 2px border for older UI components
+
+**Query Parameters:**
+- `x`: Region left coordinate
+- `y`: Region top coordinate  
+- `w`: Region width
+- `h`: Region height
+- `overlay`: (optional) `border` to draw red border (else omitted)
+- `t`: Cache-busting timestamp
+
+**Request:**
+```http
+GET /api/cv/mini-map-preview?x=68&y=56&w=340&h=86&overlay=border&t=1699564800123 HTTP/1.1
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: image/png
+X-MiniMap-X: 68
+X-MiniMap-Y: 56
+X-MiniMap-Width: 340
+X-MiniMap-Height: 86
+X-MiniMap-Overlay: border
+
+[PNG binary data]
+```
+
+#### GET /api/cv/frame-lossless
+
+Get minimap region as PNG for calibration & overlays.
+
+2025-11 Improvements:
+- Accepts manual crop params (x,y,w,h) even without active map config
+- Returns 404 only if no active config AND no manual params
+- Adds checksum header for cache validation
+
+**Query Parameters (all optional):**
+- `x`,`y`,`w`,`h`: Manual crop (override active config)
+- `t`: Cache bust
+
+**Request (active config)**:
+```http
+GET /api/cv/frame-lossless?t=1699564800123 HTTP/1.1
+```
+**Request (manual)**:
+```http
+GET /api/cv/frame-lossless?x=68&y=56&w=340&h=86&t=1699564800456 HTTP/1.1
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: image/png
+X-Minimap-X: 68
+X-Minimap-Y: 56
+X-Minimap-Width: 340
+X-Minimap-Height: 86
+X-Minimap-Manual: true|false
+X-Minimap-Checksum: d41d8cd98f00b204e9800998ecf8427e
+
+[PNG binary data]
+```
+
+**Note**: This endpoint still starts from the JPEG stream (cv_get_frame → base64 JPEG → decode → re-encode PNG), so compression artifacts from the original JPEG remain. For truly lossless calibration, use `/api/cv/raw-minimap` instead.
+
+---
+
+#### GET /api/cv/raw-minimap
+
+**NEW 2025-11-08**: Get truly lossless raw minimap (captured BEFORE JPEG compression).
+
+This endpoint serves the raw BGR minimap crop that was extracted from the capture card BEFORE any JPEG encoding. This eliminates ALL compression artifacts, making it perfect for color calibration where accuracy is critical.
+
+**Key Differences from /api/cv/frame-lossless:**
+- `/api/cv/frame-lossless`: JPEG → decode → crop → PNG (has JPEG artifacts)
+- `/api/cv/raw-minimap`: Raw BGR → crop → PNG (**no JPEG artifacts**)
+
+**Memory Footprint**: ~88KB for typical 340x86 minimap (acceptable overhead)
+
+**Query Parameters:**
+- `t`: Cache-busting timestamp (recommended)
+
+**Request:**
+```http
+GET /api/cv/raw-minimap?t=1699564800123 HTTP/1.1
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: image/png
+Cache-Control: no-cache, no-store, must-revalidate
+X-Minimap-X: 68
+X-Minimap-Y: 56
+X-Minimap-Width: 340
+X-Minimap-Height: 86
+X-Minimap-Checksum: a3f2b8c9d1e4f5a6b7c8d9e0f1a2b3c4
+X-Minimap-Source: raw
+
+[PNG binary data - truly lossless]
+```
+
+**Status Codes:**
+- `200 OK`: Success
+- `404 Not Found`: No active map config or raw minimap not available
+- `500 Internal Server Error`: Capture error
+
+**Usage Example (JavaScript):**
+```javascript
+// Load truly lossless frame for calibration
+async function loadLosslessFrame() {
+  const response = await fetch(`/api/cv/raw-minimap?t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error('No active map config - create one first');
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  // Use for color calibration - NO JPEG artifacts!
+  return url;
+}
+```
+
+---
+
+#### GET /api/cv/detection-preview
+
+**NEW 2025-11-08**: Get minimap with detection visualization overlays.
+
+This endpoint returns a PNG image with visual overlays showing all detected objects:
+- **Player**: Yellow crosshair + circle with confidence label
+- **Other players**: Red circles + crosshairs at each detected position
+- **Stats**: Frame count, detection confidence
+
+Perfect for debugging detection accuracy in the web UI.
+
+**Query Parameters:**
+- `t`: Cache-busting timestamp (recommended)
+
+**Request:**
+```http
+GET /api/cv/detection-preview?t=1699564800123 HTTP/1.1
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: image/png
+Cache-Control: no-cache, no-store, must-revalidate
+X-Minimap-X: 68
+X-Minimap-Y: 56
+X-Minimap-Width: 340
+X-Minimap-Height: 86
+
+[PNG binary data with visualization overlays]
+```
+
+**Status Codes:**
+- `200 OK`: Success
+- `404 Not Found`: Object detection not enabled or no results available
+- `500 Internal Server Error`: Detection or rendering error
+
+**Visualization Elements:**
+- Player dot: Yellow crosshair (10px) + circle (8px radius) + label with coordinates & confidence
+- Other player dots: Red circles (6px radius) + crosshairs (8px)
+- Count label: "Other Players: N" in top-left
+- Frame counter: Bottom-left
+
+**Usage Example (React):**
+```javascript
+function DetectionPreview({ lastResult, enabled }) {
+  const [imgUrl, setImgUrl] = useState(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    // Auto-refresh when detection updates
+    const url = `/api/cv/detection-preview?t=${Date.now()}`;
+    setImgUrl(url);
+  }, [lastResult?.timestamp, enabled]);
+
+  return <img src={imgUrl} alt="Detection Preview" />;
+}
+```
+
+---
+
+### Object Detection Endpoints
+
+#### GET /api/cv/object-detection/status
+
+Get detection status and latest result.
+
+**Request:**
+```http
+GET /api/cv/object-detection/status HTTP/1.1
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "last_result": {
+    "player": {
+      "detected": true,
+      "x": 170,
+      "y": 43,
+      "confidence": 0.85
+    },
+    "other_players": {
+      "detected": true,
+      "count": 2,
+      "positions": [
+        {"x": 120, "y": 30},
+        {"x": 200, "y": 50}
+      ]
+    },
+    "timestamp": 1699564800.123
+  }
+}
+```
+
+**Note**: As of 2025-11-08, `other_players.positions` array is included for visualization and debugging. Each position contains `{x, y}` coordinates relative to minimap top-left.
+
+#### POST /api/cv/object-detection/start
+
+Enable object detection.
+
+**Request:**
+```http
+POST /api/cv/object-detection/start HTTP/1.1
+Content-Type: application/json
+
+{
+  "config": {
+    "player_hsv_lower": [18, 75, 95],
+    "player_hsv_upper": [35, 255, 255],
+    "min_blob_size": 3,
+    "max_blob_size": 15,
+    "min_circularity": 0.6
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+#### POST /api/cv/object-detection/stop
+
+Disable object detection.
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+#### POST /api/cv/object-detection/config
+
+Update detection configuration.
+
+**Request:**
+```http
+POST /api/cv/object-detection/config HTTP/1.1
+Content-Type: application/json
+
+{
+  "config": {
+    "player_hsv_lower": [18, 75, 95],
+    "player_hsv_upper": [35, 255, 255]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+#### POST /api/cv/object-detection/calibrate
+
+Auto-calibrate HSV ranges from user clicks.
+
+**Request:**
+```http
+POST /api/cv/object-detection/calibrate HTTP/1.1
+Content-Type: application/json
+
+{
+  "color_type": "player",
+  "samples": [
+    {
+      "frame": "iVBORw0KGgo...",
+      "x": 170,
+      "y": 43
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "color_type": "player",
+  "hsv_lower": [18, 75, 95],
+  "hsv_upper": [35, 255, 255],
+  "preview_mask": "iVBORw0KGgo..."
+}
+```
+
+#### GET /api/cv/object-detection/performance
+
+Get detection performance statistics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "stats": {
+    "avg_ms": 12.5,
+    "max_ms": 18.2,
+    "min_ms": 10.1,
+    "count": 1234
+  }
+}
+```
+
+---
 
 ### GET /api/cv/status
 

@@ -371,8 +371,37 @@ After successful testing:
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-01-08
+## Web UI Visual Validation (2025-11 Enhancements)
+
+### 1. Preview Modes
+- Request raw preview (no border): `curl -I "http://localhost:8787/api/cv/mini-map-preview?x=68&y=56&w=340&h=86" | grep X-MiniMap-Overlay`
+- Request legacy border: `curl -I "http://localhost:8787/api/cv/mini-map-preview?x=68&y=56&w=340&h=86&overlay=border" | grep X-MiniMap-Overlay`
+- Assert PNG content-type (`image/png`) and border only when requested.
+
+### 2. Lossless Frame Manual Crops
+- Active config: `curl -I http://localhost:8787/api/cv/frame-lossless`
+- Manual region test (inactive config allowed): `curl -I "http://localhost:8787/api/cv/frame-lossless?x=68&y=56&w=340&h=86"`
+- Verify headers: X-Minimap-Manual, X-Minimap-Checksum present.
+
+### 3. Calibration Wizard UI
+- Open wizard and confirm image expands to modal width (no fixed 500px constraint).
+- Zoom in/out remains functional.
+- Collect 5 samples; ensure mask preview appears with unchanged clarity.
+
+### 4. Detection Overlay Preview
+- Enable detection; confirm live minimap image displays with yellow marker at reported (x,y).
+- Move in-game player; marker updates within <2s.
+- Compare marker pixel position ~== reported coordinates (tolerance ±1px).
+
+### 5. Regression Checks
+- Legacy UIs using red border still work when passing `overlay=border`.
+- Manual crop on inactive config returns 200 (not 404).
+- Bad crop params yield 400.
+
+---
+
+**Document Version**: 1.1
+**Last Updated**: 2025-11-08
 **Related Documentation**:
 - [08_OBJECT_DETECTION.md](./08_OBJECT_DETECTION.md) - Feature specification
 - [OBJECT_DETECTION_IMPLEMENTATION_PLAN.md](./testing/OBJECT_DETECTION_IMPLEMENTATION_PLAN.md) - Implementation plan

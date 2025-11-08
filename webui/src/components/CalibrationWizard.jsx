@@ -30,17 +30,18 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
     setLoading(true);
     setError(null);
     try {
-      // Fetch lossless PNG frame
-      const response = await fetch(`/api/cv/frame-lossless?t=${Date.now()}`);
+      // Fetch truly lossless raw minimap (before JPEG compression)
+      // This eliminates all compression artifacts for accurate color calibration
+      const response = await fetch(`/api/cv/raw-minimap?t=${Date.now()}`);
       if (!response.ok) throw new Error(`Failed to load frame: ${response.statusText}`);
-      
+
       const blob = await response.blob();
       const dataUrl = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result);
         reader.readAsDataURL(blob);
       });
-      
+
       setCurrentFrame(dataUrl);
       setFrameTimestamp(Date.now());
     } catch (err) {
@@ -233,11 +234,11 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
 
               {/* Frame Display */}
               {currentFrame && (
-                <div className="border border-gray-300 rounded-lg overflow-auto max-h-[500px]">
+                <div className="border border-gray-300 rounded-lg overflow-hidden w-full">
                   <img
                     src={currentFrame}
                     alt="Minimap"
-                    className="cursor-crosshair"
+                    className="cursor-crosshair block w-full h-auto"
                     style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
                     onClick={handleFrameClick}
                   />
@@ -269,7 +270,7 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
                   <img
                     src={currentFrame}
                     alt="Original"
-                    className="border border-gray-300 rounded"
+                    className="w-full h-auto border border-gray-300 rounded"
                   />
                 </div>
 
@@ -279,7 +280,7 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
                   <img
                     src={`data:image/png;base64,${calibrationResult.preview_mask}`}
                     alt="Mask Preview"
-                    className="border border-gray-300 rounded"
+                    className="w-full h-auto border border-gray-300 rounded"
                   />
                 </div>
               </div>

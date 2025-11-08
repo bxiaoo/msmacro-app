@@ -1,56 +1,79 @@
-# CV Region Detection - Complete Documentation
+# MSMacro CV System - Complete Documentation
 
-This folder contains comprehensive documentation of the improved CV (Computer Vision) white frame detection system.
+This folder contains comprehensive documentation of the MSMacro Computer Vision system.
 
-## What's New
+**Last Updated**: 2025-11-08  
+**Status**: Production Ready
 
-The msmacro-app CV capture system has been enhanced to:
+## What's Implemented
 
-1. **Automatically detect white frame regions** in the top-left corner of screenshots
-2. **Crop frames to detected regions** (optional, via environment variable)
-3. **Track region metadata** through the entire pipeline
-4. **Expose region data** via HTTP headers for frontend integration
-5. **Provide confidence scoring** to assess detection quality
+The msmacro-app CV capture system provides:
+
+### ✅ Map Configuration System
+1. **User-defined minimap regions** - Fixed top-left position with adjustable width/height
+2. **Multiple saved configurations** - Switch between different game locations
+3. **Live preview** - Real-time minimap region display in web UI
+4. **Performance optimization** - Process only the configured region, not entire screen
+5. **No auto-detection** - Region is manually defined by user, not detected by CV
+
+### ✅ Object Detection System
+1. **Player position tracking** - Detect yellow player dot on minimap
+2. **Other players detection** - Detect red enemy/other player dots
+3. **Minimap-relative coordinates** - All positions relative to minimap top-left (0,0)
+4. **Auto-calibration** - Click-to-calibrate wizard for HSV color tuning
+5. **Performance optimized** - < 15ms detection time on Raspberry Pi 4
+
+### ✅ Web UI Integration
+1. **CVConfiguration component** - Map config management
+2. **ObjectDetection component** - Detection status and results
+3. **CalibrationWizard component** - HSV color calibration
+4. **Live previews** - Real-time frame updates (2 FPS)
+5. **API client** - Full REST API integration
 
 ## Documentation Structure
 
 - **00_OVERVIEW.md** (this file) - Quick overview and navigation
-- **01_ARCHITECTURE.md** - Deep dive into system design and changes
-- **02_USAGE.md** - Practical usage examples and API reference
-- **03_CONFIGURATION.md** - Environment variables and tuning parameters
-- **04_DETECTION_ALGORITHM.md** - How the detection algorithm works
-- **05_API_REFERENCE.md** - HTTP endpoints and response formats
-- **06_EXAMPLES.md** - Real-world code examples (Python, JavaScript)
-- **07_TROUBLESHOOTING.md** - Common issues and solutions
-- **08_PERFORMANCE.md** - Performance metrics and optimization
+- **01_ARCHITECTURE.md** - System architecture and design
+- **02_USAGE.md** - Usage guide and basic operations
+- **03_CONFIGURATION.md** - Environment variables and configuration
+- **04_DETECTION_ALGORITHM.md** - CV detection algorithm details
+- **05_API_REFERENCE.md** - HTTP endpoints and REST API reference
+- **06_MAP_CONFIGURATION.md** - Map configuration user guide
+- **07_SYSTEM_MONITORING.md** - System stats and performance monitoring
+- **08_OBJECT_DETECTION.md** - Object detection implementation details
+- **09_DATA_FLOW.md** - Complete data flow diagrams (frontend ↔ backend)
 
 ## Quick Start
 
-### Enable Auto-Cropping
+### 1. Create Map Configuration
 
-```bash
-export MSMACRO_CV_DETECT_WHITE_FRAME=true
-export MSMACRO_CV_WHITE_THRESHOLD=240
-python -m msmacro daemon
-```
+Access the web UI and navigate to **CV Configuration**:
 
-### Test Detection
+1. Click **Create Configuration**
+2. Adjust width and height with +/- buttons
+3. See live preview of minimap region
+4. Click **Save Configuration** and enter a name
+5. Check the checkbox to activate
 
-```bash
-python scripts/cv_detect_improved.py --start-capture --save-viz /tmp/test_
-```
+### 2. Enable Object Detection
 
-### Use in Frontend
+Navigate to **Object Detection**:
+
+1. Click **Enable Detection** toggle
+2. See live player position updates
+3. Use **Calibrate** to tune colors if needed
+
+### 3. Use Detection in Code
 
 ```javascript
-const response = await fetch('/api/cv/screenshot');
-const region = {
-    detected: response.headers.get('X-CV-Region-Detected') === 'true',
-    x: parseInt(response.headers.get('X-CV-Region-X') || '0'),
-    y: parseInt(response.headers.get('X-CV-Region-Y') || '0'),
-    width: parseInt(response.headers.get('X-CV-Region-Width') || '0'),
-    height: parseInt(response.headers.get('X-CV-Region-Height') || '0'),
-};
+// Get detection status and results
+const data = await getObjectDetectionStatus();
+
+if (data.last_result?.player?.detected) {
+  const { x, y, confidence } = data.last_result.player;
+  console.log(`Player at (${x}, ${y}) confidence ${confidence}`);
+  // Coordinates are relative to minimap top-left
+}
 ```
 
 ## Modified Files

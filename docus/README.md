@@ -1,5 +1,17 @@
 # MSMacro Documentation
 
+## Recent Updates
+
+**2025-11-08 - Object Detection v3.1 Enhancements**:
+- ✅ **Truly lossless calibration**: Raw minimap capture before JPEG compression (eliminates color artifacts)
+- ✅ **Full detection visualization**: Backend-rendered overlays showing player + all other players with precise positions
+- ✅ **New API endpoints**: `/api/cv/raw-minimap` (lossless), `/api/cv/detection-preview` (visualization)
+- ✅ **Enhanced debugging**: Positions array for other players, improved UI with full-width previews
+
+See `08_OBJECT_DETECTION.md` for detailed changes and migration guide.
+
+---
+
 ## User Documentation
 
 Main documentation files for users and operators:
@@ -13,6 +25,7 @@ Main documentation files for users and operators:
 - **06_MAP_CONFIGURATION.md** - Map configuration user guide
 - **07_SYSTEM_MONITORING.md** - System stats and performance monitoring
 - **08_OBJECT_DETECTION.md** - Minimap object detection (player/other players)
+- **09_DATA_FLOW.md** - Complete data flow diagrams (frontend ↔ backend)
 
 ## Testing Documentation
 
@@ -48,4 +61,4 @@ When adding new documentation:
 
 ---
 
-Last updated: 2025-01-07
+Last updated: 2025-11-08

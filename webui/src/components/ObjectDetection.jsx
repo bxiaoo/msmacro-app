@@ -8,6 +8,47 @@ import { Button } from "./ui/button";
 import { clsx } from "clsx";
 import { CalibrationWizard } from "./CalibrationWizard";
 
+function ObjectDetectionPreview({ lastResult, enabled }) {
+  const [imgUrl, setImgUrl] = useState(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      setImgUrl(null);
+      return;
+    }
+
+    // Use detection preview endpoint which includes all overlays:
+    // - Player position (yellow crosshair + circle)
+    // - Other players positions (red circles + crosshairs)
+    // - Detection confidence labels
+    // - Frame count
+    const url = `/api/cv/detection-preview?t=${Date.now()}`;
+    setImgUrl(url);
+  }, [lastResult?.timestamp, enabled]);
+
+  if (!enabled || !imgUrl) {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
+        <p className="text-sm text-gray-500">Enable detection to see live preview with overlays</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-gray-300 rounded overflow-hidden bg-white">
+      <img
+        src={imgUrl}
+        alt="Detection Preview"
+        className="block w-full h-auto"
+        onError={(e) => {
+          console.error("Failed to load detection preview");
+          e.target.style.display = 'none';
+        }}
+      />
+    </div>
+  );
+}
+
 export function ObjectDetection() {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -261,10 +302,8 @@ export function ObjectDetection() {
 
       {/* Stats */}
       {enabled && lastResult && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">
-            Detection Stats
-          </h3>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Detection Stats & Preview</h3>
           <div className="grid grid-cols-3 gap-4 text-xs">
             <div>
               <span className="text-gray-600">Last Update:</span>
@@ -285,6 +324,8 @@ export function ObjectDetection() {
               </p>
             </div>
           </div>
+          {/* Live minimap preview with overlays */}
+          <ObjectDetectionPreview lastResult={lastResult} enabled={enabled} />
         </div>
       )}
 

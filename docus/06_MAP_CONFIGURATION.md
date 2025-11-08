@@ -53,7 +53,7 @@ When you click the **Create Configuration** or **New** button:
    - **Preview Updates**: After you stop adjusting (0.5s delay)
      - Shows **cropped mini-map region only** (not entire screen)
      - Region grows/shrinks from the fixed top-left anchor point
-     - Red border indicates detection boundary
+     - Optional border (use preview endpoint with overlay=border); default is raw for accurate calibration
      - Coordinates displayed below preview
      - Allows you to verify size before saving
 
@@ -72,7 +72,7 @@ To enable mini-map detection:
 3. **Live thumbnail appears** inside the config card
    - Shows cropped mini-map region (not entire screen)
    - Updates every 2 seconds automatically
-   - Red border shows detection boundary
+   - Border optional (add overlay=border when requesting preview); raw image recommended for calibration
    - Caption: "Live preview (updates every 2s)"
 4. **Camera preview section appears** at the bottom (if scrolled down)
    - Shows full detection view

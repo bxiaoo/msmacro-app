@@ -47,6 +47,8 @@ from .handlers import (
     api_object_detection_config_export,
     api_object_detection_performance,
     api_cv_frame_lossless,
+    api_cv_raw_minimap,
+    api_cv_detection_preview,
     api_object_detection_calibrate,
     # System handlers
     api_system_stats,
@@ -137,6 +139,8 @@ def make_app() -> web.Application:
         web.get("/api/cv/object-detection/config/export", api_object_detection_config_export),
         web.get("/api/cv/object-detection/performance", api_object_detection_performance),
         web.get("/api/cv/frame-lossless", api_cv_frame_lossless),
+        web.get("/api/cv/raw-minimap", api_cv_raw_minimap),
+        web.get("/api/cv/detection-preview", api_cv_detection_preview),
         web.post("/api/cv/object-detection/calibrate", api_object_detection_calibrate),
 
         # System information

@@ -137,6 +137,84 @@ class CVCommandHandler:
         logger.debug(f"Returning frame: {len(frame_data)} bytes, {metadata.width}x{metadata.height}")
         return payload
 
+    async def cv_get_raw_minimap(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get the latest raw minimap crop (before JPEG compression).
+
+        This provides truly lossless minimap data for calibration, without
+        JPEG compression artifacts. Auto-starts capture if not already running.
+
+        Args:
+            msg: IPC message (unused)
+
+        Returns:
+            Dictionary with "minimap" key containing base64-encoded PNG data
+            and metadata about the minimap region
+
+        Raises:
+            RuntimeError: If capture fails or no minimap available
+        """
+        capture = get_capture_instance()
+        status = capture.get_status()
+
+        logger.debug(f"cv_get_raw_minimap called: capturing={status.get('capturing')}")
+
+        # Auto-start capture if not running
+        if not status.get('capturing'):
+            logger.info("CV capture not running, auto-starting for raw minimap...")
+            try:
+                await capture.start()
+                logger.info("CV capture auto-started successfully")
+
+                # Wait up to 3 seconds for first frame
+                for attempt in range(30):
+                    await asyncio.sleep(0.1)
+                    minimap_result = capture.get_raw_minimap()
+                    if minimap_result is not None:
+                        logger.info(f"First raw minimap captured after {(attempt + 1) * 0.1:.1f}s")
+                        break
+                else:
+                    raise RuntimeError("Timed out waiting for first raw minimap after auto-start")
+
+            except CVCaptureError as e:
+                logger.error(f"Failed to auto-start CV capture: {e}")
+                raise RuntimeError(f"Failed to start CV capture: {e}")
+
+        # Get raw minimap
+        minimap_result = capture.get_raw_minimap()
+
+        if minimap_result is None:
+            raise RuntimeError("No raw minimap available - ensure active map config is set")
+
+        raw_crop, metadata = minimap_result
+
+        # Encode raw crop as PNG (lossless)
+        import cv2
+        ret, png_data = cv2.imencode('.png', raw_crop)
+        if not ret:
+            raise RuntimeError("Failed to encode raw minimap as PNG")
+
+        # Encode as base64 for JSON transport
+        payload: Dict[str, Any] = {
+            "minimap": base64.b64encode(png_data.tobytes()).decode('ascii'),
+            "format": "png"
+        }
+
+        # Add metadata
+        if metadata is not None:
+            from dataclasses import asdict
+            metadata_dict = asdict(metadata)
+            # Convert numpy types to Python native types
+            for key, value in metadata_dict.items():
+                if hasattr(value, 'item'):
+                    metadata_dict[key] = value.item()
+                elif hasattr(value, 'dtype'):
+                    metadata_dict[key] = value.item()
+            payload["metadata"] = metadata_dict
+
+        logger.debug(f"Returning raw minimap: {raw_crop.shape}, PNG size: {len(png_data)} bytes")
+        return payload
+
     async def cv_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
         Start the CV capture system.

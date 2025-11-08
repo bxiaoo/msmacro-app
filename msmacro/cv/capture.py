@@ -501,30 +501,34 @@ class CVCapture:
 
                 # Always use full frame (no cropping) - the red rectangle shows the minimap region
                 height, width = frame.shape[:2]
-                
+
+                # Extract raw minimap crop BEFORE JPEG encoding for truly lossless calibration
+                # Store this separately in frame buffer (~88KB for 340x86, acceptable memory cost)
+                raw_minimap_crop = None
+                if region_detected:
+                    raw_minimap_crop = frame[
+                        region_y:region_y + region_height,
+                        region_x:region_x + region_width
+                    ].copy()  # Copy to prevent reference to full frame
+
                 # Run object detection if enabled (only detects objects within the minimap region)
                 if self._object_detection_enabled and region_detected:
                     try:
                         with self._detection_lock:
                             if self._object_detector:
-                                # Extract minimap region for detection
-                                minimap_frame = frame[
-                                    region_y:region_y + region_height,
-                                    region_x:region_x + region_width
-                                ]
-                                
+                                # Use the raw minimap crop we already extracted
+                                # (no need to extract again, saves CPU cycles)
+
                                 # Run detection
-                                detection_result = self._object_detector.detect(minimap_frame)
+                                detection_result = self._object_detector.detect(raw_minimap_crop)
                                 self._last_detection_result = detection_result
-                                
+
                                 # Emit SSE event (if needed)
                                 try:
                                     from ..events import emit
                                     emit("OBJECT_DETECTED", detection_result.to_dict())
                                 except Exception:
                                     pass  # Event emission failure shouldn't break capture
-                                
-                                del minimap_frame
                     except Exception as det_err:
                         logger.debug(f"Object detection failed: {det_err}")
 
@@ -551,7 +555,8 @@ class CVCapture:
 
                 timestamp = time.time()
 
-                # Store in buffer with region metadata
+                # Store in buffer with region metadata AND raw minimap crop
+                # The raw crop enables truly lossless calibration (no JPEG artifacts)
                 self.frame_buffer.update(
                     jpeg_bytes,
                     width,
@@ -561,7 +566,8 @@ class CVCapture:
                     region_x=region_x,
                     region_y=region_y,
                     region_width=region_width,
-                    region_height=region_height
+                    region_height=region_height,
+                    raw_minimap_crop=raw_minimap_crop
                 )
 
                 # Write to shared filesystem location for cross-process access
@@ -634,6 +640,18 @@ class CVCapture:
             Tuple of (JPEG-encoded frame bytes, FrameMetadata) or None if no frame available
         """
         return self.frame_buffer.get_latest()
+
+    def get_raw_minimap(self) -> Optional[Tuple[np.ndarray, FrameMetadata]]:
+        """
+        Get the latest raw minimap crop (before JPEG compression).
+
+        This provides truly lossless minimap data for calibration, without
+        JPEG compression artifacts. Memory footprint is small (~88KB for 340x86).
+
+        Returns:
+            Tuple of (raw BGR numpy array, FrameMetadata) or None if not available
+        """
+        return self.frame_buffer.get_raw_minimap()
 
     def _write_shared_frame(
         self,

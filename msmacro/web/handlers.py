@@ -584,9 +584,13 @@ async def api_cv_minimap_preview(request: web.Request):
     - y: Top-left Y coordinate (default: 56)
     - w: Width (default: 340)
     - h: Height (default: 86)
-    - t: Timestamp for cache busting (ignored)
+    - overlay: Optional overlay mode ("border" currently supported) - draws legacy red border
+    - t: Cache busting timestamp (ignored)
 
-    Returns: Cropped JPEG image with red border
+    Behavior changes (2025-11-08):
+    - Default response is raw crop with NO overlays
+    - Image is now served as PNG to avoid double JPEG compression in calibration flows
+    - Red border only drawn when overlay=border
     """
     if not CV2_AVAILABLE:
         return _json({"error": "cv2/numpy not available"}, 503)
@@ -595,7 +599,6 @@ async def api_cv_minimap_preview(request: web.Request):
         log.error("Shared frame path not configured; set MSMACRO_CV_FRAME_PATH")
         return _json({"error": "shared frame path not configured"}, 503)
 
-    # Parse query parameters
     try:
         x = int(request.query.get('x', 68))
         y = int(request.query.get('y', 56))
@@ -604,14 +607,13 @@ async def api_cv_minimap_preview(request: web.Request):
     except (ValueError, TypeError):
         return _json({"error": "invalid coordinate parameters"}, 400)
 
-    # Validate coordinates
     if x < 0 or y < 0 or w <= 0 or h <= 0:
         return _json({"error": "coordinates must be non-negative and dimensions positive"}, 400)
-
     if x + w > 1280 or y + h > 720:
         return _json({"error": "coordinates out of bounds (max 1280x720)"}, 400)
 
-    # Get CV status
+    overlay_mode = request.query.get('overlay')
+
     try:
         status = await _daemon("cv_status")
     except Exception as e:
@@ -619,44 +621,32 @@ async def api_cv_minimap_preview(request: web.Request):
         return _json({"error": str(e)}, 503)
 
     if not status.get("capturing") or not status.get("has_frame"):
-        log.debug("Mini-map preview requested but capture inactive or no recent frame")
         return _json({"error": "no frame available"}, 404)
 
-    # Read shared frame
     try:
         jpeg_data = SHARED_FRAME_PATH.read_bytes()
     except FileNotFoundError:
-        log.debug("Shared CV frame missing at %s", SHARED_FRAME_PATH)
         return _json({"error": "no frame available"}, 404)
     except Exception as e:
         log.warning("Failed to read shared CV frame for mini-map preview: %s", e)
         return _json({"error": "failed to read frame"}, 500)
 
     try:
-        # Decode JPEG to numpy array
         nparr = np.frombuffer(jpeg_data, dtype=np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
         if frame is None:
             return _json({"error": "failed to decode frame"}, 500)
-
-        # Crop to region
         cropped = frame[y:y+h, x:x+w]
-
         if cropped.size == 0:
             return _json({"error": "invalid crop region"}, 400)
 
-        # Draw red border (2px thick)
-        cv2.rectangle(cropped, (0, 0), (w-1, h-1), (0, 0, 255), 2)
+        if overlay_mode == 'border':
+            cv2.rectangle(cropped, (0, 0), (w-1, h-1), (0, 0, 255), 2)
 
-        # Encode as JPEG
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
-        success, jpeg_encoded = cv2.imencode('.jpg', cropped, encode_param)
-
+        success, png_encoded = cv2.imencode('.png', cropped, [int(cv2.IMWRITE_PNG_COMPRESSION), 3])
         if not success:
             return _json({"error": "failed to encode cropped frame"}, 500)
 
-        # Return cropped JPEG
         headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
@@ -665,14 +655,9 @@ async def api_cv_minimap_preview(request: web.Request):
             "X-MiniMap-Y": str(y),
             "X-MiniMap-Width": str(w),
             "X-MiniMap-Height": str(h),
+            "X-MiniMap-Overlay": overlay_mode or "none",
         }
-
-        return web.Response(
-            body=jpeg_encoded.tobytes(),
-            content_type="image/jpeg",
-            headers=headers
-        )
-
+        return web.Response(body=png_encoded.tobytes(), content_type="image/png", headers=headers)
     except Exception as e:
         log.error("Mini-map preview processing error: %s", e)
         return _json({"error": f"processing failed: {str(e)}"}, 500)
@@ -1055,83 +1040,250 @@ async def api_object_detection_performance(request: web.Request):
 
 async def api_cv_frame_lossless(request: web.Request):
     """
-    Serve latest CV frame as lossless PNG (not JPEG).
-    For calibration UI to avoid compression artifacts.
-    
-    Returns:
-        PNG image of ONLY the minimap region (cropped to map_config dimensions)
-        If no map_config is active, returns 404
+    Serve latest minimap frame as PNG.
+
+    Improvements (2025-11-08):
+    - Accept optional manual crop query params (x,y,w,h) even if no active map config
+    - Returns 404 only when neither active config nor manual coordinates supplied
+    - Adds checksum header (MD5 of PNG) and echo region headers
+
+    NOTE: Underlying source frame is currently JPEG-compressed upstream; this
+    endpoint avoids an additional JPEG generation step by emitting PNG.
     """
     try:
-        # Get frame via IPC
+        manual = False
+        try:
+            q = request.query
+            manual_params = {k: q.get(k) for k in ("x", "y", "w", "h") if q.get(k) is not None}
+            if manual_params:
+                manual = True
+                x = int(q.get("x", 0))
+                y = int(q.get("y", 0))
+                w = int(q.get("w", 0))
+                h = int(q.get("h", 0))
+        except (ValueError, TypeError):
+            return web.Response(status=400, text="Invalid manual crop parameters")
+
         result = await _daemon("cv_get_frame")
-        
         if "error" in result:
             return web.Response(status=500, text=result["error"])
-        
-        # Get metadata to check for active region
-        metadata = result.get("metadata")
-        if not metadata or not metadata.get("region_detected"):
-            return web.Response(
-                status=404, 
-                text="No active map configuration. Create and activate a map config first."
-            )
-        
-        # Frame is base64-encoded JPEG from daemon
-        # Decode, extract minimap region, and re-encode as PNG
-        import base64
-        import cv2
-        import numpy as np
-        
+
+        metadata = result.get("metadata") or {}
+        if not manual:
+            if not metadata.get("region_detected"):
+                return web.Response(status=404, text="No active map configuration. Provide x,y,w,h to preview manually.")
+            x = int(metadata.get("region_x", 0))
+            y = int(metadata.get("region_y", 0))
+            w = int(metadata.get("region_width", 0))
+            h = int(metadata.get("region_height", 0))
+
+        import base64, hashlib, cv2, numpy as np
+
         frame_b64 = result.get("frame")
         if not frame_b64:
             return web.Response(status=500, text="No frame data")
-        
-        # Decode JPEG
         img_bytes = base64.b64decode(frame_b64)
         img_array = np.frombuffer(img_bytes, dtype=np.uint8)
         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        
         if frame is None:
             return web.Response(status=500, text="Failed to decode frame")
-        
-        # Extract ONLY the minimap region
-        region_x = metadata.get("region_x", 0)
-        region_y = metadata.get("region_y", 0)
-        region_width = metadata.get("region_width", 0)
-        region_height = metadata.get("region_height", 0)
-        
-        # Crop to minimap region
-        minimap_frame = frame[
-            region_y:region_y + region_height,
-            region_x:region_x + region_width
-        ]
-        
+
+        # Bounds validation
+        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > frame.shape[1] or y + h > frame.shape[0]:
+            return web.Response(status=400, text="Crop out of bounds")
+
+        minimap_frame = frame[y:y+h, x:x+w]
         if minimap_frame.size == 0:
             return web.Response(status=500, text="Failed to extract minimap region")
-        
-        # Encode as PNG (lossless)
+
         success, png_bytes = cv2.imencode('.png', minimap_frame)
-        
         if not success:
             return web.Response(status=500, text="PNG encoding failed")
-        
-        return web.Response(
-            body=png_bytes.tobytes(),
-            content_type="image/png",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "X-Minimap-X": str(region_x),
-                "X-Minimap-Y": str(region_y),
-                "X-Minimap-Width": str(region_width),
-                "X-Minimap-Height": str(region_height)
-            }
-        )
-        
+
+        data_bytes = png_bytes.tobytes()
+        checksum = hashlib.md5(data_bytes).hexdigest()
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Minimap-X": str(x),
+            "X-Minimap-Y": str(y),
+            "X-Minimap-Width": str(w),
+            "X-Minimap-Height": str(h),
+            "X-Minimap-Manual": str(manual).lower(),
+            "X-Minimap-Checksum": checksum,
+        }
+        return web.Response(body=data_bytes, content_type="image/png", headers=headers)
     except Exception as e:
         log.error(f"Failed to serve lossless frame: {e}", exc_info=True)
+        return web.Response(status=500, text=str(e))
+
+
+async def api_cv_raw_minimap(request: web.Request):
+    """
+    Serve truly lossless raw minimap (captured before JPEG compression).
+
+    This endpoint returns the raw BGR minimap crop that was extracted BEFORE
+    JPEG encoding in the capture loop, eliminating all compression artifacts.
+    Perfect for calibration where color accuracy is critical.
+
+    Unlike /api/cv/frame-lossless which decodes a JPEG and re-encodes as PNG,
+    this endpoint serves the raw minimap pixels that never went through JPEG
+    compression.
+
+    Returns:
+        PNG image of the raw minimap region (no JPEG artifacts)
+        Headers include region coordinates and checksum
+
+    Status Codes:
+        200: Success
+        404: No active map config or raw minimap not available
+        500: Server error
+    """
+    try:
+        # Get raw minimap via IPC
+        result = await _daemon("cv_get_raw_minimap")
+
+        if "error" in result:
+            return web.Response(status=500, text=result["error"])
+
+        # Extract PNG data
+        minimap_b64 = result.get("minimap")
+        if not minimap_b64:
+            return web.Response(status=404, text="No raw minimap available")
+
+        metadata = result.get("metadata", {})
+
+        import base64, hashlib
+        png_bytes = base64.b64decode(minimap_b64)
+        checksum = hashlib.md5(png_bytes).hexdigest()
+
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Minimap-X": str(metadata.get("region_x", 0)),
+            "X-Minimap-Y": str(metadata.get("region_y", 0)),
+            "X-Minimap-Width": str(metadata.get("region_width", 0)),
+            "X-Minimap-Height": str(metadata.get("region_height", 0)),
+            "X-Minimap-Checksum": checksum,
+            "X-Minimap-Source": "raw",  # Indicates this is pre-JPEG data
+        }
+
+        log.debug(f"Serving raw minimap: {metadata.get('region_width')}x{metadata.get('region_height')}, {len(png_bytes)} bytes")
+        return web.Response(body=png_bytes, content_type="image/png", headers=headers)
+
+    except Exception as e:
+        log.error(f"Failed to serve raw minimap: {e}", exc_info=True)
+        return web.Response(status=500, text=str(e))
+
+
+async def api_cv_detection_preview(request: web.Request):
+    """
+    Serve minimap with detection overlays (player, other players, masks).
+
+    This endpoint returns a PNG image with visual overlays showing:
+    - Player position (yellow crosshair + circle)
+    - Other players positions (red circles + crosshairs)
+    - Detection confidence
+    - Frame count
+
+    Perfect for debugging detection accuracy in the web UI.
+
+    Returns:
+        PNG image with detection visualization overlays
+
+    Status Codes:
+        200: Success
+        404: No active detection or minimap not available
+        500: Server error
+    """
+    try:
+        # Get raw minimap
+        minimap_result = await _daemon("cv_get_raw_minimap")
+        if "error" in minimap_result:
+            return web.Response(status=500, text=minimap_result["error"])
+
+        # Get detection status
+        detection_result = await _daemon("object_detection_status")
+        if "error" in detection_result:
+            return web.Response(status=500, text=detection_result["error"])
+
+        if not detection_result.get("enabled"):
+            return web.Response(status=404, text="Object detection not enabled")
+
+        last_result = detection_result.get("last_result")
+        if not last_result:
+            return web.Response(status=404, text="No detection result available")
+
+        # Decode minimap PNG
+        import base64, cv2, numpy as np
+        minimap_b64 = minimap_result.get("minimap")
+        if not minimap_b64:
+            return web.Response(status=404, text="No minimap available")
+
+        img_bytes = base64.b64decode(minimap_b64)
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+        minimap_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        if minimap_frame is None:
+            return web.Response(status=500, text="Failed to decode minimap")
+
+        # Reconstruct DetectionResult from dict
+        from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus
+
+        player_data = last_result.get("player", {})
+        other_players_data = last_result.get("other_players", {})
+
+        # Convert positions back to tuples
+        other_positions = []
+        for pos in other_players_data.get("positions", []):
+            other_positions.append((pos['x'], pos['y']))
+
+        result = DetectionResult(
+            player=PlayerPosition(
+                detected=player_data.get("detected", False),
+                x=player_data.get("x", 0),
+                y=player_data.get("y", 0),
+                confidence=player_data.get("confidence", 0.0)
+            ),
+            other_players=OtherPlayersStatus(
+                detected=other_players_data.get("detected", False),
+                count=other_players_data.get("count", 0),
+                positions=other_positions
+            ),
+            timestamp=last_result.get("timestamp", 0.0)
+        )
+
+        # Get detector instance to call visualize
+        from msmacro.cv.capture import get_capture_instance
+        capture = get_capture_instance()
+
+        if not hasattr(capture, '_object_detector') or capture._object_detector is None:
+            return web.Response(status=404, text="Object detector not initialized")
+
+        # Visualize detection on minimap
+        visualized = capture._object_detector.visualize(minimap_frame, result)
+
+        # Encode as PNG
+        ret, png_data = cv2.imencode('.png', visualized)
+        if not ret:
+            return web.Response(status=500, text="Failed to encode visualization")
+
+        metadata = minimap_result.get("metadata", {})
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Minimap-X": str(metadata.get("region_x", 0)),
+            "X-Minimap-Y": str(metadata.get("region_y", 0)),
+            "X-Minimap-Width": str(metadata.get("region_width", 0)),
+            "X-Minimap-Height": str(metadata.get("region_height", 0)),
+        }
+
+        log.debug(f"Serving detection preview with {result.other_players.count} other players")
+        return web.Response(body=png_data.tobytes(), content_type="image/png", headers=headers)
+
+    except Exception as e:
+        log.error(f"Failed to serve detection preview: {e}", exc_info=True)
         return web.Response(status=500, text=str(e))
 
 
