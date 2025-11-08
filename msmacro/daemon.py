@@ -141,6 +141,13 @@ class MacroDaemon:
                 except asyncio.CancelledError:
                     log.debug("Bridge.run_bridge() cancelled (pausing bridge).")
                     break
+                except BrokenPipeError as e:
+                    # USB HID gadget connection lost (host disconnected/suspended)
+                    # This is expected when USB cable unplugged or host sleeps
+                    log.warning("Bridge.run_bridge() failed: USB HID gadget connection lost: %s", e)
+                    log.info("USB host may have disconnected - waiting for reconnection...")
+                    await asyncio.sleep(2.0)  # Longer delay to allow USB to recover
+                    continue
                 except Exception as e:
                     # Check if it's a device-related error
                     error_msg = str(e).lower()

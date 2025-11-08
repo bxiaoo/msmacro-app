@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import glob
 from typing import Iterable
 
 log = logging.getLogger(__name__)
@@ -22,6 +23,11 @@ class HIDWriter:
             raise FileNotFoundError(f"HID gadget device '{path}' not found")
         self.path = path
         self.fd = self._open_device()
+
+        # Circuit breaker state to prevent rapid crash loops
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+        self._last_usb_check = 0.0
 
     def _open_device(self) -> int:
         """Open the HID device with retry logic."""
@@ -49,23 +55,112 @@ class HIDWriter:
         log.info(f"Reopening HID device {self.path}")
         self.fd = self._open_device()
 
+    def _is_gadget_configured(self) -> bool:
+        """
+        Check if USB gadget is configured (connected to host).
+
+        Returns:
+            True if gadget is in "configured" state (USB host connected)
+            False if not configured or state cannot be determined
+        """
+        try:
+            # Check all UDC (USB Device Controller) state files
+            # When USB host is connected and enumerated, state should be "configured"
+            for state_file in glob.glob("/sys/class/udc/*/state"):
+                try:
+                    with open(state_file, 'r') as f:
+                        state = f.read().strip()
+                        if state == "configured":
+                            return True
+                except (OSError, IOError):
+                    continue
+
+            # If we get here, no UDC is in configured state
+            return False
+
+        except Exception as e:
+            # If we can't check state, assume not configured
+            log.debug(f"Could not check USB gadget state: {e}")
+            return False
+
     def _write_with_retry(self, data: bytes):
-        """Write data with automatic device reopen on broken pipe."""
-        max_retries = 2
+        """
+        Write data with automatic device reopen on broken pipe.
+
+        Implements:
+        - Circuit breaker to prevent rapid crash loops
+        - Exponential backoff retry logic
+        - USB gadget state checking before retry
+        - Graceful handling of USB disconnection
+        """
+        # Circuit breaker check: if we've had too many consecutive failures,
+        # wait before attempting more writes
+        current_time = time.time()
+        if current_time < self._circuit_open_until:
+            remaining = self._circuit_open_until - current_time
+            log.debug(f"Circuit breaker open: suppressing HID write for {remaining:.1f}s more")
+            # Don't raise exception - just skip the write gracefully
+            return
+
+        max_retries = 5  # Increased from 2 to allow more recovery attempts
         for attempt in range(max_retries):
             try:
                 os.write(self.fd, data)
+
+                # Success! Reset circuit breaker state
+                if self._consecutive_failures > 0:
+                    log.info(f"HID write succeeded after {self._consecutive_failures} previous failures - USB reconnected")
+                    self._consecutive_failures = 0
                 return
+
             except BrokenPipeError as e:
+                self._consecutive_failures += 1
+
                 if attempt < max_retries - 1:
-                    log.warning(f"BrokenPipeError on HID write (attempt {attempt+1}/{max_retries}): {e}, reopening device")
+                    # Calculate exponential backoff delay
+                    delay = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s, 4s, 8s
+
+                    log.warning(
+                        f"BrokenPipeError on HID write (attempt {attempt+1}/{max_retries}): {e}"
+                        f" - USB gadget connection lost, waiting {delay}s for reconnection"
+                    )
+
+                    # Wait for USB to potentially reconnect
+                    time.sleep(delay)
+
+                    # Check if USB gadget is actually configured before reopening
+                    usb_configured = self._is_gadget_configured()
+                    if not usb_configured:
+                        log.warning(
+                            f"USB gadget not in 'configured' state after {delay}s delay, "
+                            f"host may still be disconnected"
+                        )
+
+                    # Reopen device file (this succeeds even if USB not connected)
                     self._reopen_device()
+
                 else:
-                    log.error(f"BrokenPipeError persists after {max_retries} retries")
+                    # Max retries exceeded
+                    log.error(
+                        f"BrokenPipeError persists after {max_retries} retries "
+                        f"({self._consecutive_failures} consecutive failures total)"
+                    )
+
+                    # Activate circuit breaker if we've had too many consecutive failures
+                    if self._consecutive_failures >= 3:
+                        cooldown = 10.0  # 10 second cooldown
+                        self._circuit_open_until = current_time + cooldown
+                        log.error(
+                            f"Circuit breaker activated: too many consecutive USB failures, "
+                            f"suppressing HID writes for {cooldown}s"
+                        )
+
                     raise
+
             except OSError as e:
-                # For other OS errors, don't retry
+                # For other OS errors (not BrokenPipe), don't retry
                 log.error(f"OSError on HID write: {e}")
+                self._consecutive_failures += 1
                 raise
 
     def send(self, modmask: int, keys: set[int]):
