@@ -84,12 +84,14 @@ class DetectorConfig:
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
     # Blob filtering
-    # Based on evidence from test code and example images:
-    # - Player markers: ~8px diameter (radius 4) in 340x86 frames
-    # - Enemy markers: ~6px diameter (radius 3) in 340x86 frames
-    # - Range tightened from 3-15px to 6-10px to reject noise
-    min_blob_size: int = 6  # Minimum diameter in pixels
-    max_blob_size: int = 10  # Maximum diameter in pixels
+    # SIZE FILTER DISABLED: Accept virtually any size (1-100px)
+    # Detection relies on three strong filters instead:
+    # 1. HSV color matching (removes 99% of non-marker pixels)
+    # 2. Circularity score (removes non-circular shapes)
+    # 3. Dark ring validation (removes false positives without marker structure)
+    # This approach is robust to varying marker sizes across different games/configurations.
+    min_blob_size: int = 1  # Essentially unlimited (accept any size)
+    max_blob_size: int = 100  # Essentially unlimited (accept any size)
     min_circularity: float = 0.6  # Minimum circularity for player
     min_circularity_other: float = 0.5  # Minimum circularity for other players
 
@@ -133,44 +135,33 @@ class MinimapObjectDetector:
 
     def _calculate_adaptive_blob_sizes(self, frame: np.ndarray) -> Tuple[int, int]:
         """
-        Calculate adaptive blob sizes based on minimap region dimensions.
+        Return blob size range (currently disabled - accepts all sizes).
 
-        Uses 340x86 as reference (default config size). Scales min/max blob sizes
-        proportionally to region area to handle variable map configurations.
+        SIZE FILTERING DISABLED: Returns fixed wide range (1-100px) to accept
+        virtually any size blob. Detection relies on stronger filters instead:
+        - HSV color matching (primary filter)
+        - Circularity score (shape filter)
+        - Dark ring validation (marker structure filter)
+
+        This approach is more robust to varying marker sizes across different
+        games, capture resolutions, and map configurations.
 
         Args:
-            frame: Minimap crop (varying sizes depending on user's map config)
+            frame: Minimap crop (for logging dimensions only)
 
         Returns:
-            (adaptive_min_size, adaptive_max_size) in pixels
-
-        Example:
-            - 340x86 region (reference): blob_sizes = (3, 15)
-            - 680x172 region (2x scale): blob_sizes = (6, 30)
-            - 170x43 region (0.5x scale): blob_sizes = (2, 8)
+            (1, 100) - Fixed wide range that accepts any reasonable blob size
         """
         height, width = frame.shape[:2]
 
-        # Reference: 340x86 = 29,240 pixels (default config from documentation)
-        reference_area = 340 * 86
-        current_area = width * height
-
-        # Scale factor: use sqrt because we're scaling linear dimensions, not area
-        # Example: 2x area → √2 = 1.41x blob diameter
-        scale = np.sqrt(current_area / reference_area)
-
-        # Base sizes from config (defaults: 3-15px for 340x86 regions)
-        base_min = self.config.min_blob_size
-        base_max = self.config.max_blob_size
-
-        # Scale with bounds checking
-        adaptive_min = max(1, int(base_min * scale))  # Minimum 1px
-        adaptive_max = max(adaptive_min + 1, int(base_max * scale))  # At least min+1
+        # Return fixed wide range (size filtering disabled)
+        adaptive_min = self.config.min_blob_size  # = 1
+        adaptive_max = self.config.max_blob_size  # = 100
 
         logger.debug(
-            f"Adaptive blob sizing | region={width}x{height} ({current_area}px²) | "
-            f"scale={scale:.2f}x | blob_range={adaptive_min}-{adaptive_max}px "
-            f"(base={base_min}-{base_max}px)"
+            f"Blob size filter disabled | region={width}x{height} | "
+            f"accepting all sizes {adaptive_min}-{adaptive_max}px | "
+            f"relying on HSV+circularity+ring filters"
         )
 
         return adaptive_min, adaptive_max
