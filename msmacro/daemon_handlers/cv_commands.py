@@ -193,24 +193,43 @@ class CVCommandHandler:
 
                 if active_config and status.get('capturing'):
                     # Active config exists and capture is running
-                    # Wait up to 2 seconds for capture loop to populate raw minimap
-                    logger.info("Active config detected, waiting for raw minimap to be captured...")
-                    for attempt in range(20):  # 20 x 0.1s = 2 seconds
+                    # Wait up to 3 seconds for capture loop to populate raw minimap
+                    logger.info(f"Active config '{active_config.name}' detected, waiting for raw minimap...")
+                    for attempt in range(30):  # 30 x 0.1s = 3 seconds
                         await asyncio.sleep(0.1)
                         minimap_result = capture.get_raw_minimap()
                         if minimap_result is not None:
                             logger.info(f"Raw minimap available after {(attempt + 1) * 0.1:.1f}s")
                             break
                     else:
-                        logger.warning("Timed out waiting for raw minimap after 2 seconds")
+                        # Timeout - gather detailed diagnostic info
+                        import time as time_module
+                        frame_buffer_state = {
+                            "has_frame": capture.frame_buffer.has_frame(),
+                            "frames_captured": capture._frames_captured,
+                            "frames_failed": capture._frames_failed,
+                            "last_frame_time": capture._last_frame_time,
+                            "time_since_last_frame": time_module.time() - capture._last_frame_time if capture._last_frame_time > 0 else None,
+                        }
+                        logger.error(
+                            f"⏱️ Timed out waiting for raw minimap after 3 seconds. "
+                            f"Config: {active_config.name} ({active_config.width}x{active_config.height}), "
+                            f"Buffer state: {frame_buffer_state}"
+                        )
             except Exception as e:
                 logger.warning(f"Error checking active config during wait: {e}")
 
         # If still None after waiting, return detailed error
         if minimap_result is None:
+            import time as time_module
             details: Dict[str, Any] = {
                 "capturing": status.get("capturing", False),
                 "region_detected": False,
+                "frames_captured": capture._frames_captured,
+                "frames_failed": capture._frames_failed,
+                "last_frame_time": capture._last_frame_time,
+                "time_since_last_frame": time_module.time() - capture._last_frame_time if capture._last_frame_time > 0 else None,
+                "has_frame": capture.frame_buffer.has_frame(),
             }
             try:
                 from ..cv.map_config import get_manager
@@ -220,10 +239,27 @@ class CVCommandHandler:
             except Exception:
                 details["active_config"] = None
 
+            # Provide helpful troubleshooting message
+            troubleshooting_hints = []
+            if not details["active_config"]:
+                troubleshooting_hints.append("No active map config - activate one first")
+            if not details["capturing"]:
+                troubleshooting_hints.append("CV capture not running")
+            if details["frames_captured"] == 0:
+                troubleshooting_hints.append("No frames captured yet - check camera connection")
+            if details["time_since_last_frame"] and details["time_since_last_frame"] > 2.0:
+                troubleshooting_hints.append(f"Last frame was {details['time_since_last_frame']:.1f}s ago - capture loop may be stuck")
+
+            message = "Raw minimap not available. "
+            if troubleshooting_hints:
+                message += "Issues: " + "; ".join(troubleshooting_hints)
+            else:
+                message += "Config region may be out of frame bounds or capture loop delayed."
+
             return {
                 "success": False,
                 "error": "no_minimap",
-                "message": "No raw minimap available. Activate a CV map configuration and wait for capture to detect the minimap region.",
+                "message": message,
                 "details": details,
             }
 

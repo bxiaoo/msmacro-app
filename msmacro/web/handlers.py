@@ -812,9 +812,19 @@ async def api_cv_map_configs_activate(request: web.Request):
 
         # Notify daemon to reload config
         try:
-            await _daemon("cv_reload_config")
+            reload_result = await _daemon("cv_reload_config")
+            if not reload_result.get("reloaded"):
+                log.error(f"Daemon failed to reload config: {reload_result}")
+                return _json({
+                    "error": "Failed to reload config in daemon",
+                    "details": reload_result
+                }, 500)
         except Exception as e:
-            log.warning(f"Failed to notify daemon of config change: {e}")
+            log.error(f"Failed to notify daemon of config change: {e}", exc_info=True)
+            return _json({
+                "error": "Failed to notify daemon of config change",
+                "message": str(e)
+            }, 500)
 
         return _json({
             "success": True,

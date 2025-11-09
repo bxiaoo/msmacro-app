@@ -92,6 +92,9 @@ class CVCapture:
         self._last_detection_result = None
         self._detection_lock = threading.Lock()
 
+        # Immediate capture trigger (for config changes)
+        self._immediate_capture_requested = threading.Event()
+
     def get_status(self) -> Dict[str, Any]:
         """
         Get current capture status.
@@ -304,6 +307,13 @@ class CVCapture:
         logger.info("Reloading map configuration...")
         self._load_map_config()
 
+        # Force immediate frame capture to update metadata
+        # This prevents race condition where frontend polls status before
+        # the capture loop updates region_detected (up to 0.5s delay)
+        if self._running and self._capture and self._device_connected:
+            logger.info("Triggering immediate frame capture after config reload...")
+            self._immediate_capture_requested.set()
+
     async def _init_capture(self) -> None:
         """Initialize OpenCV VideoCapture."""
         if not self._device:
@@ -462,10 +472,10 @@ class CVCapture:
                     if (region_x + region_width <= frame_width and
                         region_y + region_height <= frame_height):
                         region_detected = True
-                        
+
                         logger.debug(
-                            f"Using user-defined minimap region at ({region_x},{region_y}) "
-                            f"size {region_width}x{region_height}"
+                            f"✓ Region detected: '{active_config.name}' at ({region_x},{region_y}) "
+                            f"size {region_width}x{region_height} (frame: {frame_width}x{frame_height})"
                         )
 
                         # Draw visual indicator ONLY when object detection is active
@@ -479,10 +489,16 @@ class CVCapture:
                                 2  # 2-pixel thickness
                             )
                     else:
-                        logger.warning(
-                            f"Map config region ({region_x},{region_y}) "
-                            f"size {region_width}x{region_height} is out of bounds "
-                            f"for frame size {frame_width}x{frame_height}"
+                        error_msg = (
+                            f"❌ Map config '{active_config.name}' region OUT OF BOUNDS: "
+                            f"region=({region_x},{region_y}) size={region_width}x{region_height}, "
+                            f"frame={frame_width}x{frame_height}. "
+                            f"Region extends beyond frame boundaries."
+                        )
+                        logger.warning(error_msg)
+                        self._set_last_error(
+                            f"Map config '{active_config.name}' region is out of bounds for current frame",
+                            detail=f"Config: ({region_x},{region_y}) {region_width}x{region_height}, Frame: {frame_width}x{frame_height}"
                         )
                 else:
                     # No active map config - skip minimap detection
@@ -578,7 +594,12 @@ class CVCapture:
 
                 # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
                 # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
-                time.sleep(0.5)  # 2 FPS capture rate
+                # BUT: Skip sleep if immediate capture was requested (e.g., after config change)
+                if self._immediate_capture_requested.is_set():
+                    logger.debug("Immediate capture requested - skipping sleep for immediate next frame")
+                    self._immediate_capture_requested.clear()
+                else:
+                    time.sleep(0.5)  # 2 FPS capture rate
 
             except Exception as e:
                 self._frames_failed += 1
