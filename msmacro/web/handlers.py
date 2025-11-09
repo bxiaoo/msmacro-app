@@ -1215,6 +1215,10 @@ async def api_cv_detection_preview(request: web.Request):
 
     Perfect for debugging detection accuracy in the web UI.
 
+    ARCHITECTURE NOTE: This handler uses ONLY IPC to communicate with the daemon process
+    where the detector actually runs. It does NOT directly access any capture instance,
+    avoiding the process boundary issue where web server and daemon are separate processes.
+
     Returns:
         PNG image with detection visualization overlays
 
@@ -1225,190 +1229,44 @@ async def api_cv_detection_preview(request: web.Request):
     """
     log.debug("🖼️ Detection preview requested")
     try:
-        # Get raw minimap
-        minimap_result = await _daemon("cv_get_raw_minimap")
-        if not minimap_result.get("success", True):
-            error_code = minimap_result.get("error", "unknown")
-            status_code = 404 if error_code == "no_minimap" else 503
-            return _json(
-                {
-                    "error": error_code,
-                    "message": minimap_result.get("message", "Unable to load raw minimap."),
-                    "details": minimap_result.get("details"),
-                },
-                status=status_code,
-            )
+        # Get detection preview via IPC (runs entirely in daemon process)
+        result = await _daemon("cv_get_detection_preview")
 
-        # Get detection status
-        detection_result = await _daemon("object_detection_status")
-        log.debug(
-            f"Detection status: enabled={detection_result.get('enabled')} | "
-            f"has_result={bool(detection_result.get('last_result'))}"
-        )
+        # Handle errors
+        if not result.get("success"):
+            error_code = result.get("error", "unknown")
+            error_msg = result.get("message", "Detection preview failed")
 
-        if "error" in detection_result:
-            log.error(f"Detection status error: {detection_result['error']}")
-            return web.Response(status=500, text=detection_result["error"])
+            log.debug(f"Detection preview failed: {error_code} - {error_msg}")
 
-        if not detection_result.get("enabled"):
-            log.debug("Detection preview unavailable: detection not enabled")
-            return web.Response(status=404, text="Object detection not enabled")
-
-        last_result = detection_result.get("last_result")
-        if not last_result:
-            log.debug("Detection preview unavailable: no detection result yet")
-            return web.Response(status=404, text="No detection result available")
-
-        # Decode minimap PNG
-        import base64, cv2, numpy as np
-        minimap_b64 = minimap_result.get("minimap")
-        log.debug(f"Minimap base64 received: length={len(minimap_b64) if minimap_b64 else 0}")
-
-        if not minimap_b64:
-            log.error("No minimap base64 data in result")
-            return web.Response(status=404, text="No minimap available")
-
-        # Decode with comprehensive logging and error handling
-        try:
-            log.debug(f"Decoding base64 minimap ({len(minimap_b64)} chars)")
-            img_bytes = base64.b64decode(minimap_b64)
-            log.debug(f"Base64 decoded: {len(img_bytes)} bytes")
-
-            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-            log.debug(f"NumPy array created: shape={img_array.shape}, dtype={img_array.dtype}, size={img_array.size}")
-
-            minimap_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-            if minimap_frame is not None:
-                log.debug(f"OpenCV decode SUCCESS: frame_shape={minimap_frame.shape}")
+            # Map error codes to appropriate HTTP status codes
+            if error_code == "detection_not_enabled":
+                return web.Response(status=404, text=error_msg)
+            elif error_code == "no_minimap":
+                return web.Response(status=404, text=error_msg)
+            elif error_code == "no_result":
+                return web.Response(status=404, text=error_msg)
+            elif error_code == "detector_null":
+                return web.Response(status=500, text=error_msg)
+            elif error_code in ("visualization_failed", "encode_failed", "encode_exception"):
+                return web.Response(status=500, text=error_msg)
             else:
-                log.error(
-                    f"❌ cv2.imdecode returned None! | "
-                    f"img_bytes_len={len(img_bytes)} | "
-                    f"img_array_shape={img_array.shape} | "
-                    f"img_array_size={img_array.size} | "
-                    f"img_array_dtype={img_array.dtype}"
-                )
-                return web.Response(status=500, text="Failed to decode minimap PNG")
+                return web.Response(status=500, text=f"Unknown error: {error_code}")
 
-        except Exception as decode_err:
-            log.error(f"Minimap decode exception: {decode_err}", exc_info=True)
-            return web.Response(status=500, text=f"Decode error: {decode_err}")
+        # Success - decode PNG and return
+        import base64
+        preview_b64 = result.get("preview")
+        if not preview_b64:
+            log.error("Success response but no preview data")
+            return web.Response(status=500, text="No preview data in response")
 
-        # Reconstruct DetectionResult from dict
-        from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus
+        png_bytes = base64.b64decode(preview_b64)
+        log.debug(f"✓ Serving detection preview | size={len(png_bytes)} bytes")
 
-        player_data = last_result.get("player", {})
-        other_players_data = last_result.get("other_players", {})
-
-        log.debug(
-            f"Reconstructing DetectionResult | "
-            f"player_keys={list(player_data.keys())} | "
-            f"other_players_keys={list(other_players_data.keys())}"
-        )
-
-        # Convert positions back to tuples with validation
-        other_positions = []
-        for i, pos in enumerate(other_players_data.get("positions", [])):
-            try:
-                if not isinstance(pos, dict):
-                    log.warning(f"Position {i} is not a dict: {type(pos)}")
-                    continue
-                other_positions.append((pos['x'], pos['y']))
-            except (KeyError, TypeError) as e:
-                log.warning(f"Invalid position {i}: {pos} - {e}")
-                continue
-
-        result = DetectionResult(
-            player=PlayerPosition(
-                detected=player_data.get("detected", False),
-                x=player_data.get("x", 0),
-                y=player_data.get("y", 0),
-                confidence=player_data.get("confidence", 0.0)
-            ),
-            other_players=OtherPlayersStatus(
-                detected=other_players_data.get("detected", False),
-                count=other_players_data.get("count", 0),
-                positions=other_positions
-            ),
-            timestamp=last_result.get("timestamp", 0.0)
-        )
-
-        log.debug(
-            f"DetectionResult reconstructed | "
-            f"player.detected={result.player.detected} | "
-            f"player.pos=({result.player.x},{result.player.y}) | "
-            f"other_players.count={result.other_players.count}"
-        )
-
-        # Get detector instance to call visualize
-        from msmacro.cv.capture import get_capture_instance
-        log.debug("Accessing detector instance from capture")
-        capture = get_capture_instance()
-        log.debug(
-            f"Capture state | "
-            f"has_detector={hasattr(capture, '_object_detector')} | "
-            f"detector_none={getattr(capture, '_object_detector', None) is None} | "
-            f"enabled={getattr(capture, '_object_detection_enabled', False)}"
-        )
-
-        # Provide detailed error context based on detection state
-        if not hasattr(capture, '_object_detector') or capture._object_detector is None:
-            # Check if detection was ever enabled
-            enabled = getattr(capture, '_object_detection_enabled', False)
-
-            if not enabled:
-                # Detection never started - user action required
-                log.debug("Detection preview failed: detection not started")
-                return web.Response(
-                    status=404,
-                    text="Object detection not started. Use POST /api/cv/object-detection/start to enable detection."
-                )
-            else:
-                # Detection enabled but detector is None - this is an error state
-                log.error(
-                    "Detection preview failed: detector is None despite enabled=True "
-                    "(possible initialization failure)"
-                )
-                return web.Response(
-                    status=500,
-                    text="Object detector initialization failed. Check daemon logs for details."
-                )
-
-        # Visualize detection on minimap
-        try:
-            visualized = capture._object_detector.visualize(minimap_frame, result)
-            log.debug(
-                f"✓ Visualization complete | "
-                f"player_detected={result.player.detected} | "
-                f"other_players={result.other_players.count} | "
-                f"frame_shape={visualized.shape}"
-            )
-        except Exception as viz_err:
-            log.error(f"Detection visualization failed: {viz_err}", exc_info=True)
-            return web.Response(
-                status=500,
-                text=f"Visualization error: {viz_err}"
-            )
-
-        # Encode as PNG
-        log.debug(f"Encoding visualized frame | shape={visualized.shape} | dtype={visualized.dtype}")
-        ret, png_data = cv2.imencode('.png', visualized)
-        if not ret:
-            log.error(f"cv2.imencode FAILED | frame_shape={visualized.shape} | dtype={visualized.dtype}")
-            return web.Response(status=500, text="Failed to encode visualization")
-
-        metadata = minimap_result.get("metadata", {})
         headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
-            "X-Minimap-X": str(metadata.get("region_x", 0)),
-            "X-Minimap-Y": str(metadata.get("region_y", 0)),
-            "X-Minimap-Width": str(metadata.get("region_width", 0)),
-            "X-Minimap-Height": str(metadata.get("region_height", 0)),
         }
 
-        png_bytes = png_data.tobytes()
-        log.debug(f"✓ Serving PNG image | size={len(png_bytes)} bytes | content-type=image/png")
         return web.Response(body=png_bytes, content_type="image/png", headers=headers)
 
     except Exception as e:

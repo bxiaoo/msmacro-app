@@ -422,13 +422,13 @@ class CVCommandHandler:
     async def object_detection_stop(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
         Disable object detection.
-        
+
         Args:
             msg: IPC message (unused)
-        
+
         Returns:
             Dictionary with "success" key set to True
-        
+
         Note:
             Emits OBJECT_DETECTION_STOPPED event on success
         """
@@ -436,6 +436,156 @@ class CVCommandHandler:
         capture.disable_object_detection()
         emit("OBJECT_DETECTION_STOPPED")
         return {"success": True}
+
+    async def cv_get_detection_preview(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get minimap with detection visualization overlays.
+
+        This handler runs entirely in the daemon process where the detector exists.
+        It fetches the raw minimap, gets the last detection result, renders the
+        visualization, and returns the PNG-encoded image via IPC.
+
+        Args:
+            msg: IPC message (unused)
+
+        Returns:
+            Dictionary with:
+                - success: Boolean
+                - preview: Base64-encoded PNG image (if success=True)
+                - error: Error code (if success=False)
+                - message: Error message (if success=False)
+                - timestamp: Detection timestamp (if success=True)
+        """
+        import base64
+        import cv2
+        import numpy as np
+
+        capture = get_capture_instance()
+
+        # Check if detection is enabled
+        if not capture._object_detection_enabled:
+            logger.debug("Detection preview failed: detection not enabled")
+            return {
+                "success": False,
+                "error": "detection_not_enabled",
+                "message": "Object detection not enabled. Use object_detection_start to enable."
+            }
+
+        # Check if detector exists
+        if not capture._object_detector:
+            logger.error("Detection preview failed: detector is None despite enabled=True")
+            return {
+                "success": False,
+                "error": "detector_null",
+                "message": "Object detector is null (initialization failure)"
+            }
+
+        # Get raw minimap
+        minimap_data = capture.get_raw_minimap()
+        if not minimap_data:
+            logger.debug("Detection preview failed: no raw minimap available")
+            return {
+                "success": False,
+                "error": "no_minimap",
+                "message": "No raw minimap available. Ensure capture is running with active map config."
+            }
+
+        raw_crop, metadata = minimap_data
+
+        # Get last detection result
+        last_result_dict = capture.get_last_detection_result()
+        if not last_result_dict:
+            logger.debug("Detection preview failed: no detection result yet")
+            return {
+                "success": False,
+                "error": "no_result",
+                "message": "No detection result available yet. Detection may still be initializing."
+            }
+
+        # Reconstruct DetectionResult from dict
+        from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus
+
+        player_data = last_result_dict.get("player", {})
+        other_players_data = last_result_dict.get("other_players", {})
+
+        # Reconstruct player positions
+        player_pos = PlayerPosition(
+            detected=player_data.get("detected", False),
+            x=player_data.get("x", 0),
+            y=player_data.get("y", 0),
+            confidence=player_data.get("confidence", 0.0)
+        )
+
+        # Reconstruct other players positions
+        other_positions = []
+        for pos_data in other_players_data.get("positions", []):
+            other_positions.append(PlayerPosition(
+                detected=True,
+                x=pos_data.get("x", 0),
+                y=pos_data.get("y", 0),
+                confidence=pos_data.get("confidence", 0.0)
+            ))
+
+        other_players = OtherPlayersStatus(
+            detected=other_players_data.get("detected", False),
+            count=other_players_data.get("count", 0),
+            positions=other_positions
+        )
+
+        result = DetectionResult(
+            player=player_pos,
+            other_players=other_players,
+            timestamp=last_result_dict.get("timestamp", 0.0)
+        )
+
+        logger.debug(
+            f"Rendering detection preview | "
+            f"player.detected={result.player.detected} | "
+            f"player.pos=({result.player.x},{result.player.y}) | "
+            f"other_players.count={result.other_players.count}"
+        )
+
+        # Visualize detection on minimap
+        try:
+            visualized = capture._object_detector.visualize(raw_crop, result)
+            logger.debug(f"Visualization complete | frame_shape={visualized.shape}")
+        except Exception as viz_err:
+            logger.error(f"Visualization failed: {viz_err}", exc_info=True)
+            return {
+                "success": False,
+                "error": "visualization_failed",
+                "message": f"Visualization error: {viz_err}"
+            }
+
+        # Encode as PNG
+        try:
+            ret, png_data = cv2.imencode('.png', visualized)
+            if not ret:
+                logger.error("PNG encoding failed: cv2.imencode returned False")
+                return {
+                    "success": False,
+                    "error": "encode_failed",
+                    "message": "Failed to encode visualization as PNG"
+                }
+
+            png_bytes = png_data.tobytes()
+            preview_b64 = base64.b64encode(png_bytes).decode('ascii')
+
+            logger.debug(f"Detection preview generated | size={len(png_bytes)} bytes")
+
+            return {
+                "success": True,
+                "preview": preview_b64,
+                "timestamp": result.timestamp
+            }
+
+        except Exception as encode_err:
+            logger.error(f"PNG encoding exception: {encode_err}", exc_info=True)
+            return {
+                "success": False,
+                "error": "encode_exception",
+                "message": f"Encoding error: {encode_err}"
+            }
     
     async def object_detection_config(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
