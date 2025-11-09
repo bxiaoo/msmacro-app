@@ -1223,6 +1223,7 @@ async def api_cv_detection_preview(request: web.Request):
         404: No active detection or minimap not available
         500: Server error
     """
+    log.debug("🖼️ Detection preview requested")
     try:
         # Get raw minimap
         minimap_result = await _daemon("cv_get_raw_minimap")
@@ -1240,14 +1241,22 @@ async def api_cv_detection_preview(request: web.Request):
 
         # Get detection status
         detection_result = await _daemon("object_detection_status")
+        log.debug(
+            f"Detection status: enabled={detection_result.get('enabled')} | "
+            f"has_result={bool(detection_result.get('last_result'))}"
+        )
+
         if "error" in detection_result:
+            log.error(f"Detection status error: {detection_result['error']}")
             return web.Response(status=500, text=detection_result["error"])
 
         if not detection_result.get("enabled"):
+            log.debug("Detection preview unavailable: detection not enabled")
             return web.Response(status=404, text="Object detection not enabled")
 
         last_result = detection_result.get("last_result")
         if not last_result:
+            log.debug("Detection preview unavailable: no detection result yet")
             return web.Response(status=404, text="No detection result available")
 
         # Decode minimap PNG
@@ -1319,6 +1328,12 @@ async def api_cv_detection_preview(request: web.Request):
         # Visualize detection on minimap
         try:
             visualized = capture._object_detector.visualize(minimap_frame, result)
+            log.debug(
+                f"✓ Visualization complete | "
+                f"player_detected={result.player.detected} | "
+                f"other_players={result.other_players.count} | "
+                f"frame_shape={visualized.shape}"
+            )
         except Exception as viz_err:
             log.error(f"Detection visualization failed: {viz_err}", exc_info=True)
             return web.Response(
@@ -1329,6 +1344,7 @@ async def api_cv_detection_preview(request: web.Request):
         # Encode as PNG
         ret, png_data = cv2.imencode('.png', visualized)
         if not ret:
+            log.error("Failed to encode visualization as PNG")
             return web.Response(status=500, text="Failed to encode visualization")
 
         metadata = minimap_result.get("metadata", {})

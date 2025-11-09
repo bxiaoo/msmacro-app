@@ -53,35 +53,108 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
         const response = await fetch(url);
 
         if (!response.ok) {
+          const contentType = response.headers.get('content-type');
+
+          // Parse JSON error responses (from cv_get_raw_minimap)
+          if (contentType?.includes('application/json')) {
+            try {
+              const errorData = await response.json();
+              console.log('Detection preview JSON error:', errorData);
+
+              // For 404, retry with backoff
+              if (response.status === 404 && attempt < 5) {
+                const delays = [500, 1000, 2000, 3000, 5000];
+                const delay = delays[attempt];
+
+                setError({ type: "retrying", attempt: attempt + 1 });
+                setRetryCount(attempt + 1);
+
+                retryTimeoutRef.current = setTimeout(() => {
+                  fetchPreview(attempt + 1);
+                }, delay);
+                return;
+              }
+
+              // Set detailed error with all information
+              setError({
+                type: errorData.error || 'unknown',
+                message: errorData.message || 'Unknown error occurred',
+                details: errorData.details,
+                status: response.status
+              });
+              setImgUrl(null);
+              return;
+            } catch (jsonErr) {
+              console.error('Failed to parse JSON error:', jsonErr);
+            }
+          }
+
+          // Parse text error responses (from detector state checks)
+          if (contentType?.includes('text/')) {
+            try {
+              const errorText = await response.text();
+              console.log('Detection preview text error:', errorText);
+
+              // For 404, retry with backoff
+              if (response.status === 404 && attempt < 5) {
+                const delays = [500, 1000, 2000, 3000, 5000];
+                const delay = delays[attempt];
+
+                setError({ type: "retrying", attempt: attempt + 1 });
+                setRetryCount(attempt + 1);
+
+                retryTimeoutRef.current = setTimeout(() => {
+                  fetchPreview(attempt + 1);
+                }, delay);
+                return;
+              }
+
+              setError({
+                type: 'text_error',
+                message: errorText || `HTTP ${response.status} error`,
+                status: response.status
+              });
+              setImgUrl(null);
+              return;
+            } catch (textErr) {
+              console.error('Failed to parse text error:', textErr);
+            }
+          }
+
+          // Fallback for unknown content types
           if (response.status === 404 && attempt < 5) {
-            // Retry with exponential backoff: 500ms, 1s, 2s, 3s, 5s
             const delays = [500, 1000, 2000, 3000, 5000];
             const delay = delays[attempt];
 
-            setError("retrying");
+            setError({ type: "retrying", attempt: attempt + 1 });
             setRetryCount(attempt + 1);
 
             retryTimeoutRef.current = setTimeout(() => {
               fetchPreview(attempt + 1);
             }, delay);
-
             return;
-          } else if (response.status === 404) {
-            // All retries exhausted
-            setError("not_available");
-            setImgUrl(null);
-          } else {
-            setError("error");
-            setImgUrl(null);
           }
+
+          // All retries exhausted or non-404 error
+          setError({
+            type: response.status === 404 ? 'not_available' : 'http_error',
+            message: `HTTP ${response.status}: ${response.statusText}`,
+            status: response.status
+          });
+          setImgUrl(null);
         } else {
+          // Success
           setImgUrl(url);
           setError(null);
           setRetryCount(0);
         }
       } catch (err) {
         console.error("Failed to fetch detection preview:", err);
-        setError("error");
+        setError({
+          type: 'network_error',
+          message: `Network error: ${err.message}`,
+          hint: 'Check that the daemon is running and accessible'
+        });
         setImgUrl(null);
       } finally {
         setLoading(false);
@@ -99,7 +172,8 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     );
   }
 
-  if (error === "waiting") {
+  // Handle different error states
+  if (error?.type === "waiting" || error === "waiting") {
     return (
       <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
         <p className="text-sm text-gray-500">Waiting for detection results...</p>
@@ -107,12 +181,16 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     );
   }
 
-  if (error === "retrying") {
+  if (error?.type === "retrying" || error === "retrying") {
     return (
       <div className="border border-gray-300 rounded overflow-hidden bg-blue-50 p-8 text-center">
         <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-2" />
         <p className="text-sm text-blue-700">Loading preview (attempt {retryCount}/5)...</p>
-        <p className="text-xs text-blue-600 mt-1">Waiting for capture loop to process frame</p>
+        <p className="text-xs text-blue-600 mt-1">
+          {retryCount <= 2 ? 'Waiting for detection results...' :
+           retryCount === 3 ? 'Still waiting - detection may be initializing...' :
+           'Taking longer than expected - checking system...'}
+        </p>
       </div>
     );
   }
@@ -126,19 +204,73 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     );
   }
 
-  if (error === "not_available") {
+  // Display detailed error with actionable hints
+  if (error && error !== "waiting") {
+    const isNoMinimap = error.type === 'no_minimap' || error.type === 'not_available';
+    const isNotStarted = error.message?.toLowerCase().includes('not started') ||
+                         error.message?.toLowerCase().includes('not enabled');
+    const isNetworkError = error.type === 'network_error';
+    const isCaptureIssue = error.details?.capturing === false ||
+                           error.message?.toLowerCase().includes('capture');
+
     return (
-      <div className="border border-gray-300 rounded overflow-hidden bg-yellow-50 p-8 text-center">
-        <p className="text-sm text-yellow-700">Preview not available</p>
-        <p className="text-xs text-yellow-600 mt-1">No minimap configuration active or capture loop not running</p>
+      <div className="border border-gray-300 rounded overflow-hidden bg-red-50 p-6">
+        <div className="text-center mb-3">
+          <p className="text-sm font-medium text-red-600">
+            {error.message || 'Failed to load detection preview'}
+          </p>
+        </div>
+
+        {/* Actionable hints based on error type */}
+        <div className="text-left space-y-2">
+          {isNoMinimap && error.details?.active_config === null && (
+            <p className="text-xs text-red-700 bg-red-100 p-2 rounded">
+              → Go to <strong>Mini-Map</strong> tab to create and activate a region
+            </p>
+          )}
+
+          {isNotStarted && (
+            <p className="text-xs text-red-700 bg-red-100 p-2 rounded">
+              → Click <strong>Start Detection</strong> button above
+            </p>
+          )}
+
+          {isCaptureIssue && (
+            <p className="text-xs text-red-700 bg-red-100 p-2 rounded">
+              → Go to <strong>CV Capture</strong> tab to start video capture
+            </p>
+          )}
+
+          {isNetworkError && error.hint && (
+            <p className="text-xs text-red-700 bg-red-100 p-2 rounded">
+              → {error.hint}
+            </p>
+          )}
+
+          {/* Debug details (collapsible) */}
+          {error.details && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-red-600 hover:text-red-800">
+                Debug Info (click to expand)
+              </summary>
+              <pre className="mt-2 p-2 bg-red-100 rounded overflow-auto text-xs">
+                {JSON.stringify({
+                  type: error.type,
+                  status: error.status,
+                  details: error.details
+                }, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
       </div>
     );
   }
 
-  if (error === "error" || !imgUrl) {
+  if (!imgUrl) {
     return (
-      <div className="border border-gray-300 rounded overflow-hidden bg-red-50 p-8 text-center">
-        <p className="text-sm text-red-600">Failed to load detection preview</p>
+      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
+        <p className="text-sm text-gray-500">No preview available</p>
       </div>
     );
   }

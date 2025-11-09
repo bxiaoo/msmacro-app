@@ -403,6 +403,12 @@ class MinimapObjectDetector:
         Returns:
             Frame with detection visualization (returns original frame copy on error)
         """
+        logger.debug(
+            f"Visualizing detection | frame_shape={frame.shape if frame is not None else None} | "
+            f"player_detected={result.player.detected if result else None} | "
+            f"other_count={result.other_players.count if result and result.other_players else 0}"
+        )
+
         try:
             # Validate inputs
             if frame is None or frame.size == 0:
@@ -478,6 +484,7 @@ class MinimapObjectDetector:
                        (10, vis.shape[0] - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
 
+            logger.debug("Visualization successful")
             return vis
 
         except Exception as e:
