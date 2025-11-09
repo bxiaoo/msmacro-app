@@ -881,7 +881,9 @@ class CVCommandHandler:
                 - path: Absolute path to saved file
                 - checksum: SHA256 of PNG data
                 - metadata_path: Path to metadata JSON
-                - error: Error message if failed
+                - error: Error code if failed
+                - message: Human-readable error message
+                - details: Diagnostic information for troubleshooting
 
         Raises:
             RuntimeError: If capture fails or no minimap available
@@ -893,95 +895,245 @@ class CVCommandHandler:
         from pathlib import Path
         from ..utils.config import DEFAULT_CALIBRATION_DIR
 
-        try:
-            capture = get_capture_instance()
+        logger.info("🔵 cv_save_calibration_sample: Starting sample save request")
 
-            # Get raw minimap (reuse existing logic with auto-start)
+        try:
+            # Step 1: Get capture instance
+            try:
+                capture = get_capture_instance()
+                logger.debug("✅ Capture instance obtained")
+            except Exception as e:
+                logger.error(f"❌ Failed to get capture instance: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": "capture_instance_failed",
+                    "message": "Failed to get CV capture instance. Is the daemon running?",
+                    "details": {"exception": str(e)}
+                }
+
+            # Step 2: Check CV capture status
+            status = capture.get_status()
+            logger.debug(f"📊 CV Status: capturing={status.get('capturing')}, connected={status.get('connected')}, has_frame={status.get('has_frame')}")
+
+            # Step 3: Check for active map config
+            try:
+                from ..cv.map_config import get_manager
+                manager = get_manager()
+                active_config = manager.get_active_config()
+
+                if not active_config:
+                    logger.warning("❌ No active map configuration")
+                    return {
+                        "success": False,
+                        "error": "no_active_config",
+                        "message": "No active map configuration. Please activate a map config in CV Configuration tab.",
+                        "details": {
+                            "capturing": status.get('capturing'),
+                            "has_frame": status.get('has_frame'),
+                            "action": "Go to CV Configuration → Create/Activate a map config"
+                        }
+                    }
+
+                logger.debug(f"✅ Active config: {active_config.name} ({active_config.width}×{active_config.height})")
+            except Exception as e:
+                logger.error(f"❌ Failed to check map config: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": "config_check_failed",
+                    "message": f"Failed to verify map configuration: {e}",
+                    "details": {"exception": str(e)}
+                }
+
+            # Step 4: Try to get raw minimap
             minimap_result = capture.get_raw_minimap()
+            logger.debug(f"🖼️ Raw minimap result: {minimap_result is not None}")
 
             if minimap_result is None:
-                # Auto-start capture if needed
-                status = capture.get_status()
+                # Auto-start capture if not running
                 if not status.get('capturing'):
-                    logger.info("Auto-starting capture for calibration sample save...")
+                    logger.info("🔄 Auto-starting capture for calibration sample save...")
                     try:
                         await capture.start()
-                        # Wait for first frame
+                        logger.info("✅ Capture started, waiting for first frame...")
+
+                        # Wait for first frame with progress logging
                         for attempt in range(30):
                             await asyncio.sleep(0.1)
                             minimap_result = capture.get_raw_minimap()
                             if minimap_result is not None:
+                                logger.info(f"✅ First minimap captured after {(attempt + 1) * 0.1:.1f}s")
                                 break
+                            if (attempt + 1) % 10 == 0:
+                                logger.debug(f"⏳ Still waiting for frame... ({(attempt + 1) * 0.1:.1f}s)")
                         else:
-                            raise RuntimeError("Timed out waiting for minimap after auto-start")
+                            logger.error("❌ Timeout waiting for minimap after auto-start (3s)")
+                            return {
+                                "success": False,
+                                "error": "minimap_timeout_after_start",
+                                "message": "Timeout waiting for minimap after starting capture. Check camera connection.",
+                                "details": {
+                                    "waited_seconds": 3.0,
+                                    "config": f"{active_config.name} ({active_config.width}×{active_config.height})",
+                                    "action": "1. Check camera is connected\n2. Verify camera permissions\n3. Check capture device path"
+                                }
+                            }
                     except CVCaptureError as e:
-                        raise RuntimeError(f"Failed to start CV capture: {e}")
-                else:
-                    # Capture running but no minimap - check for config
-                    try:
-                        from ..cv.map_config import get_manager
-                        manager = get_manager()
-                        active_config = manager.get_active_config()
-
-                        if not active_config:
-                            return {
-                                "success": False,
-                                "error": "no_active_config",
-                                "message": "No active map configuration. Please activate a map config first."
-                            }
-
-                        # Wait for minimap to be populated
-                        for attempt in range(30):
-                            await asyncio.sleep(0.1)
-                            minimap_result = capture.get_raw_minimap()
-                            if minimap_result is not None:
-                                break
-                        else:
-                            return {
-                                "success": False,
-                                "error": "minimap_not_available",
-                                "message": "Raw minimap not available after waiting 3 seconds. Check capture status."
-                            }
-                    except Exception as e:
-                        logger.error(f"Failed to check map config: {e}")
+                        logger.error(f"❌ Failed to start CV capture: {e}", exc_info=True)
                         return {
                             "success": False,
-                            "error": "config_check_failed",
-                            "message": f"Failed to verify map config: {e}"
+                            "error": "capture_start_failed",
+                            "message": f"Failed to start CV capture: {e}",
+                            "details": {
+                                "exception": str(e),
+                                "action": "Check camera connection and permissions"
+                            }
+                        }
+                else:
+                    # Capture is running but no minimap yet
+                    logger.info("⏳ Capture running but no minimap yet, waiting...")
+
+                    # Wait for minimap to be populated
+                    for attempt in range(30):
+                        await asyncio.sleep(0.1)
+                        minimap_result = capture.get_raw_minimap()
+                        if minimap_result is not None:
+                            logger.info(f"✅ Minimap available after {(attempt + 1) * 0.1:.1f}s")
+                            break
+
+                        # Check if capture stopped while waiting
+                        current_status = capture.get_status()
+                        if not current_status.get('capturing'):
+                            logger.warning(f"⚠️ Capture stopped during wait (attempt {attempt + 1}/30)")
+                            break
+
+                        if (attempt + 1) % 10 == 0:
+                            logger.debug(f"⏳ Still waiting for minimap... ({(attempt + 1) * 0.1:.1f}s)")
+                    else:
+                        # Timeout - gather detailed diagnostic info
+                        logger.error("❌ Timeout waiting for minimap (3s)")
+                        diagnostic_info = {
+                            "status": status,
+                            "active_config": {
+                                "name": active_config.name,
+                                "region": f"({active_config.tl_x}, {active_config.tl_y}) {active_config.width}×{active_config.height}"
+                            },
+                            "waited_seconds": 3.0
                         }
 
-            raw_crop, frame_metadata = minimap_result
+                        return {
+                            "success": False,
+                            "error": "minimap_not_available",
+                            "message": "Raw minimap not available after 3 seconds. Capture may be delayed or region may be out of bounds.",
+                            "details": {
+                                **diagnostic_info,
+                                "action": "1. Wait a few seconds and try again\n2. Check if map config region is within frame bounds\n3. Verify live preview shows minimap"
+                            }
+                        }
 
-            # Generate filename if not provided
+            if minimap_result is None:
+                logger.error("❌ Minimap still None after all attempts")
+                return {
+                    "success": False,
+                    "error": "minimap_unavailable",
+                    "message": "Unable to retrieve minimap. Unknown error.",
+                    "details": {"status": status}
+                }
+
+            # Step 5: Validate minimap data
+            raw_crop, frame_metadata = minimap_result
+            logger.info(f"✅ Got minimap: shape={raw_crop.shape}, dtype={raw_crop.dtype}")
+
+            # Validate crop dimensions
+            if raw_crop.size == 0:
+                logger.error("❌ Minimap crop is empty (size=0)")
+                return {
+                    "success": False,
+                    "error": "empty_minimap",
+                    "message": "Minimap crop is empty. Map config region may be invalid.",
+                    "details": {
+                        "shape": raw_crop.shape,
+                        "config": f"{active_config.name} ({active_config.width}×{active_config.height})"
+                    }
+                }
+
+            # Step 6: Generate filename
             filename = msg.get('filename')
             if not filename:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"sample_{timestamp}"
 
-            # Ensure filename doesn't have extension (we'll add .png)
+            # Sanitize filename
             filename = filename.replace('.png', '').replace('.jpg', '')
+            filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-'))
+            logger.debug(f"📝 Filename: {filename}.png")
 
-            # Create calibration directory structure
-            calibration_dir = Path(DEFAULT_CALIBRATION_DIR)
-            samples_dir = calibration_dir / "minimap_samples"
-            samples_dir.mkdir(parents=True, exist_ok=True)
+            # Step 7: Create calibration directory
+            try:
+                calibration_dir = Path(DEFAULT_CALIBRATION_DIR)
+                samples_dir = calibration_dir / "minimap_samples"
+                samples_dir.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"📁 Samples directory: {samples_dir}")
+            except Exception as e:
+                logger.error(f"❌ Failed to create directory: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": "directory_creation_failed",
+                    "message": f"Failed to create calibration directory: {e}",
+                    "details": {
+                        "path": str(calibration_dir),
+                        "exception": str(e),
+                        "action": "Check filesystem permissions"
+                    }
+                }
 
-            # Encode as PNG
-            ret, png_data = cv2.imencode('.png', raw_crop)
-            if not ret:
-                raise RuntimeError("Failed to encode minimap as PNG")
+            # Step 8: Encode as PNG
+            try:
+                ret, png_data = cv2.imencode('.png', raw_crop)
+                if not ret:
+                    logger.error("❌ PNG encoding failed")
+                    return {
+                        "success": False,
+                        "error": "png_encode_failed",
+                        "message": "Failed to encode minimap as PNG",
+                        "details": {
+                            "shape": raw_crop.shape,
+                            "dtype": str(raw_crop.dtype)
+                        }
+                    }
 
-            png_bytes = png_data.tobytes()
+                png_bytes = png_data.tobytes()
+                logger.debug(f"✅ Encoded PNG: {len(png_bytes)} bytes")
+            except Exception as e:
+                logger.error(f"❌ PNG encoding exception: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": "png_encode_exception",
+                    "message": f"Exception during PNG encoding: {e}",
+                    "details": {"exception": str(e)}
+                }
 
-            # Calculate checksum
+            # Step 9: Calculate checksum
             checksum = hashlib.sha256(png_bytes).hexdigest()[:16]
+            logger.debug(f"🔐 Checksum: {checksum}")
 
-            # Save PNG file
-            png_path = samples_dir / f"{filename}.png"
-            with open(png_path, 'wb') as f:
-                f.write(png_bytes)
-
-            logger.info(f"✅ Saved calibration sample: {png_path} ({len(png_bytes)} bytes)")
+            # Step 10: Save PNG file
+            try:
+                png_path = samples_dir / f"{filename}.png"
+                with open(png_path, 'wb') as f:
+                    f.write(png_bytes)
+                logger.info(f"✅ Saved calibration sample: {png_path} ({len(png_bytes)} bytes)")
+            except Exception as e:
+                logger.error(f"❌ Failed to write PNG file: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": "file_write_failed",
+                    "message": f"Failed to write PNG file: {e}",
+                    "details": {
+                        "path": str(png_path),
+                        "exception": str(e),
+                        "action": "Check disk space and filesystem permissions"
+                    }
+                }
 
             # Prepare metadata
             metadata = {
@@ -1025,27 +1177,40 @@ class CVCommandHandler:
             if user_metadata:
                 metadata["user_notes"] = user_metadata
 
-            # Save metadata JSON
-            meta_path = samples_dir / f"{filename}_meta.json"
-            with open(meta_path, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            # Step 11: Save metadata JSON
+            try:
+                meta_path = samples_dir / f"{filename}_meta.json"
+                with open(meta_path, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                logger.info(f"✅ Saved metadata: {meta_path}")
+            except Exception as e:
+                logger.error(f"❌ Failed to write metadata JSON: {e}", exc_info=True)
+                # Don't fail the whole operation if metadata save fails
+                logger.warning("⚠️ Continuing without metadata (PNG saved successfully)")
+                meta_path = None
 
-            logger.info(f"✅ Saved metadata: {meta_path}")
-
+            # Step 12: Success!
+            logger.info(f"🎉 Sample save complete: {filename}.png ({len(png_bytes)} bytes)")
             return {
                 "success": True,
                 "filename": f"{filename}.png",
                 "path": str(png_path.absolute()),
                 "checksum": checksum,
-                "metadata_path": str(meta_path.absolute()),
+                "metadata_path": str(meta_path.absolute()) if meta_path else None,
                 "size_bytes": len(png_bytes),
                 "resolution": metadata["capture_info"]["resolution"]
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to save calibration sample: {e}", exc_info=True)
+            # Catch-all for unexpected errors
+            logger.error(f"❌ Unexpected error during sample save: {e}", exc_info=True)
             return {
                 "success": False,
-                "error": str(e),
-                "message": f"Failed to save calibration sample: {e}"
+                "error": "unexpected_error",
+                "message": f"Unexpected error: {e}",
+                "details": {
+                    "exception": str(e),
+                    "type": type(e).__name__,
+                    "action": "Check daemon logs for full traceback. Try restarting daemon if issue persists."
+                }
             }

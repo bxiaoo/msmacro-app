@@ -174,16 +174,30 @@ export function CVConfiguration() {
         // Clear success message after 3 seconds
         setTimeout(() => setSampleMessage(null), 3000)
       } else {
+        // Detailed error handling with troubleshooting
+        console.error('Sample save failed:', result)
+
+        let errorText = result.message || 'Failed to save sample'
+
+        // Add action hints if available
+        if (result.details?.action) {
+          errorText += `\n\n${result.details.action}`
+        }
+
         setSampleMessage({
           type: 'error',
-          text: result.message || 'Failed to save sample'
+          text: errorText,
+          error: result.error, // Error code for debugging
+          details: result.details
         })
+
+        // Don't auto-dismiss errors
       }
     } catch (err) {
       console.error('Failed to save calibration sample:', err)
       setSampleMessage({
         type: 'error',
-        text: `Error: ${err.message}`
+        text: `Network error: ${err.message}\n\nCheck that the daemon is running and accessible.`
       })
     } finally {
       setSavingSample(false)
@@ -719,12 +733,40 @@ export function CVConfiguration() {
 
                     {/* Sample save message */}
                     {sampleMessage && (
-                        <div className={`p-3 rounded-lg text-sm ${
+                        <div className={`p-4 rounded-lg text-sm ${
                             sampleMessage.type === 'success'
                                 ? 'bg-green-50 text-green-800 border border-green-200'
                                 : 'bg-red-50 text-red-800 border border-red-200'
                         }`}>
-                            {sampleMessage.text}
+                            <div className="flex items-start gap-2">
+                                {sampleMessage.type === 'error' && (
+                                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                                )}
+                                {sampleMessage.type === 'success' && (
+                                    <CheckCircle size={16} className="flex-shrink-0 mt-0.5" />
+                                )}
+                                <div className="flex-1">
+                                    <div className="font-medium mb-1">
+                                        {sampleMessage.type === 'success' ? 'Success!' : 'Failed to save sample'}
+                                    </div>
+                                    <div className="whitespace-pre-line">
+                                        {sampleMessage.text}
+                                    </div>
+                                    {sampleMessage.error && (
+                                        <div className="mt-2 text-xs opacity-75 font-mono">
+                                            Error code: {sampleMessage.error}
+                                        </div>
+                                    )}
+                                </div>
+                                {sampleMessage.type === 'error' && (
+                                    <button
+                                        onClick={() => setSampleMessage(null)}
+                                        className="flex-shrink-0 text-red-600 hover:text-red-800"
+                                    >
+                                        <XCircle size={16} />
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     )}
 

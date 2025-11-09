@@ -340,45 +340,292 @@ curl -X POST http://localhost:5050/api/cv/object-detection/config \
 
 ## Troubleshooting
 
-### Problem: "No active map config" error when saving
+### Common Error Codes & Solutions
+
+#### Error: `no_active_config`
+**Message**: "No active map configuration. Please activate a map config in CV Configuration tab."
 
 **Solution**:
 1. Navigate to CV Configuration tab
-2. Ensure a config exists (create if needed)
-3. Click config name to activate (blue checkmark)
-4. Wait 2-3 seconds for capture loop to update
-5. Try saving again
+2. If no configs exist: Click "Create Configuration"
+3. Set width/height (e.g., 340×86)
+4. Save configuration
+5. Click config name to activate (blue checkmark appears)
+6. Wait 2-3 seconds for capture loop to process
+7. Try saving sample again
 
-### Problem: "Raw minimap not available" error
+**Root cause**: No map config is activated, so the system doesn't know which region to crop.
+
+---
+
+#### Error: `minimap_not_available` or `minimap_timeout_after_start`
+**Message**: "Raw minimap not available after 3 seconds" or "Timeout waiting for minimap"
+
+**Possible causes**:
+1. Capture just started and first frame hasn't arrived yet
+2. Camera is disconnected
+3. Map config region is out of frame bounds
+4. Capture loop is stuck
+
+**Solutions**:
+1. **Wait and retry**: Click "Save Sample" again after 5 seconds
+2. **Check camera connection**:
+   ```bash
+   ls /dev/video*  # Should show video device
+   v4l2-ctl --list-devices  # List capture devices
+   ```
+3. **Verify capture is running**:
+   - Check CV status at top of page
+   - If stopped: Click "Start CV Capture"
+4. **Check live preview**:
+   - Scroll to "Live Minimap Preview"
+   - If no image: capture is not working
+   - If black screen: map config region may be out of bounds
+5. **Restart capture**:
+   ```bash
+   sudo systemctl restart msmacro
+   ```
+
+**Root cause**: Camera not connected, capture delayed, or config region invalid.
+
+---
+
+#### Error: `capture_start_failed`
+**Message**: "Failed to start CV capture"
 
 **Solution**:
-1. Check CV capture status (top of page)
-2. If not capturing: click "Start CV Capture"
-3. Wait for first frame (~5 seconds)
-4. Verify live preview is updating
-5. Try saving again
+1. **Check camera permissions**:
+   ```bash
+   ls -l /dev/video0  # Check permissions
+   sudo chmod 666 /dev/video0  # Grant access (temporary)
+   ```
+2. **Check camera is not in use**:
+   ```bash
+   lsof /dev/video0  # Shows processes using camera
+   ```
+3. **Verify camera works**:
+   ```bash
+   ffplay /dev/video0  # Test camera feed
+   ```
+4. **Check daemon logs**:
+   ```bash
+   journalctl -u msmacro -n 50  # Last 50 log lines
+   ```
 
-### Problem: Samples are all identical
+**Root cause**: Camera device inaccessible due to permissions or hardware issue.
+
+---
+
+#### Error: `empty_minimap`
+**Message**: "Minimap crop is empty. Map config region may be invalid."
 
 **Solution**:
-- Move player position between saves
-- Wait for other players to appear/disappear
-- Change game scenarios (combat, exploration, etc.)
-- Ensure sufficient time between saves (~5-10 seconds)
+1. **Check map config dimensions**:
+   - Ensure width > 0 and height > 0
+   - Typical: 340×86
+2. **Verify region is within frame bounds**:
+   - If frame is 1280×720, region must fit within
+   - Top-left: (68, 56), Bottom-right: (408, 142) fits
+3. **Check full-screen capture**:
+   - View full screenshot via API: `/api/cv/screenshot`
+   - Verify minimap is visible at configured location
+4. **Recreate map config**:
+   - Delete current config
+   - Create new one with correct dimensions
 
-### Problem: Sample counter doesn't increment
+**Root cause**: Map config region is outside the frame bounds or has zero dimensions.
+
+---
+
+#### Error: `directory_creation_failed` or `file_write_failed`
+**Message**: "Failed to create calibration directory" or "Failed to write PNG file"
 
 **Solution**:
-- Check browser console for errors (F12 → Console)
-- Verify API response: Network tab → save-calibration-sample
-- Check backend logs: `journalctl -u msmacro -f`
+1. **Check disk space**:
+   ```bash
+   df -h ~/.local/share/msmacro/
+   ```
+2. **Check permissions**:
+   ```bash
+   ls -ld ~/.local/share/msmacro/
+   chmod 755 ~/.local/share/msmacro/  # Grant write access
+   ```
+3. **Check filesystem**:
+   ```bash
+   touch ~/.local/share/msmacro/test.txt  # Test write
+   rm ~/.local/share/msmacro/test.txt
+   ```
+4. **Check SELinux/AppArmor** (if on Linux):
+   ```bash
+   getenforce  # Check SELinux status
+   sudo setenforce 0  # Temporarily disable (if needed)
+   ```
 
-### Problem: Annotation tool crashes
+**Root cause**: Insufficient permissions or disk space.
+
+---
+
+#### Error: `png_encode_failed`
+**Message**: "Failed to encode minimap as PNG"
 
 **Solution**:
-- Ensure Python dependencies installed: `pip install opencv-python numpy`
-- Check sample file permissions: `ls -l ~/.local/share/msmacro/calibration/minimap_samples/`
-- Verify samples are valid PNGs: `file *.png`
+1. **Check OpenCV installation**:
+   ```bash
+   python3 -c "import cv2; print(cv2.__version__)"
+   ```
+2. **Reinstall OpenCV**:
+   ```bash
+   pip install --upgrade opencv-python
+   ```
+3. **Check minimap data**:
+   - Daemon logs will show shape/dtype
+   - Should be: shape=(86, 340, 3), dtype=uint8
+
+**Root cause**: OpenCV issue or corrupted minimap data.
+
+---
+
+#### Error: `capture_instance_failed`
+**Message**: "Failed to get CV capture instance. Is the daemon running?"
+
+**Solution**:
+1. **Check daemon status**:
+   ```bash
+   sudo systemctl status msmacro
+   ```
+2. **Restart daemon**:
+   ```bash
+   sudo systemctl restart msmacro
+   ```
+3. **Check daemon is listening**:
+   ```bash
+   curl http://localhost:5050/api/status
+   ```
+
+**Root cause**: Daemon not running or not responding.
+
+---
+
+### General Troubleshooting Steps
+
+#### Step 1: Check Daemon Logs (Always start here)
+```bash
+# View recent logs with color
+journalctl -u msmacro -n 100 --no-pager
+
+# Follow logs in real-time
+journalctl -u msmacro -f
+
+# Filter for errors only
+journalctl -u msmacro -p err -n 50
+```
+
+Look for:
+- 🔵 "cv_save_calibration_sample: Starting sample save request"
+- ✅ "Sample save complete"
+- ❌ Any error messages
+
+#### Step 2: Check Browser Console
+1. Press F12 to open DevTools
+2. Click "Console" tab
+3. Look for red errors
+4. Check "Network" tab → "save-calibration-sample" request
+
+#### Step 3: Verify System State
+```bash
+# Check CV capture status
+curl http://localhost:5050/api/cv/status | jq
+
+# Check active map config
+curl http://localhost:5050/api/cv/map-configs | jq
+
+# Test raw minimap endpoint
+curl http://localhost:5050/api/cv/raw-minimap | jq
+```
+
+#### Step 4: Full System Restart
+```bash
+# Stop daemon
+sudo systemctl stop msmacro
+
+# Clear any stuck processes
+pkill -f msmacro
+
+# Restart
+sudo systemctl start msmacro
+
+# Check status
+sudo systemctl status msmacro
+```
+
+---
+
+### Quick Diagnostic Checklist
+
+Before reporting an issue, verify:
+
+- [ ] Daemon is running: `systemctl status msmacro`
+- [ ] Camera connected: `ls /dev/video*`
+- [ ] CV capture active: Check status in web UI
+- [ ] Map config activated: Blue checkmark visible
+- [ ] Live preview working: Image updates every 2s
+- [ ] Disk space available: `df -h`
+- [ ] Permissions OK: `ls -ld ~/.local/share/msmacro/`
+- [ ] Daemon logs reviewed: `journalctl -u msmacro -n 50`
+- [ ] Browser console checked: F12 → Console tab
+
+---
+
+### Still Having Issues?
+
+If errors persist after trying above solutions:
+
+1. **Capture full diagnostic info**:
+   ```bash
+   # Save system info to file
+   {
+     echo "=== System Info ==="
+     uname -a
+     echo ""
+     echo "=== Daemon Status ==="
+     systemctl status msmacro
+     echo ""
+     echo "=== Recent Logs ==="
+     journalctl -u msmacro -n 100 --no-pager
+     echo ""
+     echo "=== CV Status ==="
+     curl -s http://localhost:5050/api/cv/status
+     echo ""
+     echo "=== Disk Space ==="
+     df -h ~/.local/share/msmacro/
+   } > ~/msmacro_diagnostic.txt
+   ```
+
+2. **Share diagnostic file** with maintainer or in issue tracker
+
+3. **Workaround**: Use manual frame capture:
+   - Take screenshots of minimap region
+   - Save manually to `~/.local/share/msmacro/calibration/minimap_samples/`
+   - Name files: `sample_001.png`, `sample_002.png`, etc.
+
+---
+
+### Legacy Issues (Fixed in Latest Version)
+
+#### Problem: Samples are all identical
+- **Fixed**: Gallery now shows unique timestamps
+- **If still occurs**: Ensure sufficient time between saves (~2-5 seconds)
+
+#### Problem: Sample counter doesn't increment
+- **Fixed**: Counter now increments immediately on success
+- **If still occurs**: Check browser console for JavaScript errors
+
+#### Problem: Annotation tool crashes
+- **Fixed**: Improved error handling in annotation script
+- **If still occurs**:
+  ```bash
+  pip install --upgrade opencv-python numpy
+  ```
 
 ---
 
