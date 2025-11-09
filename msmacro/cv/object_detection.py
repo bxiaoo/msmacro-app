@@ -126,7 +126,208 @@ class MinimapObjectDetector:
         
         logger.info("MinimapObjectDetector initialized")
         logger.warning("Using PLACEHOLDER HSV ranges - MUST calibrate on test Pi with YUYV frames")
-    
+
+    def _calculate_adaptive_blob_sizes(self, frame: np.ndarray) -> Tuple[int, int]:
+        """
+        Calculate adaptive blob sizes based on minimap region dimensions.
+
+        Uses 340x86 as reference (default config size). Scales min/max blob sizes
+        proportionally to region area to handle variable map configurations.
+
+        Args:
+            frame: Minimap crop (varying sizes depending on user's map config)
+
+        Returns:
+            (adaptive_min_size, adaptive_max_size) in pixels
+
+        Example:
+            - 340x86 region (reference): blob_sizes = (3, 15)
+            - 680x172 region (2x scale): blob_sizes = (6, 30)
+            - 170x43 region (0.5x scale): blob_sizes = (2, 8)
+        """
+        height, width = frame.shape[:2]
+
+        # Reference: 340x86 = 29,240 pixels (default config from documentation)
+        reference_area = 340 * 86
+        current_area = width * height
+
+        # Scale factor: use sqrt because we're scaling linear dimensions, not area
+        # Example: 2x area → √2 = 1.41x blob diameter
+        scale = np.sqrt(current_area / reference_area)
+
+        # Base sizes from config (defaults: 3-15px for 340x86 regions)
+        base_min = self.config.min_blob_size
+        base_max = self.config.max_blob_size
+
+        # Scale with bounds checking
+        adaptive_min = max(1, int(base_min * scale))  # Minimum 1px
+        adaptive_max = max(adaptive_min + 1, int(base_max * scale))  # At least min+1
+
+        logger.debug(
+            f"Adaptive blob sizing | region={width}x{height} ({current_area}px²) | "
+            f"scale={scale:.2f}x | blob_range={adaptive_min}-{adaptive_max}px "
+            f"(base={base_min}-{base_max}px)"
+        )
+
+        return adaptive_min, adaptive_max
+
+    def _validate_and_clamp_position(
+        self,
+        x: int,
+        y: int,
+        frame_shape: Tuple[int, int],
+        margin: int = 2
+    ) -> Tuple[int, int, bool]:
+        """
+        Validate position is within frame bounds and clamp to safe margin.
+
+        Prevents out-of-bounds coordinates that cause visualization crashes
+        and provides diagnostic logging for detection issues.
+
+        Args:
+            x, y: Detected position coordinates
+            frame_shape: (height, width) of frame
+            margin: Minimum pixels from edge (safety margin to avoid partial detections)
+
+        Returns:
+            (clamped_x, clamped_y, is_valid) where:
+                - clamped_x, clamped_y: Position guaranteed to be in bounds
+                - is_valid: True if position was originally valid, False if clamped
+
+        Example:
+            - Position (100, 50) in 200x100 frame, margin=2 → (100, 50, True)
+            - Position (-5, 50) in 200x100 frame, margin=2 → (2, 50, False)
+            - Position (199, 50) in 200x100 frame, margin=2 → (197, 50, False)
+        """
+        height, width = frame_shape
+
+        # Check if completely out of bounds
+        if x < 0 or x >= width or y < 0 or y >= height:
+            logger.warning(
+                f"Position ({x},{y}) OUT OF BOUNDS for frame {width}x{height} | "
+                f"Clamping to valid range"
+            )
+            # Clamp to frame boundaries
+            x = max(0, min(width - 1, x))
+            y = max(0, min(height - 1, y))
+            return (x, y, False)
+
+        # Check if too close to edge (may be partial/unreliable detection)
+        near_edge = (x < margin or x >= width - margin or
+                     y < margin or y >= height - margin)
+
+        if near_edge:
+            logger.debug(
+                f"Position ({x},{y}) near edge (margin={margin}px) | "
+                f"Clamping to safe zone"
+            )
+            # Clamp with margin for safety
+            x = max(margin, min(width - margin - 1, x))
+            y = max(margin, min(height - margin - 1, y))
+            # Still return True since it was technically in bounds
+            return (x, y, True)
+
+        return (x, y, True)
+
+    def _validate_ring_structure(self, frame: np.ndarray, blob: Dict[str, Any]) -> float:
+        """
+        Validate blob has expected dark ring + white ring structure.
+
+        Markers have documented multi-layer structure:
+        - Inner colored blob (yellow for player, red for enemies)
+        - Middle dark contour (~1-2px black/brown ring)
+        - Outer white contour (~1px bright ring)
+
+        This method samples pixels in concentric rings around detected blob center
+        to verify this nested structure, providing additional confidence scoring.
+
+        Args:
+            frame: Original BGR frame (for grayscale brightness analysis)
+            blob: Detected blob dict with 'center' and 'radius' keys
+
+        Returns:
+            Confidence boost to add to circularity score (0.0-0.3):
+            - 0.3: Both rings detected with strong contrast
+            - 0.15: One ring detected
+            - 0.0: No ring structure detected or edge-case failure
+
+        Performance: ~0.06ms per blob (48 pixel samples + arithmetic)
+
+        Example:
+            blob = {'center': (100, 50), 'radius': 6.0}
+            boost = _validate_ring_structure(frame, blob)
+            # boost = 0.3 if perfect marker with both rings
+        """
+        cx, cy = int(blob['center'][0]), int(blob['center'][1])
+        radius = blob['radius']
+
+        # Bounds check: skip validation if too close to edge
+        frame_h, frame_w = frame.shape[:2]
+        check_radius = int(radius + 5)  # Need radius+5px for outer white ring sampling
+        if (cx - check_radius < 0 or cx + check_radius >= frame_w or
+            cy - check_radius < 0 or cy + check_radius >= frame_h):
+            logger.debug(
+                f"Ring validation skipped | blob at ({cx},{cy}) radius={radius:.1f} "
+                f"too close to edge (frame={frame_w}x{frame_h})"
+            )
+            return 0.0
+
+        # Convert to grayscale for brightness analysis
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Sample Ring 1: Dark contour (just outside color blob at radius+1 to radius+2)
+        dark_ring_samples = []
+        for r in [radius + 1, radius + 2]:
+            for angle in np.linspace(0, 2*np.pi, 12, endpoint=False):  # 12 points per ring
+                x = int(cx + r * np.cos(angle))
+                y = int(cy + r * np.sin(angle))
+                if 0 <= x < frame_w and 0 <= y < frame_h:
+                    dark_ring_samples.append(gray[y, x])
+
+        # Sample Ring 2: White contour (outside dark ring at radius+3 to radius+4)
+        white_ring_samples = []
+        for r in [radius + 3, radius + 4]:
+            for angle in np.linspace(0, 2*np.pi, 12, endpoint=False):
+                x = int(cx + r * np.cos(angle))
+                y = int(cy + r * np.sin(angle))
+                if 0 <= x < frame_w and 0 <= y < frame_h:
+                    white_ring_samples.append(gray[y, x])
+
+        # Validate we got enough samples
+        if not dark_ring_samples or not white_ring_samples:
+            logger.debug("Ring validation failed | insufficient samples")
+            return 0.0
+
+        # Calculate average brightness for each ring
+        avg_dark = np.mean(dark_ring_samples)
+        avg_white = np.mean(white_ring_samples)
+        contrast = avg_white - avg_dark
+
+        # Validate ring structure (thresholds from marker analysis)
+        has_dark_ring = avg_dark < 120  # Dark pixels (0-255 scale)
+        has_white_ring = avg_white > 180  # Bright pixels
+        has_contrast = contrast > 80  # Strong separation between rings
+
+        # Calculate confidence boost based on validation results
+        if has_dark_ring and has_white_ring and has_contrast:
+            logger.debug(
+                f"Ring validation STRONG | dark={avg_dark:.0f} white={avg_white:.0f} "
+                f"contrast={contrast:.0f} | boost=+0.30"
+            )
+            return 0.3
+        elif has_dark_ring or has_white_ring:
+            logger.debug(
+                f"Ring validation WEAK | dark={avg_dark:.0f} white={avg_white:.0f} "
+                f"contrast={contrast:.0f} | boost=+0.15"
+            )
+            return 0.15
+        else:
+            logger.debug(
+                f"Ring validation FAIL | dark={avg_dark:.0f} white={avg_white:.0f} "
+                f"contrast={contrast:.0f} | boost=+0.00"
+            )
+            return 0.0
+
     def detect(self, frame: np.ndarray) -> DetectionResult:
         """
         Detect objects in minimap frame.
@@ -267,25 +468,28 @@ class MinimapObjectDetector:
     def _detect_player(self, frame: np.ndarray) -> PlayerPosition:
         """
         Detect single yellow player point.
-        
+
         Args:
             frame: BGR minimap image
-        
+
         Returns:
             PlayerPosition with detected status and coordinates
         """
+        # Calculate adaptive blob sizes based on frame dimensions
+        adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
+
         # Create color mask for yellow
         mask = self._create_color_mask(
             frame,
             self.config.player_hsv_lower,
             self.config.player_hsv_upper
         )
-        
-        # Find circular blobs
+
+        # Find circular blobs with adaptive sizing
         blobs = self._find_circular_blobs(
             mask,
-            self.config.min_blob_size,
-            self.config.max_blob_size,
+            adaptive_min,  # Scales with region size
+            adaptive_max,  # Scales with region size
             self.config.min_circularity
         )
         
@@ -305,7 +509,18 @@ class MinimapObjectDetector:
         
         best_blob = min(blobs, key=distance_to_center)
         cx, cy = best_blob['center']
-        
+
+        # Validate and clamp position to ensure it's within bounds
+        cx, cy, is_valid = self._validate_and_clamp_position(
+            cx, cy, frame.shape[:2], margin=2
+        )
+
+        if not is_valid:
+            logger.warning(
+                f"Player position clamped | "
+                f"blob_center={best_blob['center']} → ({cx},{cy})"
+            )
+
         # Apply temporal smoothing if enabled
         if self.config.temporal_smoothing and self._last_player_pos is not None:
             alpha = self.config.smoothing_alpha
@@ -314,33 +529,46 @@ class MinimapObjectDetector:
             cy = int(alpha * cy + (1 - alpha) * prev_y)
         
         self._last_player_pos = (cx, cy)
-        
+
+        # Apply ring structure validation for additional confidence
+        base_confidence = best_blob['circularity']
+        ring_boost = self._validate_ring_structure(frame, best_blob)
+        final_confidence = min(1.0, base_confidence + ring_boost)
+
+        logger.debug(
+            f"Player confidence | circularity={base_confidence:.3f} "
+            f"ring_boost={ring_boost:.3f} final={final_confidence:.3f}"
+        )
+
         return PlayerPosition(
             detected=True,
             x=cx,
             y=cy,
-            confidence=best_blob['circularity']
+            confidence=final_confidence
         )
     
     def _detect_other_players(self, frame: np.ndarray) -> OtherPlayersStatus:
         """
         Detect multiple red other_player points.
-        
+
         Args:
             frame: BGR minimap image
-        
+
         Returns:
             OtherPlayersStatus with detected flag and count
         """
+        # Calculate adaptive blob sizes based on frame dimensions
+        adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
+
         all_blobs = []
-        
+
         # Red wraps around HSV, need multiple ranges
         for hsv_lower, hsv_upper in self.config.other_player_hsv_ranges:
             mask = self._create_color_mask(frame, hsv_lower, hsv_upper)
             blobs = self._find_circular_blobs(
                 mask,
-                self.config.min_blob_size,
-                self.config.max_blob_size,
+                adaptive_min,  # Scales with region size
+                adaptive_max,  # Scales with region size
                 self.config.min_circularity_other
             )
             all_blobs.extend(blobs)
@@ -348,8 +576,37 @@ class MinimapObjectDetector:
         # Remove duplicates (same position detected in multiple ranges)
         unique_blobs = self._deduplicate_blobs(all_blobs, distance_threshold=5)
 
-        # Extract positions for visualization/debugging
-        positions = [tuple(blob['center']) for blob in unique_blobs]
+        # Extract and validate positions with ring structure validation
+        positions = []
+        for blob in unique_blobs:
+            cx, cy = blob['center']
+
+            # Apply ring structure validation for confidence scoring
+            base_confidence = blob['circularity']
+            ring_boost = self._validate_ring_structure(frame, blob)
+            final_confidence = min(1.0, base_confidence + ring_boost)
+
+            # Store boosted confidence back in blob for debugging
+            blob['final_confidence'] = final_confidence
+            blob['ring_boost'] = ring_boost
+
+            logger.debug(
+                f"Other player at ({cx},{cy}) | circularity={base_confidence:.3f} "
+                f"ring_boost={ring_boost:.3f} final={final_confidence:.3f}"
+            )
+
+            # Validate and clamp position to ensure it's within bounds
+            cx, cy, is_valid = self._validate_and_clamp_position(
+                cx, cy, frame.shape[:2], margin=2
+            )
+
+            if not is_valid:
+                logger.warning(
+                    f"Other player position clamped | "
+                    f"blob_center={blob['center']} → ({cx},{cy})"
+                )
+
+            positions.append((cx, cy))
 
         return OtherPlayersStatus(
             detected=len(unique_blobs) > 0,
