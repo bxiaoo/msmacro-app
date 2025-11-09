@@ -84,8 +84,12 @@ class DetectorConfig:
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
     # Blob filtering
-    min_blob_size: int = 3  # Minimum diameter in pixels
-    max_blob_size: int = 15  # Maximum diameter in pixels
+    # Based on evidence from test code and example images:
+    # - Player markers: ~8px diameter (radius 4) in 340x86 frames
+    # - Enemy markers: ~6px diameter (radius 3) in 340x86 frames
+    # - Range tightened from 3-15px to 6-10px to reject noise
+    min_blob_size: int = 6  # Minimum diameter in pixels
+    max_blob_size: int = 10  # Maximum diameter in pixels
     min_circularity: float = 0.6  # Minimum circularity for player
     min_circularity_other: float = 0.5  # Minimum circularity for other players
 
