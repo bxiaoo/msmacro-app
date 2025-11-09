@@ -451,9 +451,6 @@ class CVCapture:
         """
         logger.info("Capture loop started")
 
-        MAX_CONSECUTIVE_ERRORS = 10
-        consecutive_errors = 0
-
         try:
             while not self._stop_event.is_set():
                 try:
@@ -464,215 +461,189 @@ class CVCapture:
                     # Capture frame
                     ret, frame = self._capture.read()
 
-                    if not ret or frame is None:
-                        self._frames_failed += 1
-                        logger.warning("Failed to read frame")
-                        self._device_connected = False
-                        self._set_last_error("Failed to read frame from capture device")
-                        time.sleep(0.5)
-                        continue
+                if not ret or frame is None:
+                    self._frames_failed += 1
+                    logger.warning("Failed to read frame")
+                    self._device_connected = False
+                    self._set_last_error("Failed to read frame from capture device")
+                    time.sleep(0.5)
+                    continue
 
-                    # Use manually-defined minimap region from map config
-                    # When map_config is active, the region is NOT auto-detected - it's user-defined
-                    # CV2 only detects objects (player, enemies) WITHIN the user-defined region
-                    region_detected = False
-                    region_x, region_y = 0, 0
-                    region_width, region_height = 0, 0
+                # Use manually-defined minimap region from map config
+                # When map_config is active, the region is NOT auto-detected - it's user-defined
+                # CV2 only detects objects (player, enemies) WITHIN the user-defined region
+                region_detected = False
+                region_x, region_y = 0, 0
+                region_width, region_height = 0, 0
 
-                    frame_height, frame_width = frame.shape[:2]
+                frame_height, frame_width = frame.shape[:2]
 
-                    # Get user-defined minimap coordinates from active map config
-                    with self._config_lock:
-                        active_config = self._active_map_config
+                # Get user-defined minimap coordinates from active map config
+                with self._config_lock:
+                    active_config = self._active_map_config
 
-                    if active_config:
+                if active_config:
+                    logger.debug(
+                        f"🎥 FRAME CAPTURE: Using config '{active_config.name}' | "
+                        f"coords=({active_config.tl_x},{active_config.tl_y}) "
+                        f"size={active_config.width}x{active_config.height}"
+                    )
+
+                if active_config:
+                    # Use map config coordinates directly (no auto-detection)
+                    region_x = active_config.tl_x
+                    region_y = active_config.tl_y
+                    region_width = active_config.width
+                    region_height = active_config.height
+
+                    # Validate region is within frame bounds
+                    if (region_x + region_width <= frame_width and
+                        region_y + region_height <= frame_height):
+                        region_detected = True
+
                         logger.debug(
-                            f"🎥 FRAME CAPTURE: Using config '{active_config.name}' | "
-                            f"coords=({active_config.tl_x},{active_config.tl_y}) "
-                            f"size={active_config.width}x{active_config.height}"
+                            f"✓ Region detected: '{active_config.name}' at ({region_x},{region_y}) "
+                            f"size {region_width}x{region_height} (frame: {frame_width}x{frame_height})"
                         )
 
-                    if active_config:
-                        # Use map config coordinates directly (no auto-detection)
-                        region_x = active_config.tl_x
-                        region_y = active_config.tl_y
-                        region_width = active_config.width
-                        region_height = active_config.height
-
-                        # Validate region is within frame bounds
-                        if (region_x + region_width <= frame_width and
-                            region_y + region_height <= frame_height):
-                            region_detected = True
-
-                            logger.debug(
-                                f"✓ Region detected: '{active_config.name}' at ({region_x},{region_y}) "
-                                f"size {region_width}x{region_height} (frame: {frame_width}x{frame_height})"
+                        # Draw visual indicator ONLY when object detection is active
+                        # This shows which area CV2 is processing for object detection
+                        if self._object_detection_enabled:
+                            cv2.rectangle(
+                                frame,
+                                (region_x, region_y),
+                                (region_x + region_width, region_y + region_height),
+                                (0, 0, 255),  # Red color in BGR
+                                2  # 2-pixel thickness
                             )
+                    else:
+                        error_msg = (
+                            f"❌ Map config '{active_config.name}' region OUT OF BOUNDS: "
+                            f"region=({region_x},{region_y}) size={region_width}x{region_height}, "
+                            f"frame={frame_width}x{frame_height}. "
+                            f"Region extends beyond frame boundaries."
+                        )
+                        logger.warning(error_msg)
+                        self._set_last_error(
+                            f"Map config '{active_config.name}' region is out of bounds for current frame",
+                            detail=f"Config: ({region_x},{region_y}) {region_width}x{region_height}, Frame: {frame_width}x{frame_height}"
+                        )
+                else:
+                    # No active map config - skip minimap detection
+                    logger.debug("No active map config - minimap detection disabled")
 
-                            # Draw visual indicator ONLY when object detection is active
-                            # This shows which area CV2 is processing for object detection
-                            if self._object_detection_enabled:
-                                cv2.rectangle(
-                                    frame,
-                                    (region_x, region_y),
-                                    (region_x + region_width, region_y + region_height),
-                                    (0, 0, 255),  # Red color in BGR
-                                    2  # 2-pixel thickness
+                # Always use full frame (no cropping) - the red rectangle shows the minimap region
+                height, width = frame.shape[:2]
+
+                # Extract raw minimap crop BEFORE JPEG encoding for truly lossless calibration
+                # Store this separately in frame buffer (~88KB for 340x86, acceptable memory cost)
+                raw_minimap_crop = None
+                if region_detected:
+                    raw_minimap_crop = frame[
+                        region_y:region_y + region_height,
+                        region_x:region_x + region_width
+                    ].copy()  # Copy to prevent reference to full frame
+
+                    logger.debug(
+                        f"📐 MINIMAP EXTRACTED: region=({region_x},{region_y}) "
+                        f"size={region_width}x{region_height} | crop_shape={raw_minimap_crop.shape}"
+                    )
+
+                # Run object detection if enabled (only detects objects within the minimap region)
+                if self._object_detection_enabled and region_detected:
+                    try:
+                        with self._detection_lock:
+                            if self._object_detector:
+                                # Use the raw minimap crop we already extracted
+                                # (no need to extract again, saves CPU cycles)
+
+                                # Run detection
+                                detection_result = self._object_detector.detect(raw_minimap_crop)
+                                self._last_detection_result = detection_result
+
+                                logger.debug(
+                                    f"🔍 DETECTION: player={detection_result.player.detected} "
+                                    f"at ({detection_result.player.x},{detection_result.player.y}) | "
+                                    f"others={detection_result.other_players.count}"
                                 )
-                        else:
-                            error_msg = (
-                                f"❌ Map config '{active_config.name}' region OUT OF BOUNDS: "
-                                f"region=({region_x},{region_y}) size={region_width}x{region_height}, "
-                                f"frame={frame_width}x{frame_height}. "
-                                f"Region extends beyond frame boundaries."
-                            )
-                            logger.warning(error_msg)
-                            self._set_last_error(
-                                f"Map config '{active_config.name}' region is out of bounds for current frame",
-                                detail=f"Config: ({region_x},{region_y}) {region_width}x{region_height}, Frame: {frame_width}x{frame_height}"
-                            )
-                    else:
-                        # No active map config - skip minimap detection
-                        logger.debug("No active map config - minimap detection disabled")
 
-                    # Always use full frame (no cropping) - the red rectangle shows the minimap region
-                    height, width = frame.shape[:2]
+                                # Emit SSE event (if needed)
+                                try:
+                                    from ..events import emit
+                                    emit("OBJECT_DETECTED", detection_result.to_dict())
+                                except Exception:
+                                    pass  # Event emission failure shouldn't break capture
+                    except Exception as det_err:
+                        logger.debug(f"Object detection failed: {det_err}")
 
-                    # Extract raw minimap crop BEFORE JPEG encoding for truly lossless calibration
-                    # Store this separately in frame buffer (~88KB for 340x86, acceptable memory cost)
-                    raw_minimap_crop = None
-                    if region_detected:
-                        raw_minimap_crop = frame[
-                            region_y:region_y + region_height,
-                            region_x:region_x + region_width
-                        ].copy()  # Copy to prevent reference to full frame
+                # Encode as JPEG
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
+                ret, jpeg_data = cv2.imencode('.jpg', frame, encode_param)
 
-                        logger.debug(
-                            f"📐 MINIMAP EXTRACTED: region=({region_x},{region_y}) "
-                            f"size={region_width}x{region_height} | crop_shape={raw_minimap_crop.shape}"
-                        )
+                # Explicitly delete frame to free memory immediately
+                # Each frame is ~6MB for 1920x1080, critical on Raspberry Pi
+                del frame
 
-                    # Run object detection if enabled (only detects objects within the minimap region)
-                    if self._object_detection_enabled and region_detected:
-                        try:
-                            with self._detection_lock:
-                                if self._object_detector:
-                                    # Use the raw minimap crop we already extracted
-                                    # (no need to extract again, saves CPU cycles)
+                if not ret or jpeg_data is None:
+                    self._frames_failed += 1
+                    logger.warning("Failed to encode frame as JPEG")
+                    self._set_last_error("Failed to encode frame as JPEG")
+                    continue
 
-                                    # Run detection
-                                    detection_result = self._object_detector.detect(raw_minimap_crop)
-                                    self._last_detection_result = detection_result
+                # Convert to bytes
+                jpeg_bytes = jpeg_data.tobytes()
 
-                                    logger.debug(
-                                        f"🔍 DETECTION: player={detection_result.player.detected} "
-                                        f"at ({detection_result.player.x},{detection_result.player.y}) | "
-                                        f"others={detection_result.other_players.count}"
-                                    )
+                # Explicitly delete jpeg_data to free memory immediately
+                # JPEG numpy array is ~1MB, needs immediate cleanup on Pi
+                del jpeg_data
 
-                                    # Emit SSE event (if needed)
-                                    try:
-                                        from ..events import emit
-                                        emit("OBJECT_DETECTED", detection_result.to_dict())
-                                    except Exception:
-                                        pass  # Event emission failure shouldn't break capture
-                        except Exception as det_err:
-                            logger.debug(f"Object detection failed: {det_err}")
+                timestamp = time.time()
 
-                    # Encode as JPEG
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
-                    ret, jpeg_data = cv2.imencode('.jpg', frame, encode_param)
+                # Store in buffer with region metadata AND raw minimap crop
+                # The raw crop enables truly lossless calibration (no JPEG artifacts)
+                self.frame_buffer.update(
+                    jpeg_bytes,
+                    width,
+                    height,
+                    timestamp=timestamp,
+                    region_detected=region_detected,
+                    region_x=region_x,
+                    region_y=region_y,
+                    region_width=region_width,
+                    region_height=region_height,
+                    raw_minimap_crop=raw_minimap_crop
+                )
 
-                    # Explicitly delete frame to free memory immediately
-                    # Each frame is ~6MB for 1920x1080, critical on Raspberry Pi
-                    del frame
+                # Write to shared filesystem location for cross-process access
+                self._write_shared_frame(
+                    jpeg_bytes,
+                    width,
+                    height,
+                    timestamp,
+                    region_detected=region_detected,
+                    region_x=region_x,
+                    region_y=region_y,
+                    region_width=region_width,
+                    region_height=region_height
+                )
 
-                    if not ret or jpeg_data is None:
-                        self._frames_failed += 1
-                        logger.warning("Failed to encode frame as JPEG")
-                        self._set_last_error("Failed to encode frame as JPEG")
-                        continue
+                self._frames_captured += 1
+                self._last_frame_time = timestamp
+                self._clear_last_error()
 
-                    # Convert to bytes
-                    jpeg_bytes = jpeg_data.tobytes()
-
-                    # Explicitly delete jpeg_data to free memory immediately
-                    # JPEG numpy array is ~1MB, needs immediate cleanup on Pi
-                    del jpeg_data
-
-                    timestamp = time.time()
-
-                    # Store in buffer with region metadata AND raw minimap crop
-                    # The raw crop enables truly lossless calibration (no JPEG artifacts)
-                    self.frame_buffer.update(
-                        jpeg_bytes,
-                        width,
-                        height,
-                        timestamp=timestamp,
-                        region_detected=region_detected,
-                        region_x=region_x,
-                        region_y=region_y,
-                        region_width=region_width,
-                        region_height=region_height,
-                        raw_minimap_crop=raw_minimap_crop
-                    )
-
-                    # Write to shared filesystem location for cross-process access
-                    self._write_shared_frame(
-                        jpeg_bytes,
-                        width,
-                        height,
-                        timestamp,
-                        region_detected=region_detected,
-                        region_x=region_x,
-                        region_y=region_y,
-                        region_width=region_width,
-                        region_height=region_height
-                    )
-
-                    self._frames_captured += 1
-                    self._last_frame_time = timestamp
-                    self._clear_last_error()
-
-                    # Reset error counter on successful frame capture
-                    consecutive_errors = 0
-
-                    # Health logging: Log every 100 frames to confirm loop is alive
-                    if self._frames_captured % 100 == 0:
-                        logger.info(
-                            f"📊 Capture health: {self._frames_captured} frames captured, "
-                            f"{self._frames_failed} failed"
-                        )
-
-                    # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
-                    # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
-                    # BUT: Skip sleep if immediate capture was requested (e.g., after config change)
-                    if self._immediate_capture_requested.is_set():
-                        logger.debug("Immediate capture requested - skipping sleep for immediate next frame")
-                        self._immediate_capture_requested.clear()
-                    else:
-                        time.sleep(0.5)  # 2 FPS capture rate
+                # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
+                # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
+                # BUT: Skip sleep if immediate capture was requested (e.g., after config change)
+                if self._immediate_capture_requested.is_set():
+                    logger.debug("Immediate capture requested - skipping sleep for immediate next frame")
+                    self._immediate_capture_requested.clear()
+                else:
+                    time.sleep(0.5)  # 2 FPS capture rate
 
                 except Exception as e:
-                    consecutive_errors += 1
                     self._frames_failed += 1
-                    logger.error(
-                        f"Error in capture loop ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}",
-                        exc_info=True
-                    )
+                    logger.error(f"Error in capture loop: {e}", exc_info=True)
                     self._set_last_error("Unexpected error in capture loop", exception=e)
-
-                    # Circuit breaker: exit loop if too many consecutive errors
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        logger.critical(
-                            f"❌ CIRCUIT BREAKER: {MAX_CONSECUTIVE_ERRORS} consecutive errors - "
-                            "exiting capture loop to prevent infinite error loop"
-                        )
-                        self._set_last_error(
-                            f"Capture loop failed with {MAX_CONSECUTIVE_ERRORS} consecutive errors"
-                        )
-                        break
-
                     time.sleep(0.5)
 
         finally:
