@@ -146,16 +146,28 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
       });
 
       const result = await response.json();
-      
+
       if (!result.success) {
-        throw new Error(result.error || "Calibration failed");
+        // Provide detailed error with troubleshooting hints
+        let errorMsg = result.error || "Calibration failed";
+
+        // Add helpful context based on error type
+        if (errorMsg.includes("samples")) {
+          errorMsg += ". Make sure you clicked on the correct color pixels.";
+        } else if (errorMsg.includes("decode")) {
+          errorMsg += ". Try refreshing the frame and collecting samples again.";
+        } else if (!result.error) {
+          errorMsg = "Calibration failed. Check that you clicked on the target color (not background).";
+        }
+
+        throw new Error(errorMsg);
       }
 
       setCalibrationResult(result);
       setStep("preview");
     } catch (err) {
       setError(err.message);
-      console.error("Calibration failed:", err);
+      console.error("Calibration failed:", err, "Server response:", result);
     } finally {
       setLoading(false);
     }
@@ -189,7 +201,19 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
       const result = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || "Failed to apply config");
+        // Provide detailed error with troubleshooting hints
+        let errorMsg = result.error || "Failed to apply config";
+
+        // Add context based on error type
+        if (errorMsg.includes("validation")) {
+          errorMsg += ". The calculated HSV values are invalid. Try recalibrating with different samples.";
+        } else if (errorMsg.includes("not initialized")) {
+          errorMsg += ". Start object detection first from the Object Detection tab.";
+        } else if (!result.error) {
+          errorMsg = "Failed to apply calibration config. Check daemon logs for details.";
+        }
+
+        throw new Error(errorMsg);
       }
 
       // Auto-save config to disk for persistence across daemon restarts

@@ -841,7 +841,7 @@ class CVCapture:
     def enable_object_detection(self, config: Optional[Dict[str, Any]] = None) -> None:
         """
         Enable object detection on minimap frames.
-        
+
         Args:
             config: Optional detector configuration dict with keys:
                 - player_hsv_lower: Tuple[int, int, int]
@@ -851,7 +851,7 @@ class CVCapture:
                 - max_blob_size: int
                 - min_circularity: float
                 - temporal_smoothing: bool
-                
+
         If config is None, loads from:
             1. Config file (~/.local/share/msmacro/object_detection_config.json)
             2. Environment variables (MSMACRO_PLAYER_COLOR_*)
@@ -859,9 +859,13 @@ class CVCapture:
         """
         from .object_detection import MinimapObjectDetector, DetectorConfig
         from .detection_config import load_config
-        
+
         try:
+            config_source = "runtime" if config else "file/env/defaults"
+
             if config:
+                logger.info(f"🔍 Enabling object detection with runtime config ({len(config)} params)")
+
                 # Filter config to only include valid DetectorConfig fields
                 valid_fields = {
                     'player_hsv_lower', 'player_hsv_upper', 'other_player_hsv_ranges',
@@ -869,7 +873,7 @@ class CVCapture:
                     'temporal_smoothing', 'smoothing_alpha'
                 }
                 filtered_config = {k: v for k, v in config.items() if k in valid_fields}
-                
+
                 # Convert nested lists to tuples for hsv ranges
                 if 'player_hsv_lower' in filtered_config:
                     filtered_config['player_hsv_lower'] = tuple(filtered_config['player_hsv_lower'])
@@ -880,27 +884,60 @@ class CVCapture:
                         (tuple(lower), tuple(upper))
                         for lower, upper in filtered_config['other_player_hsv_ranges']
                     ]
-                
+
                 detector_config = DetectorConfig(**filtered_config)
             else:
+                logger.info("🔍 Enabling object detection with default config loader")
                 # Load from config file/env/defaults
                 detector_config = load_config()
-            
+
+            # Log detector configuration
+            logger.info(
+                f"Detector config: "
+                f"player_hsv={detector_config.player_hsv_lower}-{detector_config.player_hsv_upper} | "
+                f"blob_size={detector_config.min_blob_size}-{detector_config.max_blob_size} | "
+                f"circularity={detector_config.min_circularity:.2f}/{detector_config.min_circularity_other:.2f} | "
+                f"smoothing={'ON' if detector_config.temporal_smoothing else 'OFF'}"
+            )
+
             with self._detection_lock:
                 self._object_detector = MinimapObjectDetector(detector_config)
                 self._object_detection_enabled = True
-                logger.info("Object detection enabled")
+
+            logger.info(
+                f"✓ Object detection enabled (source={config_source}) | "
+                f"target_fps=2 (runs every 0.5s with capture loop)"
+            )
         except Exception as e:
-            logger.error(f"Failed to enable object detection: {e}", exc_info=True)
+            logger.error(f"❌ Failed to enable object detection: {e}", exc_info=True)
             raise CVCaptureError(f"Failed to enable object detection: {e}")
     
     def disable_object_detection(self) -> None:
         """Disable object detection."""
+        # Get performance stats before clearing detector
+        stats = None
         with self._detection_lock:
+            if self._object_detector:
+                try:
+                    stats = self._object_detector.get_performance_stats()
+                except Exception:
+                    pass  # Ignore stats errors during shutdown
+
             self._object_detection_enabled = False
             self._object_detector = None
             self._last_detection_result = None
-            logger.info("Object detection disabled")
+
+        # Log stats if available
+        if stats and stats.get('count', 0) > 0:
+            logger.info(
+                f"🔴 Object detection disabled | "
+                f"stats: {stats['count']} detections, "
+                f"avg={stats['avg_ms']:.1f}ms, "
+                f"max={stats['max_ms']:.1f}ms, "
+                f"min={stats['min_ms']:.1f}ms"
+            )
+        else:
+            logger.info("🔴 Object detection disabled (no detection stats)")
     
     def get_last_detection_result(self) -> Optional[Dict[str, Any]]:
         """

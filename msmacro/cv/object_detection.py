@@ -395,55 +395,105 @@ class MinimapObjectDetector:
     def visualize(self, frame: np.ndarray, result: DetectionResult) -> np.ndarray:
         """
         Draw detection results on frame for debugging.
-        
+
         Args:
             frame: Original BGR frame
             result: Detection result
-        
-        Returns:
-            Frame with detection visualization
-        """
-        vis = frame.copy()
-        
-        # Draw player
-        if result.player.detected:
-            x, y = result.player.x, result.player.y
-            
-            # Draw crosshair
-            cv2.drawMarker(vis, (x, y), (0, 255, 255), 
-                          markerType=cv2.MARKER_CROSS, 
-                          markerSize=10, thickness=2)
-            
-            # Draw circle
-            cv2.circle(vis, (x, y), 8, (0, 255, 255), 2)
-            
-            # Draw label
-            label = f"Player ({x},{y}) {result.player.confidence:.2f}"
-            cv2.putText(vis, label,
-                       (x + 12, y - 12),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-        
-        # Draw other players
-        if result.other_players.detected:
-            # Draw each other player position as red circle
-            for x, y in result.other_players.positions:
-                cv2.circle(vis, (x, y), 6, (0, 0, 255), 2)  # Red circle
-                cv2.drawMarker(vis, (x, y), (0, 0, 255),
-                              markerType=cv2.MARKER_CROSS,
-                              markerSize=8, thickness=1)
 
-            # Draw count label
-            label = f"Other Players: {result.other_players.count}"
-            cv2.putText(vis, label,
-                       (10, 20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-        
-        # Draw frame count
-        cv2.putText(vis, f"Frame: {self._detection_count}",
-                   (10, vis.shape[0] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-        
-        return vis
+        Returns:
+            Frame with detection visualization (returns original frame copy on error)
+        """
+        try:
+            # Validate inputs
+            if frame is None or frame.size == 0:
+                logger.error("visualize() called with null or empty frame")
+                return np.zeros((100, 100, 3), dtype=np.uint8)  # Return blank frame
+
+            if result is None:
+                logger.error("visualize() called with null result")
+                return frame.copy()
+
+            vis = frame.copy()
+            frame_height, frame_width = vis.shape[:2]
+
+            # Draw player
+            if result.player.detected:
+                x, y = result.player.x, result.player.y
+
+                # Validate coordinates are within frame bounds
+                if not (0 <= x < frame_width and 0 <= y < frame_height):
+                    logger.warning(
+                        f"Player position ({x},{y}) out of frame bounds ({frame_width}x{frame_height}) - "
+                        f"skipping visualization"
+                    )
+                else:
+                    # Draw crosshair
+                    cv2.drawMarker(vis, (x, y), (0, 255, 255),
+                                  markerType=cv2.MARKER_CROSS,
+                                  markerSize=10, thickness=2)
+
+                    # Draw circle
+                    cv2.circle(vis, (x, y), 8, (0, 255, 255), 2)
+
+                    # Draw label
+                    label = f"Player ({x},{y}) {result.player.confidence:.2f}"
+                    cv2.putText(vis, label,
+                               (x + 12, y - 12),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+
+            # Draw other players
+            if result.other_players.detected:
+                valid_positions = []
+                invalid_positions = []
+
+                # Validate all positions first
+                for x, y in result.other_players.positions:
+                    if 0 <= x < frame_width and 0 <= y < frame_height:
+                        valid_positions.append((x, y))
+                    else:
+                        invalid_positions.append((x, y))
+
+                # Log invalid positions
+                if invalid_positions:
+                    logger.warning(
+                        f"{len(invalid_positions)} other player position(s) out of bounds: "
+                        f"{invalid_positions} (frame: {frame_width}x{frame_height})"
+                    )
+
+                # Draw each valid other player position as red circle
+                for x, y in valid_positions:
+                    cv2.circle(vis, (x, y), 6, (0, 0, 255), 2)  # Red circle
+                    cv2.drawMarker(vis, (x, y), (0, 0, 255),
+                                  markerType=cv2.MARKER_CROSS,
+                                  markerSize=8, thickness=1)
+
+                # Draw count label
+                label = f"Other Players: {result.other_players.count}"
+                cv2.putText(vis, label,
+                           (10, 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+            # Draw frame count
+            cv2.putText(vis, f"Frame: {self._detection_count}",
+                       (10, vis.shape[0] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+            return vis
+
+        except Exception as e:
+            logger.error(
+                f"Visualization failed: {e} | "
+                f"frame_shape={frame.shape if frame is not None else 'None'} | "
+                f"player_detected={result.player.detected if result else 'N/A'} | "
+                f"player_pos=({result.player.x},{result.player.y}) if result and result.player.detected else 'N/A'}",
+                exc_info=True
+            )
+            # Return original frame copy to prevent cascading failures
+            try:
+                return frame.copy() if frame is not None else np.zeros((100, 100, 3), dtype=np.uint8)
+            except:
+                # Ultimate fallback
+                return np.zeros((100, 100, 3), dtype=np.uint8)
     
     def get_debug_masks(self, frame: np.ndarray) -> Dict[str, np.ndarray]:
         """

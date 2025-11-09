@@ -197,6 +197,16 @@ class CVCommandHandler:
                     logger.info(f"Active config '{active_config.name}' detected, waiting for raw minimap...")
                     for attempt in range(30):  # 30 x 0.1s = 3 seconds
                         await asyncio.sleep(0.1)
+
+                        # Check if capture is still running (early abort if stopped)
+                        current_status = capture.get_status()
+                        if not current_status.get('capturing'):
+                            logger.warning(
+                                f"Capture stopped during auto-wait (attempt {attempt + 1}/30) - "
+                                f"aborting minimap wait"
+                            )
+                            break
+
                         minimap_result = capture.get_raw_minimap()
                         if minimap_result is not None:
                             logger.info(f"Raw minimap available after {(attempt + 1) * 0.1:.1f}s")
@@ -555,98 +565,149 @@ class CVCommandHandler:
     async def object_detection_calibrate(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
         Auto-calibrate HSV ranges from user clicks on frames.
-        
+
         Args:
             msg: IPC message with:
                 - color_type: "player" or "other_player"
                 - samples: List of {frame_base64, x, y} dicts
                   Note: frame_base64 contains ONLY the minimap region (cropped)
                   Note: x, y are relative to minimap top-left (0, 0)
-        
+
         Returns:
             Dictionary with calibrated HSV ranges and preview mask
         """
         import base64
         import cv2
         import numpy as np
-        
+        import time
+
+        calibration_start = time.perf_counter()
+
         try:
             color_type = msg.get("color_type", "player")
             samples = msg.get("samples", [])
-            
+
+            logger.info(
+                f"🎨 Starting calibration for '{color_type}' with {len(samples)} sample(s)"
+            )
+
             if not samples or len(samples) < 3:
+                logger.warning(f"Insufficient samples: need ≥3, got {len(samples)}")
                 return {"success": False, "error": "Need at least 3 samples"}
-            
+
             hsv_samples = []
-            
+            sample_coords = []
+            skipped_samples = 0
+
             # Process each sample
-            for sample in samples:
+            for i, sample in enumerate(samples, 1):
                 frame_b64 = sample.get("frame")
                 x = sample.get("x")
                 y = sample.get("y")
-                
+
                 if not frame_b64 or x is None or y is None:
+                    logger.debug(f"Sample {i}/{len(samples)}: skipped (missing data)")
+                    skipped_samples += 1
                     continue
-                
+
                 # Decode frame
                 img_bytes = base64.b64decode(frame_b64)
                 img_array = np.frombuffer(img_bytes, dtype=np.uint8)
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                
+
                 if frame_bgr is None:
+                    logger.debug(f"Sample {i}/{len(samples)}: skipped (decode failed)")
+                    skipped_samples += 1
                     continue
-                
+
                 # Sample 3x3 region around click
                 h, w = frame_bgr.shape[:2]
                 y1 = max(0, y - 1)
                 y2 = min(h, y + 2)
                 x1 = max(0, x - 1)
                 x2 = min(w, x + 2)
-                
+
                 region = frame_bgr[y1:y2, x1:x2]
                 if region.size == 0:
-                    logger.debug("Skipped calibration sample with empty region at (%s,%s)", x, y)
+                    logger.debug(f"Sample {i}/{len(samples)}: skipped (empty region at {x},{y})")
+                    skipped_samples += 1
                     continue
 
                 hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+                pixels_before = len(hsv_samples)
                 hsv_samples.extend(hsv_region.reshape(-1, 3))
-            
+                pixels_added = len(hsv_samples) - pixels_before
+
+                sample_coords.append((x, y))
+                logger.debug(
+                    f"Sample {i}/{len(samples)}: ({x},{y}) frame={w}x{h}, "
+                    f"region={x1}:{x2},{y1}:{y2}, pixels={pixels_added}"
+                )
+
             if not hsv_samples:
+                logger.error("All samples failed to process - no valid HSV data collected")
                 return {"success": False, "error": "No valid samples collected"}
-            
+
+            logger.info(
+                f"📊 Collected {len(hsv_samples)} HSV pixels from {len(samples) - skipped_samples}/{len(samples)} samples | "
+                f"coords={sample_coords}"
+            )
+
             # Calculate percentile ranges (5th to 95th percentile)
             hsv_array = np.array(hsv_samples)
             hsv_min = np.percentile(hsv_array, 5, axis=0)
             hsv_max = np.percentile(hsv_array, 95, axis=0)
-            
+
+            logger.debug(
+                f"Percentiles (5th-95th): H=[{hsv_min[0]:.1f}, {hsv_max[0]:.1f}], "
+                f"S=[{hsv_min[1]:.1f}, {hsv_max[1]:.1f}], "
+                f"V=[{hsv_min[2]:.1f}, {hsv_max[2]:.1f}]"
+            )
+
             # Add 20% margin for robustness
             margin = (hsv_max - hsv_min) * 0.2
             hsv_lower = np.maximum(hsv_min - margin, [0, 0, 0])
             hsv_upper = np.minimum(hsv_max + margin, [179, 255, 255])
-            
+
+            logger.debug(
+                f"Margin (20%): H={margin[0]:.1f}, S={margin[1]:.1f}, V={margin[2]:.1f}"
+            )
+
             # Generate preview mask using latest frame
             preview_b64 = samples[-1].get("frame")
             img_bytes = base64.b64decode(preview_b64)
             img_array = np.frombuffer(img_bytes, dtype=np.uint8)
             preview_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            
+
             hsv_frame = cv2.cvtColor(preview_frame, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv_frame, hsv_lower.astype(np.uint8), hsv_upper.astype(np.uint8))
-            
+
+            # Calculate mask coverage
+            mask_coverage = (np.count_nonzero(mask) / mask.size) * 100
+
             # Encode mask as PNG
             _, mask_png = cv2.imencode('.png', mask)
             mask_b64 = base64.b64encode(mask_png.tobytes()).decode('ascii')
-            
-            logger.info(f"Calibrated {color_type}: HSV lower={hsv_lower.astype(int).tolist()}, upper={hsv_upper.astype(int).tolist()}")
-            
+
+            elapsed_ms = (time.perf_counter() - calibration_start) * 1000.0
+
+            logger.info(
+                f"✓ Calibrated '{color_type}' in {elapsed_ms:.1f}ms | "
+                f"HSV lower={hsv_lower.astype(int).tolist()}, "
+                f"upper={hsv_upper.astype(int).tolist()} | "
+                f"preview_mask_coverage={mask_coverage:.1f}%"
+            )
+
             return {
                 "success": True,
                 "color_type": color_type,
                 "hsv_lower": hsv_lower.astype(int).tolist(),
                 "hsv_upper": hsv_upper.astype(int).tolist(),
-                "preview_mask": mask_b64
+                "preview_mask": mask_b64,
+                "sample_count": len(samples) - skipped_samples,
+                "pixel_count": len(hsv_samples)
             }
-            
+
         except Exception as e:
-            logger.error(f"Calibration failed: {e}", exc_info=True)
+            logger.error(f"❌ Calibration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}

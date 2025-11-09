@@ -61,14 +61,75 @@ def load_config() -> DetectorConfig:
 
 def save_config(config: DetectorConfig, metadata: Optional[Dict[str, Any]] = None) -> None:
     """
-    Save detector configuration to file.
-    
+    Save detector configuration to file with comprehensive validation.
+
     Args:
         config: DetectorConfig to save
         metadata: Optional metadata (e.g., calibration_source, timestamp)
+
+    Raises:
+        ValueError: If config validation fails
+        IOError: If file write fails
     """
     config_path = get_config_path()
-    
+
+    # === VALIDATION PHASE ===
+    validation_errors = []
+
+    # Validate player HSV ranges
+    try:
+        _validate_hsv_range(
+            config.player_hsv_lower,
+            config.player_hsv_upper,
+            "player"
+        )
+    except ValueError as e:
+        validation_errors.append(f"Player HSV: {e}")
+
+    # Validate other_player HSV ranges
+    if config.other_player_hsv_ranges:
+        for i, (lower, upper) in enumerate(config.other_player_hsv_ranges):
+            try:
+                _validate_hsv_range(lower, upper, f"other_player[{i}]")
+            except ValueError as e:
+                validation_errors.append(f"Other player [{i}] HSV: {e}")
+    else:
+        validation_errors.append("other_player_hsv_ranges cannot be empty")
+
+    # Validate blob size parameters
+    if config.min_blob_size <= 0:
+        validation_errors.append(f"min_blob_size must be > 0 (got {config.min_blob_size})")
+    if config.max_blob_size <= 0:
+        validation_errors.append(f"max_blob_size must be > 0 (got {config.max_blob_size})")
+    if config.min_blob_size >= config.max_blob_size:
+        validation_errors.append(
+            f"min_blob_size ({config.min_blob_size}) must be < "
+            f"max_blob_size ({config.max_blob_size})"
+        )
+
+    # Validate circularity parameters
+    if not (0.0 <= config.min_circularity <= 1.0):
+        validation_errors.append(
+            f"min_circularity must be 0.0-1.0 (got {config.min_circularity})"
+        )
+    if not (0.0 <= config.min_circularity_other <= 1.0):
+        validation_errors.append(
+            f"min_circularity_other must be 0.0-1.0 (got {config.min_circularity_other})"
+        )
+
+    # Validate smoothing alpha
+    if not (0.0 <= config.smoothing_alpha <= 1.0):
+        validation_errors.append(
+            f"smoothing_alpha must be 0.0-1.0 (got {config.smoothing_alpha})"
+        )
+
+    # If validation failed, raise error with all issues
+    if validation_errors:
+        error_msg = "Config validation failed:\n" + "\n".join(f"  - {e}" for e in validation_errors)
+        logger.error(f"❌ {error_msg}")
+        raise ValueError(error_msg)
+
+    # === SAVE PHASE ===
     # Build config dict with nested structure
     config_dict = {
         "enabled": True,  # If we're saving config, assume detection should be enabled
@@ -96,18 +157,75 @@ def save_config(config: DetectorConfig, metadata: Optional[Dict[str, Any]] = Non
             "alpha": config.smoothing_alpha
         }
     }
-    
+
     # Add metadata if provided
     if metadata:
-        config_dict.update(metadata)
-    
+        config_dict["metadata"] = metadata
+
     try:
-        with open(config_path, 'w') as f:
+        # Atomic write (temp file + rename)
+        temp_path = config_path.with_suffix('.json.tmp')
+        with open(temp_path, 'w') as f:
             json.dump(config_dict, f, indent=2)
-        logger.info(f"Saved object detection config to {config_path}")
+        temp_path.replace(config_path)
+
+        logger.info(
+            f"✓ Saved object detection config to {config_path} | "
+            f"player_hsv={config.player_hsv_lower}-{config.player_hsv_upper} | "
+            f"blob_size={config.min_blob_size}-{config.max_blob_size}"
+        )
     except Exception as e:
         logger.error(f"Failed to save config to {config_path}: {e}", exc_info=True)
-        raise
+        raise IOError(f"Failed to save config: {e}") from e
+
+
+def _validate_hsv_range(
+    lower: Tuple[int, int, int],
+    upper: Tuple[int, int, int],
+    name: str
+) -> None:
+    """
+    Validate HSV color range values.
+
+    Args:
+        lower: (h_min, s_min, v_min)
+        upper: (h_max, s_max, v_max)
+        name: Range name for error messages
+
+    Raises:
+        ValueError: If validation fails
+    """
+    if len(lower) != 3:
+        raise ValueError(f"{name} hsv_lower must have 3 values (got {len(lower)})")
+    if len(upper) != 3:
+        raise ValueError(f"{name} hsv_upper must have 3 values (got {len(upper)})")
+
+    h_min, s_min, v_min = lower
+    h_max, s_max, v_max = upper
+
+    # Hue: 0-179 (OpenCV uses 0-179, not 0-360)
+    if not (0 <= h_min <= 179):
+        raise ValueError(f"h_min must be 0-179 (got {h_min})")
+    if not (0 <= h_max <= 179):
+        raise ValueError(f"h_max must be 0-179 (got {h_max})")
+
+    # Saturation: 0-255
+    if not (0 <= s_min <= 255):
+        raise ValueError(f"s_min must be 0-255 (got {s_min})")
+    if not (0 <= s_max <= 255):
+        raise ValueError(f"s_max must be 0-255 (got {s_max})")
+
+    # Value: 0-255
+    if not (0 <= v_min <= 255):
+        raise ValueError(f"v_min must be 0-255 (got {v_min})")
+    if not (0 <= v_max <= 255):
+        raise ValueError(f"v_max must be 0-255 (got {v_max})")
+
+    # Range checks (lower < upper), except for hue which can wrap around
+    if s_min > s_max:
+        raise ValueError(f"s_min ({s_min}) must be <= s_max ({s_max})")
+    if v_min > v_max:
+        raise ValueError(f"v_min ({v_min}) must be <= v_max ({v_max})")
 
 
 def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:

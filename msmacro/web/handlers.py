@@ -1293,11 +1293,38 @@ async def api_cv_detection_preview(request: web.Request):
         from msmacro.cv.capture import get_capture_instance
         capture = get_capture_instance()
 
+        # Provide detailed error context based on detection state
         if not hasattr(capture, '_object_detector') or capture._object_detector is None:
-            return web.Response(status=404, text="Object detector not initialized")
+            # Check if detection was ever enabled
+            enabled = getattr(capture, '_object_detection_enabled', False)
+
+            if not enabled:
+                # Detection never started - user action required
+                log.debug("Detection preview failed: detection not started")
+                return web.Response(
+                    status=404,
+                    text="Object detection not started. Use POST /api/cv/object-detection/start to enable detection."
+                )
+            else:
+                # Detection enabled but detector is None - this is an error state
+                log.error(
+                    "Detection preview failed: detector is None despite enabled=True "
+                    "(possible initialization failure)"
+                )
+                return web.Response(
+                    status=500,
+                    text="Object detector initialization failed. Check daemon logs for details."
+                )
 
         # Visualize detection on minimap
-        visualized = capture._object_detector.visualize(minimap_frame, result)
+        try:
+            visualized = capture._object_detector.visualize(minimap_frame, result)
+        except Exception as viz_err:
+            log.error(f"Detection visualization failed: {viz_err}", exc_info=True)
+            return web.Response(
+                status=500,
+                text=f"Visualization error: {viz_err}"
+            )
 
         # Encode as PNG
         ret, png_data = cv2.imencode('.png', visualized)
