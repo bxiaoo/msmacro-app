@@ -1785,10 +1785,11 @@ async def api_departure_points_status(request: web.Request):
         # Get current player position from daemon
         try:
             detection_result = await _daemon("object_detection_status")
-            player_pos = detection_result.get("player_position", {})
-            player_detected = player_pos.get("detected", False)
-            current_x = player_pos.get("x", 0)
-            current_y = player_pos.get("y", 0)
+            last_result = detection_result.get("last_result") or {}
+            player_data = last_result.get("player") or {}
+            player_detected = player_data.get("detected", False)
+            current_x = player_data.get("x", 0)
+            current_y = player_data.get("y", 0)
         except Exception as e:
             log.warning(f"Failed to get player position: {e}")
             player_detected = False
