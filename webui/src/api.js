@@ -337,3 +337,22 @@ async function API(path, opts = {}) {
       body: JSON.stringify({ filename, metadata })
     });
   }
+
+  export function listCalibrationSamples() {
+    return API("/api/cv/calibration-samples");
+  }
+
+  export function getCalibrationSampleURL(filename) {
+    return `/api/cv/calibration-sample/${encodeURIComponent(filename)}`;
+  }
+
+  export function downloadAllCalibrationSamples() {
+    // Trigger browser download by opening URL
+    window.location.href = "/api/cv/calibration-samples/download-zip";
+  }
+
+  export function deleteCalibrationSample(filename) {
+    return API(`/api/cv/calibration-sample/${encodeURIComponent(filename)}`, {
+      method: "DELETE"
+    });
+  }

@@ -1085,6 +1085,190 @@ async def api_save_calibration_sample(request: web.Request):
         return _json({"error": str(e), "success": False}, 500)
 
 
+async def api_list_calibration_samples(request: web.Request):
+    """
+    List all calibration samples with metadata.
+
+    Returns:
+        JSON with:
+            samples: List of sample objects with:
+                - filename: Sample PNG filename
+                - path: Absolute path
+                - size_bytes: File size
+                - timestamp: Creation timestamp
+                - metadata: Sample metadata if available
+    """
+    from pathlib import Path
+    from ..utils.config import DEFAULT_CALIBRATION_DIR
+    import json
+    import os
+
+    try:
+        samples_dir = Path(DEFAULT_CALIBRATION_DIR) / "minimap_samples"
+        if not samples_dir.exists():
+            return _json({"samples": []})
+
+        samples = []
+        for png_file in sorted(samples_dir.glob("*.png")):
+            meta_file = png_file.with_suffix("").with_suffix(".png").parent / f"{png_file.stem}_meta.json"
+
+            sample_info = {
+                "filename": png_file.name,
+                "path": str(png_file.absolute()),
+                "size_bytes": png_file.stat().st_size,
+                "timestamp": png_file.stat().st_mtime
+            }
+
+            # Load metadata if available
+            if meta_file.exists():
+                try:
+                    with open(meta_file, 'r') as f:
+                        sample_info["metadata"] = json.load(f)
+                except Exception as e:
+                    log.warning(f"Failed to load metadata for {png_file.name}: {e}")
+                    sample_info["metadata"] = None
+
+            samples.append(sample_info)
+
+        return _json({"samples": samples})
+    except Exception as e:
+        log.error(f"Failed to list calibration samples: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_get_calibration_sample(request: web.Request):
+    """
+    Download a specific calibration sample PNG.
+
+    URL Parameter:
+        filename: Sample filename (e.g., sample_20250109_143022.png)
+
+    Returns:
+        PNG file with appropriate headers
+    """
+    from pathlib import Path
+    from ..utils.config import DEFAULT_CALIBRATION_DIR
+
+    filename = request.match_info.get('filename')
+    if not filename:
+        return _json({"error": "Filename required"}, 400)
+
+    # Security: prevent directory traversal
+    if '..' in filename or '/' in filename:
+        return _json({"error": "Invalid filename"}, 400)
+
+    try:
+        samples_dir = Path(DEFAULT_CALIBRATION_DIR) / "minimap_samples"
+        sample_path = samples_dir / filename
+
+        if not sample_path.exists():
+            return _json({"error": "Sample not found"}, 404)
+
+        # Read PNG file
+        with open(sample_path, 'rb') as f:
+            png_data = f.read()
+
+        return web.Response(
+            body=png_data,
+            content_type="image/png",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(png_data))
+            }
+        )
+    except Exception as e:
+        log.error(f"Failed to get calibration sample: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_download_all_calibration_samples(request: web.Request):
+    """
+    Download all calibration samples as a ZIP file.
+
+    Returns:
+        ZIP file containing all PNGs and metadata JSONs
+    """
+    from pathlib import Path
+    from ..utils.config import DEFAULT_CALIBRATION_DIR
+    import zipfile
+    import io
+    from datetime import datetime
+
+    try:
+        samples_dir = Path(DEFAULT_CALIBRATION_DIR) / "minimap_samples"
+        if not samples_dir.exists():
+            return _json({"error": "No samples directory found"}, 404)
+
+        # Create ZIP in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Add all PNGs and metadata JSONs
+            for file in samples_dir.glob("*"):
+                if file.suffix in ['.png', '.json']:
+                    zf.write(file, arcname=file.name)
+
+        zip_buffer.seek(0)
+        zip_data = zip_buffer.read()
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"calibration_samples_{timestamp}.zip"
+
+        return web.Response(
+            body=zip_data,
+            content_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{zip_filename}"',
+                "Content-Length": str(len(zip_data))
+            }
+        )
+    except Exception as e:
+        log.error(f"Failed to create ZIP: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_delete_calibration_sample(request: web.Request):
+    """
+    Delete a specific calibration sample (PNG + metadata).
+
+    URL Parameter:
+        filename: Sample filename (e.g., sample_20250109_143022.png)
+
+    Returns:
+        JSON with success status
+    """
+    from pathlib import Path
+    from ..utils.config import DEFAULT_CALIBRATION_DIR
+
+    filename = request.match_info.get('filename')
+    if not filename:
+        return _json({"error": "Filename required"}, 400)
+
+    # Security: prevent directory traversal
+    if '..' in filename or '/' in filename:
+        return _json({"error": "Invalid filename"}, 400)
+
+    try:
+        samples_dir = Path(DEFAULT_CALIBRATION_DIR) / "minimap_samples"
+        sample_path = samples_dir / filename
+
+        if not sample_path.exists():
+            return _json({"error": "Sample not found"}, 404)
+
+        # Delete PNG
+        sample_path.unlink()
+
+        # Delete metadata JSON if exists
+        meta_file = sample_path.with_suffix("").with_suffix(".png").parent / f"{sample_path.stem}_meta.json"
+        if meta_file.exists():
+            meta_file.unlink()
+
+        return _json({"success": True, "message": f"Deleted {filename}"})
+    except Exception as e:
+        log.error(f"Failed to delete calibration sample: {e}", exc_info=True)
+        return _json({"error": str(e), "success": False}, 500)
+
+
 async def api_cv_frame_lossless(request: web.Request):
     """
     Serve latest minimap frame as PNG.

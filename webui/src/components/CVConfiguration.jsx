@@ -15,6 +15,7 @@ import {
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Checkbox } from './ui/checkbox'
+import { CalibrationGallery } from './CalibrationGallery'
 
 export function CVConfiguration() {
   // CV status state
@@ -775,6 +776,16 @@ export function CVConfiguration() {
                                 </p>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Calibration Sample Gallery */}
+            {activeConfig && (
+                <div className="space-y-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Calibration Samples</h2>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                        <CalibrationGallery refreshTrigger={sampleCount} />
                     </div>
                 </div>
             )}
