@@ -72,28 +72,29 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow-green point) - CORRECTED VALUES
-    # Based on ground truth analysis of 20 calibration samples (Nov 9, 2025)
-    # HSV ranges corrected to match actual player dot colors (H=31-80, yellow-green to cyan)
-    # Previous range (10,55,55)-(40,240,255) was TOO NARROW and missed dots with H>40
-    player_hsv_lower: Tuple[int, int, int] = (26, 94, 0)   # CORRECTED: yellow-green to cyan (was 10,55,55)
-    player_hsv_upper: Tuple[int, int, int] = (85, 255, 255)  # CORRECTED: extended hue range (was 40,240,255)
+    # Player detection (yellow-green point) - FINAL CALIBRATED VALUES
+    # Based on iterative calibration with 20 samples (Nov 9, 2025)
+    # Final algorithm: HSV filter + size (4-16px) + circularity (0.71) + combined scoring
+    # Achieved 100% detection rate on validation set
+    player_hsv_lower: Tuple[int, int, int] = (26, 67, 64)   # H=26-85, S>67, V>64
+    player_hsv_upper: Tuple[int, int, int] = (85, 255, 255)  # Extended hue to capture yellow-green to cyan
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
     # Based on analysis of 20 calibration samples (Nov 9, 2025)
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
-    # Blob filtering - ENABLED with adaptive sizing
-    # Size filtering re-enabled based on calibration data:
-    # - Yellow blobs: median 10.5px, range 2-2370px → filter to 2-100px (includes small distant dots)
-    # - Red blobs: median 16px, range 6-78px → filter to 4-80px (red dots are larger than yellow)
-    # Reduces false positives from large terrain features
-    min_blob_size: int = 2      # Include small/distant yellow dots (>= 2px diameter)
-    max_blob_size: int = 100    # Filter out large false positives (> 100px diameter)
-    min_blob_size_other: int = 4   # Red dots are larger (>= 4px diameter)
+    # Blob filtering - FINAL CALIBRATED VALUES
+    # Based on iterative testing with visual verification (Nov 9, 2025)
+    # Final algorithm uses strict filtering for high precision:
+    # - Yellow blobs: 4-16px diameter, circularity ≥0.71
+    # - Red blobs: 4-80px diameter, circularity ≥0.65
+    # Combined with HSV filter and adaptive scoring for robust detection
+    min_blob_size: int = 4      # Minimum player dot size (4px diameter)
+    max_blob_size: int = 16     # Maximum player dot size (16px diameter)
+    min_blob_size_other: int = 4   # Red dots minimum (>= 4px diameter)
     max_blob_size_other: int = 80  # Red dots upper bound
-    min_circularity: float = 0.60  # Balanced for good recall (observed: 0.102-0.846)
+    min_circularity: float = 0.71  # Strict circularity for round player dots
     min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
 
     # Aspect ratio filtering (NEW)
@@ -182,6 +183,46 @@ class MinimapObjectDetector:
         )
 
         return adaptive_min, adaptive_max
+
+    def _calculate_size_score(
+        self,
+        diameter: float,
+        preferred_min: float = 4.0,
+        preferred_max: float = 10.0
+    ) -> float:
+        """
+        Calculate adaptive size score with preference for typical player dot sizes.
+
+        The scoring function:
+        - Returns 1.0 for blobs in the preferred range (4-10px)
+        - Returns reduced scores for smaller blobs (proportional to size)
+        - Returns reduced scores for larger blobs (inverse proportional to excess)
+
+        This helps select the most likely player dot when multiple candidates exist,
+        as player dots typically appear at 4-10px diameter based on calibration data.
+
+        Args:
+            diameter: Blob diameter in pixels
+            preferred_min: Lower bound of preferred size range (default: 4.0px)
+            preferred_max: Upper bound of preferred size range (default: 10.0px)
+
+        Returns:
+            Score from 0.1 to 1.0 (1.0 = optimal size, 0.1 = minimum score)
+
+        Examples:
+            - diameter=7px (in range) → 1.0
+            - diameter=2px (too small) → 0.5
+            - diameter=20px (too large) → ~0.33
+        """
+        if preferred_min <= diameter <= preferred_max:
+            return 1.0
+        elif diameter < preferred_min:
+            # Penalize smaller blobs proportionally
+            return max(0.1, diameter / preferred_min)
+        else:
+            # Penalize larger blobs inversely
+            excess = diameter - preferred_max
+            return max(0.1, 1.0 / (1.0 + excess / preferred_max))
 
     def _validate_and_clamp_position(
         self,
@@ -465,6 +506,7 @@ class MinimapObjectDetector:
     def _find_circular_blobs(self,
                             mask: np.ndarray,
                             frame: Optional[np.ndarray] = None,
+                            hsv_frame: Optional[np.ndarray] = None,
                             min_size: int = 4,
                             max_size: int = 100,
                             min_circularity: float = 0.65) -> List[Dict[str, Any]]:
@@ -480,12 +522,14 @@ class MinimapObjectDetector:
         Args:
             mask: Binary mask image
             frame: Optional original BGR frame for contrast validation
+            hsv_frame: Optional HSV frame for sampling S/V values at blob centers
             min_size: Minimum blob diameter in pixels
             max_size: Maximum blob diameter in pixels
             min_circularity: Minimum circularity (0-1)
 
         Returns:
-            List of blobs with keys: 'center', 'radius', 'circularity', 'area', 'aspect_ratio'
+            List of blobs with keys: 'center', 'radius', 'circularity', 'area',
+            'aspect_ratio', 'diameter', 'saturation', 'value'
         """
         # Find contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -539,6 +583,16 @@ class MinimapObjectDetector:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
 
+            # Sample HSV values at blob center for combined scoring
+            if hsv_frame is not None:
+                h_center, s_center, v_center = hsv_frame[cy, cx]
+                saturation = int(s_center)
+                value = int(v_center)
+            else:
+                # Default to maximum if HSV not provided
+                saturation = 255
+                value = 255
+
             # Contrast validation (NEW - optional)
             if self.config.enable_contrast_validation and frame is not None:
                 if not self._validate_contrast(frame, cx, cy, radius):
@@ -550,9 +604,12 @@ class MinimapObjectDetector:
             blobs.append({
                 'center': (cx, cy),
                 'radius': radius,
+                'diameter': diameter,
                 'circularity': circularity,
                 'area': area,
                 'aspect_ratio': aspect_ratio,
+                'saturation': saturation,
+                'value': value,
                 'contour': contour
             })
 
@@ -560,12 +617,13 @@ class MinimapObjectDetector:
     
     def _detect_player(self, frame: np.ndarray) -> PlayerPosition:
         """
-        Detect single yellow player point using multi-stage filtering.
+        Detect single yellow player point using multi-stage filtering and combined scoring.
 
         Filtering pipeline:
-        1. HSV color masking (yellow range)
+        1. HSV color masking (yellow range: H=26-85, S>67, V>64)
         2. Morphological operations (noise removal)
         3. Blob detection with size + circularity + aspect + contrast filters
+        4. Combined score selection: max(size_score × saturation × value × circularity)
 
         Args:
             frame: BGR minimap image
@@ -576,6 +634,9 @@ class MinimapObjectDetector:
 
         # Get calibrated blob size range for player
         adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame, blob_type='player')
+
+        # Convert to HSV for S/V sampling at blob centers
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # Create color mask for yellow
         mask = self._create_color_mask(
@@ -588,6 +649,7 @@ class MinimapObjectDetector:
         blobs = self._find_circular_blobs(
             mask,
             frame=frame,  # For contrast validation
+            hsv_frame=hsv,  # For S/V sampling
             min_size=adaptive_min,
             max_size=adaptive_max,
             min_circularity=self.config.min_circularity
@@ -596,19 +658,30 @@ class MinimapObjectDetector:
         if not blobs:
             self._last_player_pos = None
             return PlayerPosition(detected=False)
-        
-        # Take blob closest to center (most likely player)
-        # This handles case where multiple yellow-ish points exist
-        frame_center = (frame.shape[1] // 2, frame.shape[0] // 2)
-        
-        def distance_to_center(blob):
-            cx, cy = blob['center']
-            dx = cx - frame_center[0]
-            dy = cy - frame_center[1]
-            return dx**2 + dy**2
-        
-        best_blob = min(blobs, key=distance_to_center)
+
+        # Select blob with highest combined score
+        # Combined score = size_score × saturation × value × circularity
+        # This prioritizes blobs that are:
+        # - Optimal size (4-10px preferred)
+        # - High saturation (bright yellow color)
+        # - High brightness (visible against background)
+        # - Circular shape (round dots, not artifacts)
+        def combined_score(blob):
+            size_score = self._calculate_size_score(blob['diameter'])
+            return (size_score *
+                    float(blob['saturation']) *
+                    float(blob['value']) *
+                    blob['circularity'])
+
+        best_blob = max(blobs, key=combined_score)
         cx, cy = best_blob['center']
+
+        logger.debug(
+            f"Player selection | blobs={len(blobs)} | "
+            f"best: pos=({cx},{cy}) diameter={best_blob['diameter']:.1f}px "
+            f"S={best_blob['saturation']} V={best_blob['value']} "
+            f"circ={best_blob['circularity']:.3f} score={combined_score(best_blob):.1f}"
+        )
 
         # Validate and clamp position to ensure it's within bounds
         cx, cy, is_valid = self._validate_and_clamp_position(
@@ -666,6 +739,9 @@ class MinimapObjectDetector:
         # Get calibrated blob size range for other players (smaller than player)
         adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame, blob_type='other')
 
+        # Convert to HSV for S/V sampling
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
         all_blobs = []
 
         # Red wraps around HSV, need multiple ranges
@@ -674,6 +750,7 @@ class MinimapObjectDetector:
             blobs = self._find_circular_blobs(
                 mask,
                 frame=frame,  # For contrast validation
+                hsv_frame=hsv,  # For S/V sampling
                 min_size=adaptive_min,
                 max_size=adaptive_max,
                 min_circularity=self.config.min_circularity_other

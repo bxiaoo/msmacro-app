@@ -237,11 +237,11 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
         player = nested["player"]
         if "color_range" in player:
             cr = player["color_range"]
-            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (26, 94, 0)))     # CORRECTED defaults (Nov 9, 2025)
-            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (85, 255, 255)))   # CORRECTED defaults (Nov 9, 2025)
-        flat["min_blob_size"] = player.get("blob_size_min", 2)
-        flat["max_blob_size"] = player.get("blob_size_max", 100)
-        flat["min_circularity"] = player.get("circularity_min", 0.60)
+            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (26, 67, 64)))     # FINAL CALIBRATED (Nov 9, 2025)
+            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (85, 255, 255)))   # FINAL CALIBRATED (Nov 9, 2025)
+        flat["min_blob_size"] = player.get("blob_size_min", 4)
+        flat["max_blob_size"] = player.get("blob_size_max", 16)
+        flat["min_circularity"] = player.get("circularity_min", 0.71)
     
     # Other players config
     if "other_players" in nested:
@@ -305,14 +305,14 @@ def _load_from_env() -> Dict[str, Any]:
 def _dict_to_config(config_dict: Dict[str, Any]) -> DetectorConfig:
     """Convert flat dict to DetectorConfig instance."""
     return DetectorConfig(
-        player_hsv_lower=config_dict.get("player_hsv_lower", (26, 94, 0)),      # CORRECTED defaults (Nov 9, 2025)
-        player_hsv_upper=config_dict.get("player_hsv_upper", (85, 255, 255)),    # CORRECTED defaults (Nov 9, 2025)
+        player_hsv_lower=config_dict.get("player_hsv_lower", (26, 67, 64)),      # FINAL CALIBRATED (Nov 9, 2025)
+        player_hsv_upper=config_dict.get("player_hsv_upper", (85, 255, 255)),    # FINAL CALIBRATED (Nov 9, 2025)
         other_player_hsv_ranges=config_dict.get("other_player_hsv_ranges", None),
-        min_blob_size=config_dict.get("min_blob_size", 2),
-        max_blob_size=config_dict.get("max_blob_size", 100),
+        min_blob_size=config_dict.get("min_blob_size", 4),
+        max_blob_size=config_dict.get("max_blob_size", 16),
         min_blob_size_other=config_dict.get("min_blob_size_other", 4),
         max_blob_size_other=config_dict.get("max_blob_size_other", 80),
-        min_circularity=config_dict.get("min_circularity", 0.60),
+        min_circularity=config_dict.get("min_circularity", 0.71),
         min_circularity_other=config_dict.get("min_circularity_other", 0.65),
         min_aspect_ratio=config_dict.get("min_aspect_ratio", 0.5),
         max_aspect_ratio=config_dict.get("max_aspect_ratio", 2.0),
