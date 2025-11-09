@@ -139,6 +139,8 @@ class CommandDispatcher:
             return await self.cv_handler.object_detection_calibrate(msg)
         elif cmd == "cv_get_detection_preview":
             return await self.cv_handler.cv_get_detection_preview(msg)
+        elif cmd == "cv_save_calibration_sample":
+            return await self.cv_handler.cv_save_calibration_sample(msg)
 
         # System information commands
         elif cmd == "system_stats":
