@@ -485,7 +485,7 @@ class MinimapObjectDetector:
                 f"Visualization failed: {e} | "
                 f"frame_shape={frame.shape if frame is not None else 'None'} | "
                 f"player_detected={result.player.detected if result else 'N/A'} | "
-                f"player_pos=({result.player.x},{result.player.y}) if result and result.player.detected else 'N/A'}",
+                f"player_pos={f'({result.player.x},{result.player.y})' if (result and result.player.detected) else 'N/A'}",
                 exc_info=True
             )
             # Return original frame copy to prevent cascading failures
