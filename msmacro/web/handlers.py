@@ -1262,15 +1262,38 @@ async def api_cv_detection_preview(request: web.Request):
         # Decode minimap PNG
         import base64, cv2, numpy as np
         minimap_b64 = minimap_result.get("minimap")
+        log.debug(f"Minimap base64 received: length={len(minimap_b64) if minimap_b64 else 0}")
+
         if not minimap_b64:
+            log.error("No minimap base64 data in result")
             return web.Response(status=404, text="No minimap available")
 
-        img_bytes = base64.b64decode(minimap_b64)
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-        minimap_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        # Decode with comprehensive logging and error handling
+        try:
+            log.debug(f"Decoding base64 minimap ({len(minimap_b64)} chars)")
+            img_bytes = base64.b64decode(minimap_b64)
+            log.debug(f"Base64 decoded: {len(img_bytes)} bytes")
 
-        if minimap_frame is None:
-            return web.Response(status=500, text="Failed to decode minimap")
+            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+            log.debug(f"NumPy array created: shape={img_array.shape}, dtype={img_array.dtype}, size={img_array.size}")
+
+            minimap_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+            if minimap_frame is not None:
+                log.debug(f"OpenCV decode SUCCESS: frame_shape={minimap_frame.shape}")
+            else:
+                log.error(
+                    f"❌ cv2.imdecode returned None! | "
+                    f"img_bytes_len={len(img_bytes)} | "
+                    f"img_array_shape={img_array.shape} | "
+                    f"img_array_size={img_array.size} | "
+                    f"img_array_dtype={img_array.dtype}"
+                )
+                return web.Response(status=500, text="Failed to decode minimap PNG")
+
+        except Exception as decode_err:
+            log.error(f"Minimap decode exception: {decode_err}", exc_info=True)
+            return web.Response(status=500, text=f"Decode error: {decode_err}")
 
         # Reconstruct DetectionResult from dict
         from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus
@@ -1278,10 +1301,23 @@ async def api_cv_detection_preview(request: web.Request):
         player_data = last_result.get("player", {})
         other_players_data = last_result.get("other_players", {})
 
-        # Convert positions back to tuples
+        log.debug(
+            f"Reconstructing DetectionResult | "
+            f"player_keys={list(player_data.keys())} | "
+            f"other_players_keys={list(other_players_data.keys())}"
+        )
+
+        # Convert positions back to tuples with validation
         other_positions = []
-        for pos in other_players_data.get("positions", []):
-            other_positions.append((pos['x'], pos['y']))
+        for i, pos in enumerate(other_players_data.get("positions", [])):
+            try:
+                if not isinstance(pos, dict):
+                    log.warning(f"Position {i} is not a dict: {type(pos)}")
+                    continue
+                other_positions.append((pos['x'], pos['y']))
+            except (KeyError, TypeError) as e:
+                log.warning(f"Invalid position {i}: {pos} - {e}")
+                continue
 
         result = DetectionResult(
             player=PlayerPosition(
@@ -1298,9 +1334,23 @@ async def api_cv_detection_preview(request: web.Request):
             timestamp=last_result.get("timestamp", 0.0)
         )
 
+        log.debug(
+            f"DetectionResult reconstructed | "
+            f"player.detected={result.player.detected} | "
+            f"player.pos=({result.player.x},{result.player.y}) | "
+            f"other_players.count={result.other_players.count}"
+        )
+
         # Get detector instance to call visualize
         from msmacro.cv.capture import get_capture_instance
+        log.debug("Accessing detector instance from capture")
         capture = get_capture_instance()
+        log.debug(
+            f"Capture state | "
+            f"has_detector={hasattr(capture, '_object_detector')} | "
+            f"detector_none={getattr(capture, '_object_detector', None) is None} | "
+            f"enabled={getattr(capture, '_object_detection_enabled', False)}"
+        )
 
         # Provide detailed error context based on detection state
         if not hasattr(capture, '_object_detector') or capture._object_detector is None:
@@ -1342,9 +1392,10 @@ async def api_cv_detection_preview(request: web.Request):
             )
 
         # Encode as PNG
+        log.debug(f"Encoding visualized frame | shape={visualized.shape} | dtype={visualized.dtype}")
         ret, png_data = cv2.imencode('.png', visualized)
         if not ret:
-            log.error("Failed to encode visualization as PNG")
+            log.error(f"cv2.imencode FAILED | frame_shape={visualized.shape} | dtype={visualized.dtype}")
             return web.Response(status=500, text="Failed to encode visualization")
 
         metadata = minimap_result.get("metadata", {})
@@ -1356,8 +1407,9 @@ async def api_cv_detection_preview(request: web.Request):
             "X-Minimap-Height": str(metadata.get("region_height", 0)),
         }
 
-        log.debug(f"Serving detection preview with {result.other_players.count} other players")
-        return web.Response(body=png_data.tobytes(), content_type="image/png", headers=headers)
+        png_bytes = png_data.tobytes()
+        log.debug(f"✓ Serving PNG image | size={len(png_bytes)} bytes | content-type=image/png")
+        return web.Response(body=png_bytes, content_type="image/png", headers=headers)
 
     except Exception as e:
         log.error(f"Failed to serve detection preview: {e}", exc_info=True)
