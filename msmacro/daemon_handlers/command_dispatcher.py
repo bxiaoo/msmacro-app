@@ -117,7 +117,9 @@ class CommandDispatcher:
             return await self.cv_handler.cv_stop(msg)
         elif cmd == "cv_get_raw_minimap":
             return await self.cv_handler.cv_get_raw_minimap(msg)
-        
+        elif cmd == "cv_reload_config":
+            return await self.cv_handler.cv_reload_config(msg)
+
         # Object Detection commands
         elif cmd == "object_detection_status":
             return await self.cv_handler.object_detection_status(msg)
