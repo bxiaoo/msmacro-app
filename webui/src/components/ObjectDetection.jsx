@@ -10,9 +10,19 @@ import { CalibrationWizard } from "./CalibrationWizard";
 
 function ObjectDetectionPreview({ lastResult, enabled }) {
   const [imgUrl, setImgUrl] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!enabled) {
+      setImgUrl(null);
+      setError(null);
+      return;
+    }
+
+    // Don't try to fetch if we don't have a detection result yet
+    if (!lastResult) {
+      setError("waiting");
       setImgUrl(null);
       return;
     }
@@ -23,13 +33,68 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     // - Detection confidence labels
     // - Frame count
     const url = `/api/cv/detection-preview?t=${Date.now()}`;
-    setImgUrl(url);
+
+    // Validate the preview is available before setting it
+    setLoading(true);
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          if (response.status === 404) {
+            setError("not_available");
+          } else {
+            setError("error");
+          }
+          setImgUrl(null);
+        } else {
+          setImgUrl(url);
+          setError(null);
+        }
+      })
+      .catch(() => {
+        setError("error");
+        setImgUrl(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [lastResult?.timestamp, enabled]);
 
-  if (!enabled || !imgUrl) {
+  if (!enabled) {
     return (
       <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
         <p className="text-sm text-gray-500">Enable detection to see live preview with overlays</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
+        <p className="text-sm text-gray-500">Loading preview...</p>
+      </div>
+    );
+  }
+
+  if (error === "waiting") {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
+        <p className="text-sm text-gray-500">Waiting for detection results...</p>
+      </div>
+    );
+  }
+
+  if (error === "not_available") {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
+        <p className="text-sm text-gray-500">Preview not available (no minimap frame captured yet)</p>
+      </div>
+    );
+  }
+
+  if (error === "error" || !imgUrl) {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-red-50 p-8 text-center">
+        <p className="text-sm text-red-600">Failed to load detection preview</p>
       </div>
     );
   }
@@ -40,9 +105,10 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
         src={imgUrl}
         alt="Detection Preview"
         className="block w-full h-auto"
+        style={{ imageRendering: 'pixelated', minHeight: '200px', objectFit: 'contain' }}
         onError={(e) => {
           console.error("Failed to load detection preview");
-          e.target.style.display = 'none';
+          setError("error");
         }}
       />
     </div>

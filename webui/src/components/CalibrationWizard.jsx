@@ -393,21 +393,27 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
                 {/* Original Frame */}
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Original Frame</h3>
-                  <img
-                    src={currentFrame}
-                    alt="Original"
-                    className="w-full h-auto border border-gray-300 rounded"
-                  />
+                  <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center min-h-[200px]">
+                    <img
+                      src={currentFrame}
+                      alt="Original"
+                      className="max-w-full h-auto"
+                      style={{ imageRendering: 'pixelated', minHeight: '200px', objectFit: 'contain' }}
+                    />
+                  </div>
                 </div>
 
                 {/* Detection Mask */}
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Detection Mask</h3>
-                  <img
-                    src={`data:image/png;base64,${calibrationResult.preview_mask}`}
-                    alt="Mask Preview"
-                    className="w-full h-auto border border-gray-300 rounded"
-                  />
+                  <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center min-h-[200px]">
+                    <img
+                      src={`data:image/png;base64,${calibrationResult.preview_mask}`}
+                      alt="Mask Preview"
+                      className="max-w-full h-auto"
+                      style={{ imageRendering: 'pixelated', minHeight: '200px', objectFit: 'contain' }}
+                    />
+                  </div>
                 </div>
               </div>
 
