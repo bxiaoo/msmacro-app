@@ -182,7 +182,11 @@ class MapConfigManager:
                 json.dump(data, f, indent=2)
 
             temp_file.replace(self.config_file)
-            logger.debug(f"Saved {len(configs_list)} map configs to {self.config_file}")
+            logger.info(
+                f"💾 SAVED {len(configs_list)} configs to {self.config_file} | "
+                f"active={self._active_config_name}"
+            )
+            logger.debug(f"Config file content: {json.dumps(data, indent=2)}")
 
         except Exception as e:
             logger.error(f"Failed to save map configs: {e}", exc_info=True)
@@ -223,9 +227,13 @@ class MapConfigManager:
             Active MapConfig if set, None otherwise
         """
         with self._lock:
-            if self._active_config_name:
-                return self._configs.get(self._active_config_name)
-        return None
+            config = self._configs.get(self._active_config_name) if self._active_config_name else None
+
+        logger.debug(
+            f"get_active_config() → {config.name if config else None} | "
+            f"coords={f'({config.tl_x},{config.tl_y})' if config else 'N/A'}"
+        )
+        return config
 
     def save_config(self, config: MapConfig) -> None:
         """
@@ -312,7 +320,11 @@ class MapConfigManager:
             config.last_used_at = time.time()
             self._active_config_name = name
 
-            logger.info(f"Activated map config: {name}")
+            logger.info(
+                f"✓ ACTIVATED CONFIG: '{name}' | "
+                f"coords=({config.tl_x},{config.tl_y}) size={config.width}x{config.height} | "
+                f"active_name={self._active_config_name}"
+            )
 
         self._save()
         return config

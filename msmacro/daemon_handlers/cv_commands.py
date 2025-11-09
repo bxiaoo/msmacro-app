@@ -348,6 +348,7 @@ class CVCommandHandler:
             Emits CV_CONFIG_RELOADED event on success
         """
         capture = get_capture_instance()
+        logger.info("🔄 CV_RELOAD_CONFIG IPC called - triggering config reload...")
         capture.reload_config()
         emit("CV_CONFIG_RELOADED")
 
@@ -355,6 +356,10 @@ class CVCommandHandler:
         from ..cv.map_config import get_manager
         manager = get_manager()
         active_config = manager.get_active_config()
+
+        logger.info(
+            f"✓ RELOAD COMPLETE | active_config={active_config.name if active_config else None}"
+        )
 
         return {
             "reloaded": True,
