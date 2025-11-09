@@ -26,6 +26,7 @@ Main documentation files for users and operators:
 - **07_SYSTEM_MONITORING.md** - System stats and performance monitoring
 - **08_OBJECT_DETECTION.md** - Minimap object detection (player/other players)
 - **09_DATA_FLOW.md** - Complete data flow diagrams (frontend ↔ backend)
+- **10_CALIBRATION_SYSTEM.md** - Calibration process, HSV tuning, and color sampling
 
 ## Testing Documentation
 

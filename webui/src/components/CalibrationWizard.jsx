@@ -187,13 +187,38 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
       });
 
       const result = await response.json();
-      
+
       if (!result.success) {
         throw new Error(result.error || "Failed to apply config");
       }
 
+      // Auto-save config to disk for persistence across daemon restarts
+      try {
+        const saveResponse = await fetch('/api/cv/object-detection/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            metadata: {
+              calibration_source: "wizard",
+              calibration_timestamp: new Date().toISOString(),
+              color_type: colorType,
+              sample_count: samples.length
+            }
+          })
+        });
+
+        const saveResult = await saveResponse.json();
+        if (!saveResult.success) {
+          console.warn("Config applied but not saved to disk:", saveResult.error);
+          // Continue anyway - config is active for current session
+        }
+      } catch (saveErr) {
+        console.warn("Failed to save config to disk:", saveErr);
+        // Continue anyway - config is active for current session
+      }
+
       setStep("apply");
-      
+
       // Call onComplete callback
       if (onComplete) {
         onComplete(calibrationResult);
@@ -334,8 +359,10 @@ export function CalibrationWizard({ colorType = "player", onComplete, onCancel }
                         onLoad={handleImgLoad}
                         className="select-none pointer-events-none"
                         style={{
-                          width: naturalSize.width,
-                          height: naturalSize.height,
+                          width: "100%",
+                          height: "auto",
+                          maxWidth: `${naturalSize.width}px`,
+                          maxHeight: `${naturalSize.height}px`,
                           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                           transformOrigin: "top left",
                           userSelect: "none",
