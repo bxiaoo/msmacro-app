@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   getObjectDetectionStatus, 
   startObjectDetection, 
@@ -12,11 +12,23 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
   const [imgUrl, setImgUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const retryTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    // Cleanup timeout on unmount or when dependencies change
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
       setImgUrl(null);
       setError(null);
+      setRetryCount(0);
       return;
     }
 
@@ -24,53 +36,65 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     if (!lastResult) {
       setError("waiting");
       setImgUrl(null);
+      setRetryCount(0);
       return;
     }
 
-    // Use detection preview endpoint which includes all overlays:
-    // - Player position (yellow crosshair + circle)
-    // - Other players positions (red circles + crosshairs)
-    // - Detection confidence labels
-    // - Frame count
-    const url = `/api/cv/detection-preview?t=${Date.now()}`;
+    // Reset retry count when we get a new detection result
+    setRetryCount(0);
 
-    // Validate the preview is available before setting it
-    setLoading(true);
-    fetch(url)
-      .then(response => {
+    // Fetch preview with retry logic
+    const fetchPreview = async (attempt = 0) => {
+      const url = `/api/cv/detection-preview?t=${Date.now()}`;
+
+      setLoading(true);
+
+      try {
+        const response = await fetch(url);
+
         if (!response.ok) {
-          if (response.status === 404) {
+          if (response.status === 404 && attempt < 5) {
+            // Retry with exponential backoff: 500ms, 1s, 2s, 3s, 5s
+            const delays = [500, 1000, 2000, 3000, 5000];
+            const delay = delays[attempt];
+
+            setError("retrying");
+            setRetryCount(attempt + 1);
+
+            retryTimeoutRef.current = setTimeout(() => {
+              fetchPreview(attempt + 1);
+            }, delay);
+
+            return;
+          } else if (response.status === 404) {
+            // All retries exhausted
             setError("not_available");
+            setImgUrl(null);
           } else {
             setError("error");
+            setImgUrl(null);
           }
-          setImgUrl(null);
         } else {
           setImgUrl(url);
           setError(null);
+          setRetryCount(0);
         }
-      })
-      .catch(() => {
+      } catch (err) {
+        console.error("Failed to fetch detection preview:", err);
         setError("error");
         setImgUrl(null);
-      })
-      .finally(() => {
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+
+    fetchPreview();
   }, [lastResult?.timestamp, enabled]);
 
   if (!enabled) {
     return (
       <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
         <p className="text-sm text-gray-500">Enable detection to see live preview with overlays</p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
-        <p className="text-sm text-gray-500">Loading preview...</p>
       </div>
     );
   }
@@ -83,10 +107,30 @@ function ObjectDetectionPreview({ lastResult, enabled }) {
     );
   }
 
-  if (error === "not_available") {
+  if (error === "retrying") {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-blue-50 p-8 text-center">
+        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-2" />
+        <p className="text-sm text-blue-700">Loading preview (attempt {retryCount}/5)...</p>
+        <p className="text-xs text-blue-600 mt-1">Waiting for capture loop to process frame</p>
+      </div>
+    );
+  }
+
+  if (loading && !error) {
     return (
       <div className="border border-gray-300 rounded overflow-hidden bg-gray-50 p-8 text-center">
-        <p className="text-sm text-gray-500">Preview not available (no minimap frame captured yet)</p>
+        <div className="w-8 h-8 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin mx-auto mb-2" />
+        <p className="text-sm text-gray-500">Loading preview...</p>
+      </div>
+    );
+  }
+
+  if (error === "not_available") {
+    return (
+      <div className="border border-gray-300 rounded overflow-hidden bg-yellow-50 p-8 text-center">
+        <p className="text-sm text-yellow-700">Preview not available</p>
+        <p className="text-xs text-yellow-600 mt-1">No minimap configuration active or capture loop not running</p>
       </div>
     );
   }

@@ -31,6 +31,7 @@ export function CVConfiguration() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [configName, setConfigName] = useState('')
   const [coords, setCoords] = useState({ tl_x: 68, tl_y: 56, width: 340, height: 86 })
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   // Preview state - shows active minimap region only
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
@@ -92,14 +93,49 @@ export function CVConfiguration() {
 
   const handleActivateConfig = async (config) => {
     try {
-      if (config.is_active) {
+      setIsTransitioning(true)
+
+      const wasActive = config.is_active
+      if (wasActive) {
         await deactivateMapConfig()
       } else {
         await activateMapConfig(config.name)
       }
       await loadMapConfigs()
+
+      // Poll until capture loop processes the config change
+      // Expected: region_detected = true when activating, false when deactivating
+      const expectedRegionDetected = !wasActive
+      const maxAttempts = 10 // 10 attempts x 200ms = 2 seconds max
+      let attempts = 0
+
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+
+        try {
+          const statusData = await getCVStatus()
+          const currentRegionDetected = statusData?.frame?.region_detected || false
+
+          if (currentRegionDetected === expectedRegionDetected) {
+            // Capture loop has processed the change
+            setStatus(statusData) // Update status with latest data
+            break
+          }
+        } catch (err) {
+          console.warn('Failed to poll status during transition:', err)
+        }
+
+        attempts++
+      }
+
+      if (attempts >= maxAttempts) {
+        console.warn('Timeout waiting for region transition - continuing anyway')
+      }
+
     } catch (err) {
       alert(`Failed to ${config.is_active ? 'deactivate' : 'activate'} configuration: ${err.message}`)
+    } finally {
+      setIsTransitioning(false)
     }
   }
 
@@ -383,6 +419,7 @@ export function CVConfiguration() {
                 <Checkbox
                   checked={config.is_active}
                   onChange={() => handleActivateConfig(config)}
+                  disabled={isTransitioning}
                 />
                 <div>
                   <div className="text-sm font-medium text-gray-900">{config.name}</div>
@@ -396,7 +433,7 @@ export function CVConfiguration() {
                   onClick={() => handleDeleteConfig(config.name)}
                   variant="ghost"
                   size="sm"
-                  disabled={config.is_active}
+                  disabled={config.is_active || isTransitioning}
                 >
                   <Trash2 size={16} />
                 </Button>
@@ -623,7 +660,15 @@ export function CVConfiguration() {
                 <div className="space-y-3">
                     <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
                     <div className="bg-gray-100 rounded-lg p-4">
-                        {status?.has_frame && livePreviewUrl ? (
+                        {isTransitioning ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                                <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin mb-3" />
+                                <p className="text-sm font-medium">Updating region...</p>
+                                <p className="text-xs mt-1 text-gray-500">
+                                    Waiting for capture loop to process the new configuration
+                                </p>
+                            </div>
+                        ) : status?.has_frame && livePreviewUrl ? (
                             <div className="relative">
                                 {imageError ? (
                                     <div className="flex flex-col items-center justify-center py-16 text-gray-400">
