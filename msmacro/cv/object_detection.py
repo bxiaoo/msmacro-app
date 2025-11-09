@@ -229,41 +229,43 @@ class MinimapObjectDetector:
 
         return (x, y, True)
 
-    def _validate_ring_structure(self, frame: np.ndarray, blob: Dict[str, Any]) -> float:
+    def _validate_ring_structure(self, frame: np.ndarray, blob: Dict[str, Any], gray_frame: np.ndarray) -> float:
         """
-        Validate blob has expected dark ring + white ring structure.
+        Validate blob has expected dark ring structure.
 
         Markers have documented multi-layer structure:
         - Inner colored blob (yellow for player, red for enemies)
-        - Middle dark contour (~1-2px black/brown ring)
-        - Outer white contour (~1px bright ring)
+        - Dark contour (~1-2px black/brown ring) around the colored blob
 
-        This method samples pixels in concentric rings around detected blob center
-        to verify this nested structure, providing additional confidence scoring.
+        This method samples pixels in a ring around detected blob center
+        to verify the dark contour presence, providing additional confidence scoring.
+
+        Note: White outer ring detection removed as it may not be clearly visible
+        in all capture conditions. Dark ring is more reliable.
 
         Args:
-            frame: Original BGR frame (for grayscale brightness analysis)
+            frame: Original BGR frame (for dimensions only)
             blob: Detected blob dict with 'center' and 'radius' keys
+            gray_frame: Grayscale version of frame (performance: shared across all blobs)
 
         Returns:
-            Confidence boost to add to circularity score (0.0-0.3):
-            - 0.3: Both rings detected with strong contrast
-            - 0.15: One ring detected
-            - 0.0: No ring structure detected or edge-case failure
+            Confidence boost to add to circularity score (0.0-0.2):
+            - 0.2: Dark ring detected
+            - 0.0: No dark ring detected or edge-case failure
 
-        Performance: ~0.06ms per blob (48 pixel samples + arithmetic)
+        Performance: ~0.01ms per blob (24 pixel samples + arithmetic, no conversion)
 
         Example:
             blob = {'center': (100, 50), 'radius': 6.0}
-            boost = _validate_ring_structure(frame, blob)
-            # boost = 0.3 if perfect marker with both rings
+            boost = _validate_ring_structure(frame, blob, gray_frame)
+            # boost = 0.2 if marker has dark ring
         """
         cx, cy = int(blob['center'][0]), int(blob['center'][1])
         radius = blob['radius']
 
         # Bounds check: skip validation if too close to edge
         frame_h, frame_w = frame.shape[:2]
-        check_radius = int(radius + 5)  # Need radius+5px for outer white ring sampling
+        check_radius = int(radius + 3)  # Need radius+3px for dark ring sampling
         if (cx - check_radius < 0 or cx + check_radius >= frame_w or
             cy - check_radius < 0 or cy + check_radius >= frame_h):
             logger.debug(
@@ -272,60 +274,32 @@ class MinimapObjectDetector:
             )
             return 0.0
 
-        # Convert to grayscale for brightness analysis
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Sample Ring 1: Dark contour (just outside color blob at radius+1 to radius+2)
+        # Sample dark ring (just outside color blob at radius+1 to radius+2)
         dark_ring_samples = []
         for r in [radius + 1, radius + 2]:
             for angle in np.linspace(0, 2*np.pi, 12, endpoint=False):  # 12 points per ring
                 x = int(cx + r * np.cos(angle))
                 y = int(cy + r * np.sin(angle))
                 if 0 <= x < frame_w and 0 <= y < frame_h:
-                    dark_ring_samples.append(gray[y, x])
-
-        # Sample Ring 2: White contour (outside dark ring at radius+3 to radius+4)
-        white_ring_samples = []
-        for r in [radius + 3, radius + 4]:
-            for angle in np.linspace(0, 2*np.pi, 12, endpoint=False):
-                x = int(cx + r * np.cos(angle))
-                y = int(cy + r * np.sin(angle))
-                if 0 <= x < frame_w and 0 <= y < frame_h:
-                    white_ring_samples.append(gray[y, x])
+                    dark_ring_samples.append(gray_frame[y, x])
 
         # Validate we got enough samples
-        if not dark_ring_samples or not white_ring_samples:
-            logger.debug("Ring validation failed | insufficient samples")
+        if not dark_ring_samples:
+            logger.debug("Ring validation failed | insufficient dark ring samples")
             return 0.0
 
-        # Calculate average brightness for each ring
+        # Calculate average brightness for dark ring
         avg_dark = np.mean(dark_ring_samples)
-        avg_white = np.mean(white_ring_samples)
-        contrast = avg_white - avg_dark
 
-        # Validate ring structure (thresholds from marker analysis)
+        # Validate dark ring structure (threshold from marker analysis)
         has_dark_ring = avg_dark < 120  # Dark pixels (0-255 scale)
-        has_white_ring = avg_white > 180  # Bright pixels
-        has_contrast = contrast > 80  # Strong separation between rings
 
-        # Calculate confidence boost based on validation results
-        if has_dark_ring and has_white_ring and has_contrast:
-            logger.debug(
-                f"Ring validation STRONG | dark={avg_dark:.0f} white={avg_white:.0f} "
-                f"contrast={contrast:.0f} | boost=+0.30"
-            )
-            return 0.3
-        elif has_dark_ring or has_white_ring:
-            logger.debug(
-                f"Ring validation WEAK | dark={avg_dark:.0f} white={avg_white:.0f} "
-                f"contrast={contrast:.0f} | boost=+0.15"
-            )
-            return 0.15
+        # Calculate confidence boost
+        if has_dark_ring:
+            logger.debug(f"Ring validation SUCCESS | dark={avg_dark:.0f} | boost=+0.20")
+            return 0.2
         else:
-            logger.debug(
-                f"Ring validation FAIL | dark={avg_dark:.0f} white={avg_white:.0f} "
-                f"contrast={contrast:.0f} | boost=+0.00"
-            )
+            logger.debug(f"Ring validation FAIL | dark={avg_dark:.0f} | boost=+0.00")
             return 0.0
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
@@ -341,10 +315,14 @@ class MinimapObjectDetector:
         """
         start_time = time.perf_counter()
         self._detection_count += 1
-        
+
         try:
-            player = self._detect_player(frame)
-            other_players = self._detect_other_players(frame)
+            # Performance optimizations: Calculate once, share across all detections
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
+
+            player = self._detect_player(frame, gray_frame, adaptive_min, adaptive_max)
+            other_players = self._detect_other_players(frame, gray_frame, adaptive_min, adaptive_max)
             
             result = DetectionResult(
                 player=player,
@@ -465,18 +443,19 @@ class MinimapObjectDetector:
         
         return blobs
     
-    def _detect_player(self, frame: np.ndarray) -> PlayerPosition:
+    def _detect_player(self, frame: np.ndarray, gray_frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> PlayerPosition:
         """
         Detect single yellow player point.
 
         Args:
             frame: BGR minimap image
+            gray_frame: Grayscale version of frame (for ring validation)
+            adaptive_min: Minimum blob size in pixels (adaptive to frame scale)
+            adaptive_max: Maximum blob size in pixels (adaptive to frame scale)
 
         Returns:
             PlayerPosition with detected status and coordinates
         """
-        # Calculate adaptive blob sizes based on frame dimensions
-        adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
 
         # Create color mask for yellow
         mask = self._create_color_mask(
@@ -532,7 +511,7 @@ class MinimapObjectDetector:
 
         # Apply ring structure validation for additional confidence
         base_confidence = best_blob['circularity']
-        ring_boost = self._validate_ring_structure(frame, best_blob)
+        ring_boost = self._validate_ring_structure(frame, best_blob, gray_frame)
         final_confidence = min(1.0, base_confidence + ring_boost)
 
         logger.debug(
@@ -547,18 +526,19 @@ class MinimapObjectDetector:
             confidence=final_confidence
         )
     
-    def _detect_other_players(self, frame: np.ndarray) -> OtherPlayersStatus:
+    def _detect_other_players(self, frame: np.ndarray, gray_frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> OtherPlayersStatus:
         """
         Detect multiple red other_player points.
 
         Args:
             frame: BGR minimap image
+            gray_frame: Grayscale version of frame (for ring validation)
+            adaptive_min: Minimum blob size in pixels (adaptive to frame scale)
+            adaptive_max: Maximum blob size in pixels (adaptive to frame scale)
 
         Returns:
             OtherPlayersStatus with detected flag and count
         """
-        # Calculate adaptive blob sizes based on frame dimensions
-        adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
 
         all_blobs = []
 
@@ -583,7 +563,7 @@ class MinimapObjectDetector:
 
             # Apply ring structure validation for confidence scoring
             base_confidence = blob['circularity']
-            ring_boost = self._validate_ring_structure(frame, blob)
+            ring_boost = self._validate_ring_structure(frame, blob, gray_frame)
             final_confidence = min(1.0, base_confidence + ring_boost)
 
             # Store boosted confidence back in blob for debugging
