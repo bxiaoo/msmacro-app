@@ -312,12 +312,11 @@ class MinimapObjectDetector:
         self._detection_count += 1
 
         try:
-            # Performance optimizations: Calculate once, share across all detections
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Get blob size range (size filtering disabled, returns 1-100)
             adaptive_min, adaptive_max = self._calculate_adaptive_blob_sizes(frame)
 
-            player = self._detect_player(frame, gray_frame, adaptive_min, adaptive_max)
-            other_players = self._detect_other_players(frame, gray_frame, adaptive_min, adaptive_max)
+            player = self._detect_player(frame, adaptive_min, adaptive_max)
+            other_players = self._detect_other_players(frame, adaptive_min, adaptive_max)
             
             result = DetectionResult(
                 player=player,
@@ -438,15 +437,14 @@ class MinimapObjectDetector:
         
         return blobs
     
-    def _detect_player(self, frame: np.ndarray, gray_frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> PlayerPosition:
+    def _detect_player(self, frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> PlayerPosition:
         """
         Detect single yellow player point.
 
         Args:
             frame: BGR minimap image
-            gray_frame: Grayscale version of frame (for ring validation)
-            adaptive_min: Minimum blob size in pixels (adaptive to frame scale)
-            adaptive_max: Maximum blob size in pixels (adaptive to frame scale)
+            adaptive_min: Minimum blob size in pixels (currently 1 - size filter disabled)
+            adaptive_max: Maximum blob size in pixels (currently 100 - size filter disabled)
 
         Returns:
             PlayerPosition with detected status and coordinates
@@ -504,32 +502,27 @@ class MinimapObjectDetector:
         
         self._last_player_pos = (cx, cy)
 
-        # Apply ring structure validation for additional confidence
-        base_confidence = best_blob['circularity']
-        ring_boost = self._validate_ring_structure(frame, best_blob, gray_frame)
-        final_confidence = min(1.0, base_confidence + ring_boost)
+        # RING VALIDATION DISABLED: Use circularity score only
+        # Detection relies on HSV color matching + circularity filtering
+        confidence = best_blob['circularity']
 
-        logger.debug(
-            f"Player confidence | circularity={base_confidence:.3f} "
-            f"ring_boost={ring_boost:.3f} final={final_confidence:.3f}"
-        )
+        logger.debug(f"Player confidence | circularity={confidence:.3f}")
 
         return PlayerPosition(
             detected=True,
             x=cx,
             y=cy,
-            confidence=final_confidence
+            confidence=confidence
         )
     
-    def _detect_other_players(self, frame: np.ndarray, gray_frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> OtherPlayersStatus:
+    def _detect_other_players(self, frame: np.ndarray, adaptive_min: int, adaptive_max: int) -> OtherPlayersStatus:
         """
         Detect multiple red other_player points.
 
         Args:
             frame: BGR minimap image
-            gray_frame: Grayscale version of frame (for ring validation)
-            adaptive_min: Minimum blob size in pixels (adaptive to frame scale)
-            adaptive_max: Maximum blob size in pixels (adaptive to frame scale)
+            adaptive_min: Minimum blob size in pixels (currently 1 - size filter disabled)
+            adaptive_max: Maximum blob size in pixels (currently 100 - size filter disabled)
 
         Returns:
             OtherPlayersStatus with detected flag and count
@@ -551,24 +544,17 @@ class MinimapObjectDetector:
         # Remove duplicates (same position detected in multiple ranges)
         unique_blobs = self._deduplicate_blobs(all_blobs, distance_threshold=5)
 
-        # Extract and validate positions with ring structure validation
+        # Extract and validate positions (ring validation disabled)
         positions = []
         for blob in unique_blobs:
             cx, cy = blob['center']
 
-            # Apply ring structure validation for confidence scoring
-            base_confidence = blob['circularity']
-            ring_boost = self._validate_ring_structure(frame, blob, gray_frame)
-            final_confidence = min(1.0, base_confidence + ring_boost)
+            # RING VALIDATION DISABLED: Use circularity score only
+            # Detection relies on HSV color matching + circularity filtering
+            confidence = blob['circularity']
+            blob['confidence'] = confidence
 
-            # Store boosted confidence back in blob for debugging
-            blob['final_confidence'] = final_confidence
-            blob['ring_boost'] = ring_boost
-
-            logger.debug(
-                f"Other player at ({cx},{cy}) | circularity={base_confidence:.3f} "
-                f"ring_boost={ring_boost:.3f} final={final_confidence:.3f}"
-            )
+            logger.debug(f"Other player at ({cx},{cy}) | circularity={confidence:.3f}")
 
             # Validate and clamp position to ensure it's within bounds
             cx, cy, is_valid = self._validate_and_clamp_position(
