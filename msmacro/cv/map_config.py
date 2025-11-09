@@ -166,6 +166,17 @@ class MapConfigManager:
         except Exception as e:
             logger.error(f"Failed to load map configs: {e}", exc_info=True)
 
+    def reload(self) -> None:
+        """
+        Reload configurations from disk.
+
+        This should be called when configs are modified externally (e.g., via web API)
+        to sync the in-memory state with the file on disk.
+        """
+        logger.info(f"Reloading map configs from {self.config_file}...")
+        self._load()
+        logger.info("Map configs reload complete")
+
     def _save(self) -> None:
         """Save configurations to file."""
         try:

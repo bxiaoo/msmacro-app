@@ -295,6 +295,9 @@ class CVCapture:
 
     def _load_map_config(self) -> None:
         """Load the active map configuration from manager."""
+        # Reload from disk to ensure we have the latest state
+        self._map_config_manager.reload()
+
         with self._config_lock:
             old_config = self._active_map_config
             self._active_map_config = self._map_config_manager.get_active_config()
