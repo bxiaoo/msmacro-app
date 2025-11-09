@@ -72,11 +72,12 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow point) - CALIBRATED VALUES
-    # Based on analysis of 20 calibration samples (Nov 9, 2025)
-    # HSV ranges tuned for 95% detection rate with robust filtering
-    player_hsv_lower: Tuple[int, int, int] = (10, 55, 55)   # Calibrated: achieves 95% detection (19/20 samples)
-    player_hsv_upper: Tuple[int, int, int] = (40, 240, 255)  # Wider than 5th-95th pct to capture edge cases
+    # Player detection (yellow-green point) - CORRECTED VALUES
+    # Based on ground truth analysis of 20 calibration samples (Nov 9, 2025)
+    # HSV ranges corrected to match actual player dot colors (H=31-80, yellow-green to cyan)
+    # Previous range (10,55,55)-(40,240,255) was TOO NARROW and missed dots with H>40
+    player_hsv_lower: Tuple[int, int, int] = (26, 94, 0)   # CORRECTED: yellow-green to cyan (was 10,55,55)
+    player_hsv_upper: Tuple[int, int, int] = (85, 255, 255)  # CORRECTED: extended hue range (was 40,240,255)
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
@@ -85,14 +86,15 @@ class DetectorConfig:
 
     # Blob filtering - ENABLED with adaptive sizing
     # Size filtering re-enabled based on calibration data:
-    # - Yellow blobs: median 10.5px, range 2-2370px → filter to 4-100px
-    # - Red blobs: median 16px, range 4-78px → filter to 4-80px
-    # Reduces false positives from large terrain features and tiny noise
-    min_blob_size: int = 4      # Filter out noise (< 4px diameter)
+    # - Yellow blobs: median 10.5px, range 2-2370px → filter to 2-100px (includes small distant dots)
+    # - Red blobs: median 16px, range 6-78px → filter to 4-80px (red dots are larger than yellow)
+    # Reduces false positives from large terrain features
+    min_blob_size: int = 2      # Include small/distant yellow dots (>= 2px diameter)
     max_blob_size: int = 100    # Filter out large false positives (> 100px diameter)
-    max_blob_size_other: int = 80  # Red dots are smaller (> 80px diameter)
+    min_blob_size_other: int = 4   # Red dots are larger (>= 4px diameter)
+    max_blob_size_other: int = 80  # Red dots upper bound
     min_circularity: float = 0.60  # Balanced for good recall (observed: 0.102-0.846)
-    min_circularity_other: float = 0.50  # Slightly lower for red dots
+    min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
 
     # Aspect ratio filtering (NEW)
     # Player dots should be roughly circular (width ≈ height)
@@ -112,11 +114,12 @@ class DetectorConfig:
     def __post_init__(self):
         """Initialize default values."""
         if self.other_player_hsv_ranges is None:
-            # Calibrated red ranges (Nov 9, 2025 - 20 sample analysis)
-            # Widened for better recall while maintaining precision via multi-stage filtering
+            # Calibrated red ranges (Nov 9, 2025 - Ground truth validation)
+            # Tightened based on actual red dots: H=7 (S=114,V=123) and H=168 (S=191,V=168)
+            # Filters out cyan/green/blue false positives (H=60-140)
             self.other_player_hsv_ranges = [
-                ((0, 55, 55), (15, 240, 255)),      # Lower red range (widened)
-                ((165, 55, 55), (180, 240, 255))    # Upper red range (widened)
+                ((0, 100, 100), (10, 255, 255)),     # Lower red range (pure red only)
+                ((165, 100, 100), (180, 255, 255))   # Upper red range (pure magenta-red only)
             ]
 
 
@@ -141,7 +144,7 @@ class MinimapObjectDetector:
         self._max_time_ms = 0.0
         self._min_time_ms = float('inf')
 
-        logger.info("MinimapObjectDetector initialized with CALIBRATED HSV ranges (Nov 9, 2025)")
+        logger.info("MinimapObjectDetector initialized with CORRECTED HSV ranges (Nov 9, 2025) - H=26-85 for yellow-green player dots")
 
     def _calculate_adaptive_blob_sizes(self, frame: np.ndarray, blob_type: str = 'player') -> Tuple[int, int]:
         """
@@ -165,10 +168,11 @@ class MinimapObjectDetector:
         height, width = frame.shape[:2]
 
         # Return calibrated size range
-        adaptive_min = self.config.min_blob_size  # = 4px
         if blob_type == 'other':
+            adaptive_min = self.config.min_blob_size_other  # = 4px (red dots are larger)
             adaptive_max = self.config.max_blob_size_other  # = 80px
         else:
+            adaptive_min = self.config.min_blob_size  # = 2px (includes small yellow dots)
             adaptive_max = self.config.max_blob_size  # = 100px
 
         logger.debug(
@@ -426,34 +430,36 @@ class MinimapObjectDetector:
         
         return result
     
-    def _create_color_mask(self, 
+    def _create_color_mask(self,
                           frame: np.ndarray,
                           hsv_lower: Tuple[int, int, int],
                           hsv_upper: Tuple[int, int, int]) -> np.ndarray:
         """
         Create binary mask for color range.
-        
+
         Args:
             frame: BGR image
             hsv_lower: (h_min, s_min, v_min)
             hsv_upper: (h_max, s_max, v_max)
-        
+
         Returns:
             Binary mask (0 or 255)
         """
         # Convert to HSV
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
+
         # Create mask
         lower = np.array(hsv_lower, dtype=np.uint8)
         upper = np.array(hsv_upper, dtype=np.uint8)
         mask = cv2.inRange(hsv, lower, upper)
-        
+
         # Morphological operations to clean noise
+        # NOTE: 3x3 kernel may remove very small dots (<3px), but necessary for noise reduction
+        # If detection fails on small dots, consider reducing kernel size to 2x2
         kernel = np.ones((3, 3), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)  # Remove noise
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # Fill holes
-        
+
         return mask
     
     def _find_circular_blobs(self,
