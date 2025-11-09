@@ -219,6 +219,46 @@ async function API(path, opts = {}) {
     return `/api/cv/mini-map-preview?x=${x}&y=${y}&w=${w}&h=${h}&t=${Date.now()}`;
   }
 
+  // ---------- Departure Points ----------
+  export function addDeparturePoint(mapName, x, y, name = null, toleranceMode = "both", toleranceValue = 5) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(mapName)}/departure-points`, {
+      method: "POST",
+      body: JSON.stringify({
+        x,
+        y,
+        name,
+        tolerance_mode: toleranceMode,
+        tolerance_value: toleranceValue,
+      }),
+    });
+  }
+
+  export function removeDeparturePoint(mapName, pointId) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(mapName)}/departure-points/${encodeURIComponent(pointId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  export function updateDeparturePoint(mapName, pointId, updates) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(mapName)}/departure-points/${encodeURIComponent(pointId)}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  export function reorderDeparturePoints(mapName, orderedIds) {
+    return API(`/api/cv/map-configs/${encodeURIComponent(mapName)}/departure-points/reorder`, {
+      method: "POST",
+      body: JSON.stringify({
+        ordered_ids: orderedIds,
+      }),
+    });
+  }
+
+  export function getDeparturePointsStatus() {
+    return API("/api/cv/departure-points/status");
+  }
+
   // ---------- File Management ----------
   export async function renameFile(oldName, newName) {
     return API("/api/files/rename", {

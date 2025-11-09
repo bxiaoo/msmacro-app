@@ -55,6 +55,12 @@ from .handlers import (
     api_cv_raw_minimap,
     api_cv_detection_preview,
     api_object_detection_calibrate,
+    # Departure points handlers
+    api_departure_points_add,
+    api_departure_points_remove,
+    api_departure_points_update,
+    api_departure_points_reorder,
+    api_departure_points_status,
     # System handlers
     api_system_stats,
 )
@@ -134,7 +140,14 @@ def make_app() -> web.Application:
         web.post("/api/cv/map-configs/{name}/activate", api_cv_map_configs_activate),
         web.get("/api/cv/map-configs/active", api_cv_map_configs_get_active),
         web.post("/api/cv/map-configs/deactivate", api_cv_map_configs_deactivate),
-        
+
+        # Departure Points management
+        web.post("/api/cv/map-configs/{map_name}/departure-points", api_departure_points_add),
+        web.delete("/api/cv/map-configs/{map_name}/departure-points/{point_id}", api_departure_points_remove),
+        web.put("/api/cv/map-configs/{map_name}/departure-points/{point_id}", api_departure_points_update),
+        web.post("/api/cv/map-configs/{map_name}/departure-points/reorder", api_departure_points_reorder),
+        web.get("/api/cv/departure-points/status", api_departure_points_status),
+
         # Object Detection management
         web.get("/api/cv/object-detection/status", api_object_detection_status),
         web.post("/api/cv/object-detection/start", api_object_detection_start),

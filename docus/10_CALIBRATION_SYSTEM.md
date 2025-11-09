@@ -805,9 +805,16 @@ style={{
 
 ---
 
+**📋 STATUS UPDATE (Nov 9, 2025)**: Despite the known issues below, a successful production-ready calibration was completed on Nov 9, 2025, achieving 100% detection rate on 20-sample validation dataset. The calibration results have been manually documented and integrated into the codebase defaults. See `FINAL_CALIBRATION_RESULTS_2025-11-09.md` for details.
+
+The issues below remain open but did not prevent successful calibration in practice.
+
+---
+
 ### Issue 2: Calibration Not Auto-Saved to Disk
 
 **Severity**: HIGH (data loss on daemon restart)
+**Status as of Nov 9**: ⚠️ UNVERIFIED - Nov 9 calibration was manually saved/integrated into code defaults
 
 **Location**: `webui/src/components/CalibrationWizard.jsx` (After line 194)
 

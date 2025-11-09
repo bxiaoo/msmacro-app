@@ -9,12 +9,102 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, asdict
+import uuid
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from threading import Lock
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeparturePoint:
+    """
+    Represents a departure point (waypoint) on the minimap.
+
+    Attributes:
+        id: Unique identifier (UUID)
+        name: User-defined name for the point
+        x: X coordinate relative to minimap top-left
+        y: Y coordinate relative to minimap top-left
+        order: Sequential order in the path (0-based)
+        tolerance_mode: How to check if player hits this point
+            - "y_axis": Check Y-axis within ±tolerance_value
+            - "x_axis": Check X-axis within ±tolerance_value
+            - "y_greater": Check if current Y > saved Y
+            - "y_less": Check if current Y < saved Y
+            - "x_greater": Check if current X > saved X
+            - "x_less": Check if current X < saved X
+            - "both": Check both X and Y within ±tolerance_value
+        tolerance_value: Pixel tolerance for range-based modes (default: 5)
+        created_at: Unix timestamp when point was created
+    """
+    id: str
+    name: str
+    x: int
+    y: int
+    order: int
+    tolerance_mode: str = "both"
+    tolerance_value: int = 5
+    created_at: float = 0.0
+
+    def __post_init__(self):
+        """Validate tolerance mode."""
+        valid_modes = {"y_axis", "x_axis", "y_greater", "y_less", "x_greater", "x_less", "both"}
+        if self.tolerance_mode not in valid_modes:
+            raise ValueError(f"Invalid tolerance_mode: {self.tolerance_mode}. Must be one of {valid_modes}")
+
+    def check_hit(self, current_x: int, current_y: int) -> bool:
+        """
+        Check if current position hits this departure point based on tolerance mode.
+
+        Args:
+            current_x: Current player X coordinate
+            current_y: Current player Y coordinate
+
+        Returns:
+            True if player has hit this departure point, False otherwise
+        """
+        if self.tolerance_mode == "y_axis":
+            # Check Y-axis within tolerance, X can be anything
+            return abs(current_y - self.y) <= self.tolerance_value
+
+        elif self.tolerance_mode == "x_axis":
+            # Check X-axis within tolerance, Y can be anything
+            return abs(current_x - self.x) <= self.tolerance_value
+
+        elif self.tolerance_mode == "y_greater":
+            # Current Y must be greater than saved Y
+            return current_y > self.y
+
+        elif self.tolerance_mode == "y_less":
+            # Current Y must be less than saved Y
+            return current_y < self.y
+
+        elif self.tolerance_mode == "x_greater":
+            # Current X must be greater than saved X
+            return current_x > self.x
+
+        elif self.tolerance_mode == "x_less":
+            # Current X must be less than saved X
+            return current_x < self.x
+
+        elif self.tolerance_mode == "both":
+            # Both X and Y must be within tolerance
+            return (abs(current_x - self.x) <= self.tolerance_value and
+                    abs(current_y - self.y) <= self.tolerance_value)
+
+        return False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DeparturePoint':
+        """Create DeparturePoint from dictionary."""
+        return cls(**data)
 
 
 @dataclass
@@ -31,6 +121,7 @@ class MapConfig:
         created_at: Unix timestamp when config was created
         last_used_at: Unix timestamp when config was last activated
         is_active: Whether this is the currently active configuration
+        departure_points: List of departure points (waypoints) for this map
     """
     name: str
     tl_x: int
@@ -40,15 +131,163 @@ class MapConfig:
     created_at: float
     last_used_at: float = 0.0
     is_active: bool = False
+    departure_points: List[DeparturePoint] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        data = asdict(self)
+        # Convert departure_points to list of dicts
+        data['departure_points'] = [point.to_dict() for point in self.departure_points]
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'MapConfig':
         """Create MapConfig from dictionary."""
-        return cls(**data)
+        # Extract departure_points and convert them
+        points_data = data.pop('departure_points', [])
+        departure_points = [DeparturePoint.from_dict(p) for p in points_data]
+
+        # Create MapConfig with remaining data
+        config = cls(**data)
+        config.departure_points = departure_points
+        return config
+
+    def add_departure_point(self, x: int, y: int, name: str = None,
+                           tolerance_mode: str = "both", tolerance_value: int = 5) -> DeparturePoint:
+        """
+        Add a new departure point to this map config.
+
+        Args:
+            x: X coordinate relative to minimap top-left
+            y: Y coordinate relative to minimap top-left
+            name: Optional name for the point (auto-generated if None)
+            tolerance_mode: Tolerance checking mode (default: "both")
+            tolerance_value: Pixel tolerance value (default: 5)
+
+        Returns:
+            The newly created DeparturePoint
+        """
+        point_id = str(uuid.uuid4())
+        order = len(self.departure_points)
+
+        if name is None:
+            name = f"Point {order + 1}"
+
+        point = DeparturePoint(
+            id=point_id,
+            name=name,
+            x=x,
+            y=y,
+            order=order,
+            tolerance_mode=tolerance_mode,
+            tolerance_value=tolerance_value,
+            created_at=time.time()
+        )
+
+        self.departure_points.append(point)
+        logger.info(f"Added departure point '{name}' at ({x}, {y}) to config '{self.name}'")
+        return point
+
+    def remove_departure_point(self, point_id: str) -> bool:
+        """
+        Remove a departure point by ID.
+
+        Args:
+            point_id: ID of the point to remove
+
+        Returns:
+            True if removed, False if not found
+        """
+        for i, point in enumerate(self.departure_points):
+            if point.id == point_id:
+                self.departure_points.pop(i)
+                # Reorder remaining points
+                self._reorder_points()
+                logger.info(f"Removed departure point '{point.name}' from config '{self.name}'")
+                return True
+        return False
+
+    def update_departure_point(self, point_id: str, **kwargs) -> bool:
+        """
+        Update a departure point's attributes.
+
+        Args:
+            point_id: ID of the point to update
+            **kwargs: Attributes to update (name, tolerance_mode, tolerance_value, etc.)
+
+        Returns:
+            True if updated, False if not found
+        """
+        for point in self.departure_points:
+            if point.id == point_id:
+                for key, value in kwargs.items():
+                    if hasattr(point, key):
+                        setattr(point, key, value)
+                logger.info(f"Updated departure point '{point.name}' in config '{self.name}'")
+                return True
+        return False
+
+    def reorder_departure_points(self, ordered_ids: List[str]) -> bool:
+        """
+        Reorder departure points based on a list of IDs.
+
+        Args:
+            ordered_ids: List of point IDs in desired order
+
+        Returns:
+            True if reordered successfully, False if IDs don't match
+        """
+        if len(ordered_ids) != len(self.departure_points):
+            return False
+
+        # Create mapping of ID to point
+        points_map = {p.id: p for p in self.departure_points}
+
+        # Check all IDs exist
+        if not all(pid in points_map for pid in ordered_ids):
+            return False
+
+        # Reorder
+        self.departure_points = [points_map[pid] for pid in ordered_ids]
+        self._reorder_points()
+        logger.info(f"Reordered {len(self.departure_points)} departure points in config '{self.name}'")
+        return True
+
+    def _reorder_points(self):
+        """Update order field for all points based on list position."""
+        for i, point in enumerate(self.departure_points):
+            point.order = i
+
+    def get_departure_point(self, point_id: str) -> Optional[DeparturePoint]:
+        """
+        Get a departure point by ID.
+
+        Args:
+            point_id: ID of the point to find
+
+        Returns:
+            DeparturePoint if found, None otherwise
+        """
+        for point in self.departure_points:
+            if point.id == point_id:
+                return point
+        return None
+
+    def check_all_departure_hits(self, current_x: int, current_y: int) -> Dict[str, bool]:
+        """
+        Check hit_departure status for all departure points.
+
+        Args:
+            current_x: Current player X coordinate
+            current_y: Current player Y coordinate
+
+        Returns:
+            Dictionary mapping point ID to hit status
+        """
+        return {
+            point.id: point.check_hit(current_x, current_y)
+            for point in self.departure_points
+        }
 
     @property
     def tr_x(self) -> int:

@@ -1498,7 +1498,7 @@ async def api_cv_detection_preview(request: web.Request):
 async def api_object_detection_calibrate(request: web.Request):
     """
     Auto-calibrate HSV color ranges from user click samples.
-    
+
     Request body:
         {
             "color_type": "player" | "other_player",
@@ -1507,7 +1507,7 @@ async def api_object_detection_calibrate(request: web.Request):
                 ...
             ]
         }
-    
+
     Returns:
         {
             "success": bool,
@@ -1523,3 +1523,292 @@ async def api_object_detection_calibrate(request: web.Request):
     except Exception as e:
         log.error(f"Failed to calibrate: {e}", exc_info=True)
         return _json({"success": False, "error": str(e)}, 500)
+
+
+# ========== Departure Points Handlers ==========
+
+async def api_departure_points_add(request: web.Request):
+    """
+    Add a departure point to a map configuration.
+
+    URL parameter:
+        map_name: Name of the map config
+
+    Request body:
+        {
+            "x": int,  # X coordinate (required)
+            "y": int,  # Y coordinate (required)
+            "name": str,  # Optional name (auto-generated if not provided)
+            "tolerance_mode": str,  # Optional (default: "both")
+            "tolerance_value": int  # Optional (default: 5)
+        }
+
+    Returns:
+        Created departure point object
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        map_name = request.match_info.get("map_name")
+        if not map_name:
+            return _json({"error": "Map config name required"}, 400)
+
+        data = await request.json()
+
+        # Validate required fields
+        if "x" not in data or "y" not in data:
+            return _json({"error": "x and y coordinates are required"}, 400)
+
+        manager = get_manager()
+        config = manager.get_config(map_name)
+
+        if not config:
+            return _json({"error": f"Map config '{map_name}' not found"}, 404)
+
+        # Add departure point
+        point = config.add_departure_point(
+            x=int(data["x"]),
+            y=int(data["y"]),
+            name=data.get("name"),
+            tolerance_mode=data.get("tolerance_mode", "both"),
+            tolerance_value=int(data.get("tolerance_value", 5))
+        )
+
+        # Save config
+        manager.save_config(config)
+
+        return _json({
+            "success": True,
+            "point": point.to_dict()
+        })
+
+    except ValueError as e:
+        return _json({"error": str(e)}, 400)
+    except Exception as e:
+        log.error(f"Failed to add departure point: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_departure_points_remove(request: web.Request):
+    """
+    Remove a departure point from a map configuration.
+
+    URL parameters:
+        map_name: Name of the map config
+        point_id: ID of the departure point to remove
+
+    Returns:
+        Success status
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        map_name = request.match_info.get("map_name")
+        point_id = request.match_info.get("point_id")
+
+        if not map_name or not point_id:
+            return _json({"error": "Map name and point ID required"}, 400)
+
+        manager = get_manager()
+        config = manager.get_config(map_name)
+
+        if not config:
+            return _json({"error": f"Map config '{map_name}' not found"}, 404)
+
+        # Remove departure point
+        removed = config.remove_departure_point(point_id)
+
+        if not removed:
+            return _json({"error": "Departure point not found"}, 404)
+
+        # Save config
+        manager.save_config(config)
+
+        return _json({"success": True})
+
+    except Exception as e:
+        log.error(f"Failed to remove departure point: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_departure_points_update(request: web.Request):
+    """
+    Update a departure point's properties.
+
+    URL parameters:
+        map_name: Name of the map config
+        point_id: ID of the departure point to update
+
+    Request body:
+        {
+            "name": str,  # Optional
+            "tolerance_mode": str,  # Optional
+            "tolerance_value": int  # Optional
+        }
+
+    Returns:
+        Updated departure point object
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        map_name = request.match_info.get("map_name")
+        point_id = request.match_info.get("point_id")
+
+        if not map_name or not point_id:
+            return _json({"error": "Map name and point ID required"}, 400)
+
+        data = await request.json()
+
+        manager = get_manager()
+        config = manager.get_config(map_name)
+
+        if not config:
+            return _json({"error": f"Map config '{map_name}' not found"}, 404)
+
+        # Update departure point
+        updated = config.update_departure_point(point_id, **data)
+
+        if not updated:
+            return _json({"error": "Departure point not found"}, 404)
+
+        # Save config
+        manager.save_config(config)
+
+        # Get updated point
+        point = config.get_departure_point(point_id)
+
+        return _json({
+            "success": True,
+            "point": point.to_dict()
+        })
+
+    except ValueError as e:
+        return _json({"error": str(e)}, 400)
+    except Exception as e:
+        log.error(f"Failed to update departure point: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_departure_points_reorder(request: web.Request):
+    """
+    Reorder departure points in a map configuration.
+
+    URL parameter:
+        map_name: Name of the map config
+
+    Request body:
+        {
+            "ordered_ids": [str, ...]  # List of point IDs in desired order
+        }
+
+    Returns:
+        Success status with updated points list
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        map_name = request.match_info.get("map_name")
+        if not map_name:
+            return _json({"error": "Map config name required"}, 400)
+
+        data = await request.json()
+        ordered_ids = data.get("ordered_ids", [])
+
+        if not ordered_ids:
+            return _json({"error": "ordered_ids list required"}, 400)
+
+        manager = get_manager()
+        config = manager.get_config(map_name)
+
+        if not config:
+            return _json({"error": f"Map config '{map_name}' not found"}, 404)
+
+        # Reorder points
+        success = config.reorder_departure_points(ordered_ids)
+
+        if not success:
+            return _json({"error": "Failed to reorder points (IDs don't match)"}, 400)
+
+        # Save config
+        manager.save_config(config)
+
+        return _json({
+            "success": True,
+            "points": [point.to_dict() for point in config.departure_points]
+        })
+
+    except Exception as e:
+        log.error(f"Failed to reorder departure points: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_departure_points_status(request: web.Request):
+    """
+    Get current hit_departure status for all departure points.
+
+    Returns:
+        {
+            "player_detected": bool,
+            "player_position": {"x": int, "y": int} | null,
+            "active_map": str | null,
+            "points": [
+                {
+                    "id": str,
+                    "name": str,
+                    "x": int,
+                    "y": int,
+                    "order": int,
+                    "tolerance_mode": str,
+                    "tolerance_value": int,
+                    "hit_departure": bool
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        from msmacro.cv.map_config import get_manager
+
+        # Get active map config
+        manager = get_manager()
+        config = manager.get_active_config()
+
+        if not config:
+            return _json({
+                "player_detected": False,
+                "player_position": None,
+                "active_map": None,
+                "points": []
+            })
+
+        # Get current player position from daemon
+        try:
+            detection_result = await _daemon("object_detection_status")
+            player_pos = detection_result.get("player_position", {})
+            player_detected = player_pos.get("detected", False)
+            current_x = player_pos.get("x", 0)
+            current_y = player_pos.get("y", 0)
+        except Exception as e:
+            log.warning(f"Failed to get player position: {e}")
+            player_detected = False
+            current_x = 0
+            current_y = 0
+
+        # Check hit_departure for all points
+        points_status = []
+        for point in config.departure_points:
+            point_dict = point.to_dict()
+            point_dict["hit_departure"] = point.check_hit(current_x, current_y) if player_detected else False
+            points_status.append(point_dict)
+
+        return _json({
+            "player_detected": player_detected,
+            "player_position": {"x": current_x, "y": current_y} if player_detected else None,
+            "active_map": config.name,
+            "points": points_status
+        })
+
+    except Exception as e:
+        log.error(f"Failed to get departure points status: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)

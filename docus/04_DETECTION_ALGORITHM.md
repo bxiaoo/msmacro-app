@@ -39,29 +39,54 @@ Users manually configure the minimap region via the web UI:
 
 ### Detection Steps
 
-1. **Get Minimap**: Crop full frame using active map config
-2. **Convert to HSV**: BGR → HSV color space
-3. **Create Masks**: Apply HSV range filters for yellow/red
-4. **Morphology**: Clean noise with erosion/dilation
-5. **Find Blobs**: Detect contours in masks
-6. **Filter**: Circularity (>0.6 player, >0.5 others) - **size filtering disabled**
-7. **Extract Position**: Calculate centroid of valid blobs
-8. **Smooth**: Temporal EMA to reduce jitter
+**8-Stage Filtering Pipeline** (updated Nov 9, 2025):
 
-**⚠️ IMPLEMENTATION NOTE**: Size filtering (originally 3-15px) has been **disabled** (accepts 1-100px). Detection relies on HSV color matching and circularity filtering only, which proved sufficient in real-world testing.
+1. **Get Minimap**: Crop full frame using active map config
+2. **Convert to HSV**: BGR → HSV color space for robust color detection
+3. **Create Masks**: Apply HSV range filters (H=26-85, S≥67, V≥64 for player)
+4. **Morphology**: Clean noise with 3×3 kernel erosion/dilation
+5. **Find Blobs**: Detect contours in binary masks
+6. **Filter - Size**: Strict diameter bounds (4-16px player, 4-80px others)
+7. **Filter - Circularity**: Round shapes only (≥0.71 player, ≥0.65 others)
+8. **Filter - Aspect Ratio**: Reject elongated shapes (0.5-2.0 ratio)
+9. **Score & Select**: Combined scoring for player (size × S × V × circularity)
+10. **Extract Position**: Calculate centroid of best-scoring blob
+11. **Smooth**: Temporal EMA to reduce position jitter (alpha=0.3)
+
+**✅ SIZE FILTERING RE-ENABLED** (Nov 9, 2025): After empirical validation, strict size filtering with separate thresholds (4-16px player, 4-80px red) achieved 100% detection with 0 false positives. Previous "disabled" state has been superseded.
 
 ### Calibration
 
-**Status**: ✅ **Tools Complete** - ⚠️ **Manual Calibration Required**
+**Status**: ✅ **PRODUCTION-READY VALUES AVAILABLE** (Nov 9, 2025)
 
-HSV ranges calibrated via web UI wizard:
-- ✅ User clicks player dot in 5 frames (CalibrationWizard.jsx)
-- ✅ System samples 3×3 region, calculates percentile ranges
-- ✅ Adds 20% safety margin
-- ✅ Truly lossless calibration (raw minimap before JPEG compression)
-- ✅ Returns validated ranges with preview for production use
+**Latest Calibration Results** (Nov 9, 2025):
+- ✅ **100% player detection** on 20-sample validation dataset
+- ✅ **0 false positives** for other players (100% precision)
+- ✅ **0.79ms average** performance (well within <15ms Pi 4 target)
+- ✅ HSV ranges: Player (26,67,64)-(85,255,255), Red S/V≥100
+- ✅ Validated algorithm: HSV + size (4-16px) + circularity (0.71) + combined scoring
 
-**⚠️ CRITICAL**: Default ranges in code are **JPEG placeholders** - MUST calibrate on Pi with real YUYV frames before production use. JPEG compression significantly alters color values.
+**Calibration Tools Available**:
+- ✅ Web UI wizard (CalibrationWizard.jsx) - User clicks player dot in 5 frames
+- ✅ Automated sampling (3×3 region, percentile ranges, 20% safety margin)
+- ✅ Lossless calibration (raw minimap before JPEG compression)
+- ✅ Real-time preview before saving
+- ✅ Export validated ranges for production
+
+**Using Pre-Calibrated Values**:
+```python
+# Default values in code are now PRODUCTION-READY (Nov 9, 2025)
+PLAYER_HSV_LOWER = (26, 67, 64)    # Validated on 20 samples
+PLAYER_HSV_UPPER = (85, 255, 255)  # 100% detection rate
+```
+
+**Re-Calibration Recommended If**:
+- Different Pi hardware (camera variations)
+- Different game version (graphics updates)
+- Different lighting conditions (monitor/HDMI variations)
+- Detection rate drops below 90%
+
+**See**: `FINAL_CALIBRATION_RESULTS_2025-11-09.md` for complete validation methodology
 
 ---
 

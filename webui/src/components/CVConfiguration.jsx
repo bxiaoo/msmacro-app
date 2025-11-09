@@ -16,6 +16,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Checkbox } from './ui/checkbox'
 import { CalibrationGallery } from './CalibrationGallery'
+import { DeparturePointsManager } from './DeparturePointsManager'
 
 export function CVConfiguration() {
   // CV status state
@@ -818,6 +819,16 @@ export function CVConfiguration() {
                                 </p>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Departure Points Management */}
+            {activeConfig && (
+                <div className="space-y-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Departure Points</h2>
+                    <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <DeparturePointsManager activeMapConfig={activeConfig} />
                     </div>
                 </div>
             )}
