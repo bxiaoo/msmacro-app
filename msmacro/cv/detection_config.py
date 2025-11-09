@@ -237,11 +237,11 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
         player = nested["player"]
         if "color_range" in player:
             cr = player["color_range"]
-            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (15, 60, 80)))     # Widened defaults
-            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (40, 255, 255)))   # Widened defaults
-        flat["min_blob_size"] = player.get("blob_size_min", 3)
-        flat["max_blob_size"] = player.get("blob_size_max", 15)
-        flat["min_circularity"] = player.get("circularity_min", 0.6)
+            flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (10, 55, 55)))     # Calibrated defaults (Nov 9, 2025)
+            flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (40, 240, 255)))   # Calibrated defaults (Nov 9, 2025)
+        flat["min_blob_size"] = player.get("blob_size_min", 4)
+        flat["max_blob_size"] = player.get("blob_size_max", 100)
+        flat["min_circularity"] = player.get("circularity_min", 0.60)
     
     # Other players config
     if "other_players" in nested:
@@ -251,7 +251,8 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
                 (tuple(r["hsv_lower"]), tuple(r["hsv_upper"]))
                 for r in other["color_ranges"]
             ]
-        flat["min_circularity_other"] = other.get("circularity_min", 0.5)
+        flat["min_circularity_other"] = other.get("circularity_min", 0.50)
+        flat["max_blob_size_other"] = other.get("blob_size_max", 80)
     
     # Temporal smoothing
     if "temporal_smoothing" in nested:
@@ -303,13 +304,18 @@ def _load_from_env() -> Dict[str, Any]:
 def _dict_to_config(config_dict: Dict[str, Any]) -> DetectorConfig:
     """Convert flat dict to DetectorConfig instance."""
     return DetectorConfig(
-        player_hsv_lower=config_dict.get("player_hsv_lower", (15, 60, 80)),     # Widened defaults
-        player_hsv_upper=config_dict.get("player_hsv_upper", (40, 255, 255)),   # Widened defaults
+        player_hsv_lower=config_dict.get("player_hsv_lower", (10, 55, 55)),      # Calibrated defaults (Nov 9, 2025)
+        player_hsv_upper=config_dict.get("player_hsv_upper", (40, 240, 255)),    # Calibrated defaults (Nov 9, 2025)
         other_player_hsv_ranges=config_dict.get("other_player_hsv_ranges", None),
-        min_blob_size=config_dict.get("min_blob_size", 3),
-        max_blob_size=config_dict.get("max_blob_size", 15),
-        min_circularity=config_dict.get("min_circularity", 0.6),
-        min_circularity_other=config_dict.get("min_circularity_other", 0.5),
+        min_blob_size=config_dict.get("min_blob_size", 4),
+        max_blob_size=config_dict.get("max_blob_size", 100),
+        max_blob_size_other=config_dict.get("max_blob_size_other", 80),
+        min_circularity=config_dict.get("min_circularity", 0.60),
+        min_circularity_other=config_dict.get("min_circularity_other", 0.50),
+        min_aspect_ratio=config_dict.get("min_aspect_ratio", 0.5),
+        max_aspect_ratio=config_dict.get("max_aspect_ratio", 2.0),
+        enable_contrast_validation=config_dict.get("enable_contrast_validation", False),
+        min_contrast_ratio=config_dict.get("min_contrast_ratio", 1.15),
         temporal_smoothing=config_dict.get("temporal_smoothing", True),
         smoothing_alpha=config_dict.get("smoothing_alpha", 0.3)
     )
