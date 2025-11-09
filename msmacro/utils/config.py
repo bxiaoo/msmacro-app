@@ -9,6 +9,9 @@ DEFAULT_RECDIR = Path(
 DEFAULT_SKILLSDIR = Path(
     os.environ.get("MSMACRO_SKILLSDIR", str(Path.home() / ".local/share/msmacro/skills"))
 )
+DEFAULT_CALIBRATION_DIR = Path(
+    os.environ.get("MSMACRO_CALIBRATION_DIR", str(Path.home() / ".local/share/msmacro/calibration"))
+)
 DEFAULT_SOCKET = os.environ.get("MSMACRO_SOCKET", "/run/msmacro.sock")
 
 @dataclass

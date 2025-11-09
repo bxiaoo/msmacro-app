@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Camera, AlertCircle, CheckCircle, XCircle, Plus, Trash2, Minus } from 'lucide-react'
+import { Camera, AlertCircle, CheckCircle, XCircle, Plus, Trash2, Minus, Download } from 'lucide-react'
 import {
   getCVStatus,
   startCVCapture,
@@ -9,7 +9,8 @@ import {
   activateMapConfig,
   deactivateMapConfig,
   getMiniMapPreviewURL,
-  getCVScreenshotURL
+  getCVScreenshotURL,
+  saveCalibrationSample
 } from '../api'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -39,6 +40,11 @@ export function CVConfiguration() {
   const [fullScreenUrl, setFullScreenUrl] = useState(null)
   const [fullScreenError, setFullScreenError] = useState(false)
   const debounceTimerRef = useRef(null)
+
+  // Calibration sample state
+  const [sampleCount, setSampleCount] = useState(0)
+  const [savingSample, setSavingSample] = useState(false)
+  const [sampleMessage, setSampleMessage] = useState(null)
 
   const formatTimestamp = (ts) => {
     if (ts === null || ts === undefined) return '—'
@@ -147,6 +153,39 @@ export function CVConfiguration() {
       await loadMapConfigs()
     } catch (err) {
       alert(`Failed to delete configuration: ${err.message}`)
+    }
+  }
+
+  const handleSaveCalibrationSample = async () => {
+    setSavingSample(true)
+    setSampleMessage(null)
+
+    try {
+      const result = await saveCalibrationSample()
+
+      if (result.success) {
+        setSampleCount(prev => prev + 1)
+        setSampleMessage({
+          type: 'success',
+          text: `Sample ${result.filename} saved! (${result.resolution[0]}×${result.resolution[1]})`
+        })
+
+        // Clear success message after 3 seconds
+        setTimeout(() => setSampleMessage(null), 3000)
+      } else {
+        setSampleMessage({
+          type: 'error',
+          text: result.message || 'Failed to save sample'
+        })
+      }
+    } catch (err) {
+      console.error('Failed to save calibration sample:', err)
+      setSampleMessage({
+        type: 'error',
+        text: `Error: ${err.message}`
+      })
+    } finally {
+      setSavingSample(false)
     }
   }
 
@@ -658,7 +697,36 @@ export function CVConfiguration() {
             {/* Live Minimap Preview (only when active config exists) */}
             {activeConfig && (
                 <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
+                        <div className="flex items-center gap-3">
+                            {sampleCount > 0 && (
+                                <span className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
+                                    Samples: {sampleCount}
+                                </span>
+                            )}
+                            <Button
+                                onClick={handleSaveCalibrationSample}
+                                disabled={savingSample || !status?.has_frame}
+                                className="flex items-center gap-2"
+                            >
+                                <Download size={16} />
+                                {savingSample ? 'Saving...' : 'Save Sample'}
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Sample save message */}
+                    {sampleMessage && (
+                        <div className={`p-3 rounded-lg text-sm ${
+                            sampleMessage.type === 'success'
+                                ? 'bg-green-50 text-green-800 border border-green-200'
+                                : 'bg-red-50 text-red-800 border border-red-200'
+                        }`}>
+                            {sampleMessage.text}
+                        </div>
+                    )}
+
                     <div className="bg-gray-100 rounded-lg p-4">
                         {isTransitioning ? (
                             <div className="flex flex-col items-center justify-center py-16 text-gray-400">

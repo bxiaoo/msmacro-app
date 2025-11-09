@@ -330,3 +330,10 @@ async function API(path, opts = {}) {
       body: JSON.stringify({ config })
     });
   }
+
+  export function saveCalibrationSample(filename = null, metadata = {}) {
+    return API("/api/cv/save-calibration-sample", {
+      method: "POST",
+      body: JSON.stringify({ filename, metadata })
+    });
+  }

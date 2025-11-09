@@ -1036,7 +1036,7 @@ async def api_object_detection_config_export(request: web.Request):
 async def api_object_detection_performance(request: web.Request):
     """
     Get object detection performance statistics.
-    
+
     Returns:
         Performance stats (avg_ms, max_ms, min_ms, count)
     """
@@ -1046,6 +1046,43 @@ async def api_object_detection_performance(request: web.Request):
     except Exception as e:
         log.error(f"Failed to get object detection performance: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)
+
+
+async def api_save_calibration_sample(request: web.Request):
+    """
+    Save the current raw minimap as a calibration sample to disk.
+
+    Saves the minimap as a lossless PNG file for manual annotation and analysis.
+    Auto-generates filename with timestamp if not provided.
+
+    JSON Body (optional):
+        filename: Custom filename (without extension, auto-generated if omitted)
+        metadata: Dict with user notes, lighting conditions, etc.
+
+    Returns:
+        JSON with:
+            success: bool
+            filename: Saved filename
+            path: Absolute path to saved file
+            checksum: SHA256 checksum
+            metadata_path: Path to metadata JSON
+            size_bytes: Size of PNG file
+            resolution: [width, height]
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    filename = body.get("filename")
+    metadata = body.get("metadata", {})
+
+    try:
+        result = await _daemon("cv_save_calibration_sample", filename=filename, metadata=metadata)
+        return _json(result)
+    except Exception as e:
+        log.error(f"Failed to save calibration sample: {e}", exc_info=True)
+        return _json({"error": str(e), "success": False}, 500)
 
 
 async def api_cv_frame_lossless(request: web.Request):

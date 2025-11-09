@@ -861,3 +861,191 @@ class CVCommandHandler:
         except Exception as e:
             logger.error(f"❌ Calibration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+
+    async def cv_save_calibration_sample(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Save the current raw minimap as a calibration sample to disk.
+
+        Saves the minimap as a lossless PNG file for manual annotation and
+        analysis. Each sample includes metadata (timestamp, map config, user notes).
+
+        Args:
+            msg: IPC message with optional keys:
+                - filename: Custom filename (without extension)
+                - metadata: Dict with user notes, conditions, etc.
+
+        Returns:
+            Dictionary with:
+                - success: Whether save succeeded
+                - filename: Saved filename (auto-generated if not provided)
+                - path: Absolute path to saved file
+                - checksum: SHA256 of PNG data
+                - metadata_path: Path to metadata JSON
+                - error: Error message if failed
+
+        Raises:
+            RuntimeError: If capture fails or no minimap available
+        """
+        import cv2
+        import hashlib
+        import json
+        from datetime import datetime
+        from pathlib import Path
+        from ..utils.config import DEFAULT_CALIBRATION_DIR
+
+        try:
+            capture = get_capture_instance()
+
+            # Get raw minimap (reuse existing logic with auto-start)
+            minimap_result = capture.get_raw_minimap()
+
+            if minimap_result is None:
+                # Auto-start capture if needed
+                status = capture.get_status()
+                if not status.get('capturing'):
+                    logger.info("Auto-starting capture for calibration sample save...")
+                    try:
+                        await capture.start()
+                        # Wait for first frame
+                        for attempt in range(30):
+                            await asyncio.sleep(0.1)
+                            minimap_result = capture.get_raw_minimap()
+                            if minimap_result is not None:
+                                break
+                        else:
+                            raise RuntimeError("Timed out waiting for minimap after auto-start")
+                    except CVCaptureError as e:
+                        raise RuntimeError(f"Failed to start CV capture: {e}")
+                else:
+                    # Capture running but no minimap - check for config
+                    try:
+                        from ..cv.map_config import get_manager
+                        manager = get_manager()
+                        active_config = manager.get_active_config()
+
+                        if not active_config:
+                            return {
+                                "success": False,
+                                "error": "no_active_config",
+                                "message": "No active map configuration. Please activate a map config first."
+                            }
+
+                        # Wait for minimap to be populated
+                        for attempt in range(30):
+                            await asyncio.sleep(0.1)
+                            minimap_result = capture.get_raw_minimap()
+                            if minimap_result is not None:
+                                break
+                        else:
+                            return {
+                                "success": False,
+                                "error": "minimap_not_available",
+                                "message": "Raw minimap not available after waiting 3 seconds. Check capture status."
+                            }
+                    except Exception as e:
+                        logger.error(f"Failed to check map config: {e}")
+                        return {
+                            "success": False,
+                            "error": "config_check_failed",
+                            "message": f"Failed to verify map config: {e}"
+                        }
+
+            raw_crop, frame_metadata = minimap_result
+
+            # Generate filename if not provided
+            filename = msg.get('filename')
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"sample_{timestamp}"
+
+            # Ensure filename doesn't have extension (we'll add .png)
+            filename = filename.replace('.png', '').replace('.jpg', '')
+
+            # Create calibration directory structure
+            calibration_dir = Path(DEFAULT_CALIBRATION_DIR)
+            samples_dir = calibration_dir / "minimap_samples"
+            samples_dir.mkdir(parents=True, exist_ok=True)
+
+            # Encode as PNG
+            ret, png_data = cv2.imencode('.png', raw_crop)
+            if not ret:
+                raise RuntimeError("Failed to encode minimap as PNG")
+
+            png_bytes = png_data.tobytes()
+
+            # Calculate checksum
+            checksum = hashlib.sha256(png_bytes).hexdigest()[:16]
+
+            # Save PNG file
+            png_path = samples_dir / f"{filename}.png"
+            with open(png_path, 'wb') as f:
+                f.write(png_bytes)
+
+            logger.info(f"✅ Saved calibration sample: {png_path} ({len(png_bytes)} bytes)")
+
+            # Prepare metadata
+            metadata = {
+                "timestamp": datetime.now().isoformat(),
+                "filename": f"{filename}.png",
+                "capture_info": {
+                    "resolution": list(raw_crop.shape[:2][::-1]),  # [width, height]
+                    "format": "BGR",
+                    "channels": raw_crop.shape[2] if len(raw_crop.shape) > 2 else 1,
+                    "checksum": checksum
+                }
+            }
+
+            # Add frame metadata if available
+            if frame_metadata:
+                metadata_dict = asdict(frame_metadata)
+                # Convert numpy types to native Python
+                for key, value in metadata_dict.items():
+                    if hasattr(value, 'item'):
+                        metadata_dict[key] = value.item()
+                metadata["frame_metadata"] = metadata_dict
+
+            # Add map config info
+            try:
+                from ..cv.map_config import get_manager
+                manager = get_manager()
+                active_config = manager.get_active_config()
+                if active_config:
+                    metadata["map_config"] = {
+                        "name": active_config.name,
+                        "tl_x": active_config.tl_x,
+                        "tl_y": active_config.tl_y,
+                        "width": active_config.width,
+                        "height": active_config.height
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to get map config for metadata: {e}")
+
+            # Add user-provided metadata
+            user_metadata = msg.get('metadata', {})
+            if user_metadata:
+                metadata["user_notes"] = user_metadata
+
+            # Save metadata JSON
+            meta_path = samples_dir / f"{filename}_meta.json"
+            with open(meta_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            logger.info(f"✅ Saved metadata: {meta_path}")
+
+            return {
+                "success": True,
+                "filename": f"{filename}.png",
+                "path": str(png_path.absolute()),
+                "checksum": checksum,
+                "metadata_path": str(meta_path.absolute()),
+                "size_bytes": len(png_bytes),
+                "resolution": metadata["capture_info"]["resolution"]
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Failed to save calibration sample: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to save calibration sample: {e}"
+            }
