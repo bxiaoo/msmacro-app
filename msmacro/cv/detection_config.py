@@ -240,7 +240,7 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
             flat["player_hsv_lower"] = tuple(cr.get("hsv_lower", (26, 67, 64)))     # FINAL CALIBRATED (Nov 9, 2025)
             flat["player_hsv_upper"] = tuple(cr.get("hsv_upper", (85, 255, 255)))   # FINAL CALIBRATED (Nov 9, 2025)
         flat["min_blob_size"] = player.get("blob_size_min", 4)
-        flat["max_blob_size"] = player.get("blob_size_max", 16)
+        flat["max_blob_size"] = player.get("blob_size_max", 18)
         flat["min_circularity"] = player.get("circularity_min", 0.71)
     
     # Other players config
@@ -253,7 +253,7 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
             ]
         flat["min_circularity_other"] = other.get("circularity_min", 0.65)
         flat["min_blob_size_other"] = other.get("blob_size_min", 4)
-        flat["max_blob_size_other"] = other.get("blob_size_max", 80)
+        flat["max_blob_size_other"] = other.get("blob_size_max", 18)
     
     # Temporal smoothing
     if "temporal_smoothing" in nested:
