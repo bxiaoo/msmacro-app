@@ -12,7 +12,6 @@ import { StateMessage } from './components/StateMessage.jsx'
 import { MacroList } from './components/files/MacroList.jsx'
 import { CDSkills } from './components/CDSkills.jsx'
 import { CVConfiguration } from './components/CVConfiguration.jsx'
-import { ObjectDetection } from './components/ObjectDetection.jsx'
 import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
 import { PostRecordingModal } from './components/PostRecordingModal.jsx'
 import { NewSkillModal } from './components/NewSkillModal.jsx'
@@ -456,7 +455,6 @@ export default function App(){
           />
         )}
         {activeTab === 'cv-config' && <CVConfiguration />}
-        {activeTab === 'object-detection' && <ObjectDetection />}
       </div>
 
       {/* Bottom section - Sticky at bottom, always visible */}

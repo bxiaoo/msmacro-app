@@ -48,11 +48,6 @@ export function NavigationTabs({
                 active={activeTab === 'cv-config'}
                 onClick={() => onTabChange?.('cv-config')}
             />
-            <TabItem
-                label="Detection"
-                active={activeTab === 'object-detection'}
-                onClick={() => onTabChange?.('object-detection')}
-            />
         </div>
     )
 }

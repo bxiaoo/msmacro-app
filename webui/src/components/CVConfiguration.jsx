@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Camera, AlertCircle, CheckCircle, XCircle, Plus, Trash2, Minus, Download } from 'lucide-react'
+import { Camera, AlertCircle, CheckCircle, XCircle, Plus, Trash2, Minus } from 'lucide-react'
 import {
   getCVStatus,
   startCVCapture,
@@ -10,12 +10,12 @@ import {
   deactivateMapConfig,
   getMiniMapPreviewURL,
   getCVScreenshotURL,
-  saveCalibrationSample
+  startObjectDetection,
+  stopObjectDetection
 } from '../api'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Checkbox } from './ui/checkbox'
-import { CalibrationGallery } from './CalibrationGallery'
 import { DeparturePointsManager } from './DeparturePointsManager'
 
 export function CVConfiguration() {
@@ -42,11 +42,6 @@ export function CVConfiguration() {
   const [fullScreenUrl, setFullScreenUrl] = useState(null)
   const [fullScreenError, setFullScreenError] = useState(false)
   const debounceTimerRef = useRef(null)
-
-  // Calibration sample state
-  const [sampleCount, setSampleCount] = useState(0)
-  const [savingSample, setSavingSample] = useState(false)
-  const [sampleMessage, setSampleMessage] = useState(null)
 
   const formatTimestamp = (ts) => {
     if (ts === null || ts === undefined) return '—'
@@ -140,6 +135,22 @@ export function CVConfiguration() {
         console.warn('Timeout waiting for region transition - continuing anyway')
       }
 
+      // Automatically start/stop object detection based on map activation
+      try {
+        if (!wasActive) {
+          // Map was just activated - start object detection
+          console.log('Starting object detection after map activation')
+          await startObjectDetection()
+        } else {
+          // Map was just deactivated - stop object detection
+          console.log('Stopping object detection after map deactivation')
+          await stopObjectDetection()
+        }
+      } catch (detectionErr) {
+        console.warn('Failed to toggle object detection:', detectionErr)
+        // Don't fail the entire operation if detection toggle fails
+      }
+
     } catch (err) {
       alert(`Failed to ${config.is_active ? 'deactivate' : 'activate'} configuration: ${err.message}`)
     } finally {
@@ -155,53 +166,6 @@ export function CVConfiguration() {
       await loadMapConfigs()
     } catch (err) {
       alert(`Failed to delete configuration: ${err.message}`)
-    }
-  }
-
-  const handleSaveCalibrationSample = async () => {
-    setSavingSample(true)
-    setSampleMessage(null)
-
-    try {
-      const result = await saveCalibrationSample()
-
-      if (result.success) {
-        setSampleCount(prev => prev + 1)
-        setSampleMessage({
-          type: 'success',
-          text: `Sample ${result.filename} saved! (${result.resolution[0]}×${result.resolution[1]})`
-        })
-
-        // Clear success message after 3 seconds
-        setTimeout(() => setSampleMessage(null), 3000)
-      } else {
-        // Detailed error handling with troubleshooting
-        console.error('Sample save failed:', result)
-
-        let errorText = result.message || 'Failed to save sample'
-
-        // Add action hints if available
-        if (result.details?.action) {
-          errorText += `\n\n${result.details.action}`
-        }
-
-        setSampleMessage({
-          type: 'error',
-          text: errorText,
-          error: result.error, // Error code for debugging
-          details: result.details
-        })
-
-        // Don't auto-dismiss errors
-      }
-    } catch (err) {
-      console.error('Failed to save calibration sample:', err)
-      setSampleMessage({
-        type: 'error',
-        text: `Network error: ${err.message}\n\nCheck that the daemon is running and accessible.`
-      })
-    } finally {
-      setSavingSample(false)
     }
   }
 
@@ -713,63 +677,7 @@ export function CVConfiguration() {
             {/* Live Minimap Preview (only when active config exists) */}
             {activeConfig && (
                 <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
-                        <div className="flex items-center gap-3">
-                            {sampleCount > 0 && (
-                                <span className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
-                                    Samples: {sampleCount}
-                                </span>
-                            )}
-                            <Button
-                                onClick={handleSaveCalibrationSample}
-                                disabled={savingSample || !status?.has_frame}
-                                className="flex items-center gap-2"
-                            >
-                                <Download size={16} />
-                                {savingSample ? 'Saving...' : 'Save Sample'}
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Sample save message */}
-                    {sampleMessage && (
-                        <div className={`p-4 rounded-lg text-sm ${
-                            sampleMessage.type === 'success'
-                                ? 'bg-green-50 text-green-800 border border-green-200'
-                                : 'bg-red-50 text-red-800 border border-red-200'
-                        }`}>
-                            <div className="flex items-start gap-2">
-                                {sampleMessage.type === 'error' && (
-                                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                                )}
-                                {sampleMessage.type === 'success' && (
-                                    <CheckCircle size={16} className="flex-shrink-0 mt-0.5" />
-                                )}
-                                <div className="flex-1">
-                                    <div className="font-medium mb-1">
-                                        {sampleMessage.type === 'success' ? 'Success!' : 'Failed to save sample'}
-                                    </div>
-                                    <div className="whitespace-pre-line">
-                                        {sampleMessage.text}
-                                    </div>
-                                    {sampleMessage.error && (
-                                        <div className="mt-2 text-xs opacity-75 font-mono">
-                                            Error code: {sampleMessage.error}
-                                        </div>
-                                    )}
-                                </div>
-                                {sampleMessage.type === 'error' && (
-                                    <button
-                                        onClick={() => setSampleMessage(null)}
-                                        className="flex-shrink-0 text-red-600 hover:text-red-800"
-                                    >
-                                        <XCircle size={16} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                    <h2 className="text-lg font-semibold text-gray-900">Live Minimap Preview</h2>
 
                     <div className="bg-gray-100 rounded-lg p-4">
                         {isTransitioning ? (
@@ -829,16 +737,6 @@ export function CVConfiguration() {
                     <h2 className="text-lg font-semibold text-gray-900">Departure Points</h2>
                     <div className="bg-white rounded-lg p-4 border border-gray-200">
                         <DeparturePointsManager activeMapConfig={activeConfig} />
-                    </div>
-                </div>
-            )}
-
-            {/* Calibration Sample Gallery */}
-            {activeConfig && (
-                <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-gray-900">Calibration Samples</h2>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                        <CalibrationGallery refreshTrigger={sampleCount} />
                     </div>
                 </div>
             )}
