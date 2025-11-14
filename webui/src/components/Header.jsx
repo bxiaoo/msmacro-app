@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings2, Bug, Trash2, Cpu, HardDrive } from "lucide-react";
+import { Bolt, Pipette, Trash2, Cpu, HardDrive } from "lucide-react";
 import { ActionButton } from "./ui/action-button";
 import { clsx } from "clsx";
 import { getSystemStats } from "../api";
@@ -120,12 +120,12 @@ export function Header({
             disabled={!hasSelectedFiles}
           />
           <ActionButton
-            Icon={Settings2}
+            Icon={Bolt}
             onClick={onSettingsClick}
             active={isSettingsActive}
           />
           <ActionButton
-            Icon={Bug}
+            Icon={Pipette}
             onClick={onDebugClick}
             active={isDebugActive}
           />
