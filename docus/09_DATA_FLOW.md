@@ -28,7 +28,7 @@ This document describes the complete data flow for object detection and minimap 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND (React)                      │
+│                        FRONTEND (React)                     │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────┐ │
 │  │ CVConfiguration │  │ ObjectDetection  │  │ Calibration│ │
 │  │   Component     │  │    Component     │  │   Wizard   │ │

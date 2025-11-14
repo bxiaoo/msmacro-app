@@ -61,6 +61,11 @@ from .handlers import (
     api_departure_points_update,
     api_departure_points_reorder,
     api_departure_points_status,
+    # CV-AUTO mode handlers
+    api_cv_auto_start,
+    api_cv_auto_stop,
+    api_cv_auto_status,
+    api_link_rotations_to_point,
     # System handlers
     api_system_stats,
 )
@@ -168,6 +173,14 @@ def make_app() -> web.Application:
 
         # System information
         web.get("/api/system/stats", api_system_stats),
+
+        # CV-AUTO mode control
+        web.post("/api/cv-auto/start", api_cv_auto_start),
+        web.post("/api/cv-auto/stop", api_cv_auto_stop),
+        web.get("/api/cv-auto/status", api_cv_auto_status),
+
+        # Rotation linking
+        web.put("/api/cv/map-configs/{map_name}/departure-points/{point_id}/rotations", api_link_rotations_to_point),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),

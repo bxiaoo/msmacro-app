@@ -1214,3 +1214,70 @@ class CVCommandHandler:
                     "action": "Check daemon logs for full traceback. Try restarting daemon if issue persists."
                 }
             }
+
+    async def link_rotations_to_point(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Link rotation files to a departure point.
+
+        Message format:
+        {
+            "cmd": "link_rotations_to_point",
+            "map_name": "Henesys Hunting Ground",
+            "point_id": "uuid-123",
+            "rotation_paths": ["rotation1.json", "rotation2.json"],
+            "rotation_mode": "random",       # Optional: "random", "sequential", "single"
+            "is_teleport_point": false,      # Optional: Enable port flow
+            "auto_play": true                # Optional: Enable auto-trigger
+        }
+
+        Returns:
+            {"ok": true} on success, {"error": "..."} on failure
+        """
+        from ..cv.map_config import get_manager
+
+        map_name = msg.get("map_name")
+        point_id = msg.get("point_id")
+        rotation_paths = msg.get("rotation_paths", [])
+
+        if not map_name or not point_id:
+            return {"error": "map_name and point_id are required"}
+
+        if not isinstance(rotation_paths, list):
+            return {"error": "rotation_paths must be a list"}
+
+        manager = get_manager()
+        map_config = manager.get_config(map_name)
+
+        if not map_config:
+            return {"error": f"Map config not found: {map_name}"}
+
+        # Link rotations
+        success = map_config.link_rotations_to_point(
+            point_id=point_id,
+            rotation_paths=rotation_paths,
+            rotation_mode=msg.get("rotation_mode"),
+            is_teleport_point=msg.get("is_teleport_point"),
+            auto_play=msg.get("auto_play")
+        )
+
+        if not success:
+            return {"error": f"Departure point not found: {point_id}"}
+
+        # Save updated config
+        try:
+            manager.save_config(map_config)
+            logger.info(
+                f"Linked {len(rotation_paths)} rotation(s) to point {point_id} "
+                f"in map '{map_name}'"
+            )
+
+            # Reload map config if CV capture is running
+            capture = get_capture_instance()
+            if capture:
+                await capture.reload_map_config()
+
+            return {"ok": True}
+
+        except Exception as e:
+            logger.error(f"Failed to save map config: {e}", exc_info=True)
+            return {"error": f"Failed to save config: {str(e)}"}

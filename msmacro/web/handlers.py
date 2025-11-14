@@ -1813,3 +1813,101 @@ async def api_departure_points_status(request: web.Request):
     except Exception as e:
         log.error(f"Failed to get departure points status: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)
+
+
+# ---------- CV-AUTO Mode Handlers ----------
+
+async def api_cv_auto_start(request: web.Request):
+    """
+    Start CV-AUTO mode for automatic rotation playback.
+
+    Body (JSON):
+    {
+        "loop": true,              # Loop back to first point after last
+        "speed": 1.0,              # Rotation playback speed
+        "jitter_time": 0.05,       # Time jitter for human-like playback
+        "jitter_hold": 0.02        # Hold duration jitter
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    try:
+        resp = await _daemon("cv_auto_start", **body)
+        return _json(resp)
+    except Exception as e:
+        log.error(f"Failed to start CV-AUTO mode: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_auto_stop(request: web.Request):
+    """Stop CV-AUTO mode."""
+    try:
+        resp = await _daemon("cv_auto_stop")
+        return _json(resp)
+    except Exception as e:
+        log.error(f"Failed to stop CV-AUTO mode: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_auto_status(request: web.Request):
+    """
+    Get CV-AUTO mode status.
+
+    Returns:
+    {
+        "enabled": bool,
+        "current_point_index": int,
+        "current_point_name": str,
+        "total_points": int,
+        "last_rotation_played": str,
+        "rotations_played_count": int,
+        "cycles_completed": int,
+        "player_position": {"x": int, "y": int}
+    }
+    """
+    try:
+        resp = await _daemon("cv_auto_status")
+        return _json(resp)
+    except Exception as e:
+        log.error(f"Failed to get CV-AUTO status: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_link_rotations_to_point(request: web.Request):
+    """
+    Link rotation files to a departure point.
+
+    Path params:
+    - map_name: Map configuration name
+    - point_id: Departure point ID
+
+    Body (JSON):
+    {
+        "rotation_paths": ["rotation1.json", "rotation2.json"],
+        "rotation_mode": "random",       # Optional: "random", "sequential", "single"
+        "is_teleport_point": false,      # Optional: Enable port flow
+        "auto_play": true                # Optional: Enable auto-trigger
+    }
+    """
+    map_name = request.match_info.get("map_name")
+    point_id = request.match_info.get("point_id")
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    try:
+        resp = await _daemon(
+            "link_rotations_to_point",
+            map_name=map_name,
+            point_id=point_id,
+            **body
+        )
+        return _json(resp)
+    except Exception as e:
+        log.error(f"Failed to link rotations: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)

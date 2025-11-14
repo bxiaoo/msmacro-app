@@ -39,6 +39,14 @@ class DeparturePoint:
             - "both": Check both X and Y within ±tolerance_value
         tolerance_value: Pixel tolerance for range-based modes (default: 5)
         created_at: Unix timestamp when point was created
+        rotation_paths: List of rotation file paths linked to this point
+        rotation_mode: How to select rotation from linked list
+            - "random": Randomly pick one rotation per trigger
+            - "sequential": Cycle through rotations in order
+            - "single": Always play the first rotation
+        is_teleport_point: Enable Port flow navigation for this point
+        auto_play: Auto-trigger rotation when player hits this point
+        pathfinding_sequence: Optional path to pre-recorded movement sequence
     """
     id: str
     name: str
@@ -48,12 +56,21 @@ class DeparturePoint:
     tolerance_mode: str = "both"
     tolerance_value: int = 5
     created_at: float = 0.0
+    rotation_paths: List[str] = field(default_factory=list)
+    rotation_mode: str = "random"
+    is_teleport_point: bool = False
+    auto_play: bool = True
+    pathfinding_sequence: Optional[str] = None
 
     def __post_init__(self):
-        """Validate tolerance mode."""
-        valid_modes = {"y_axis", "x_axis", "y_greater", "y_less", "x_greater", "x_less", "both"}
-        if self.tolerance_mode not in valid_modes:
-            raise ValueError(f"Invalid tolerance_mode: {self.tolerance_mode}. Must be one of {valid_modes}")
+        """Validate tolerance mode and rotation mode."""
+        valid_tolerance_modes = {"y_axis", "x_axis", "y_greater", "y_less", "x_greater", "x_less", "both"}
+        if self.tolerance_mode not in valid_tolerance_modes:
+            raise ValueError(f"Invalid tolerance_mode: {self.tolerance_mode}. Must be one of {valid_tolerance_modes}")
+
+        valid_rotation_modes = {"random", "sequential", "single"}
+        if self.rotation_mode not in valid_rotation_modes:
+            raise ValueError(f"Invalid rotation_mode: {self.rotation_mode}. Must be one of {valid_rotation_modes}")
 
     def check_hit(self, current_x: int, current_y: int) -> bool:
         """
@@ -288,6 +305,78 @@ class MapConfig:
             point.id: point.check_hit(current_x, current_y)
             for point in self.departure_points
         }
+
+    def link_rotations_to_point(self, point_id: str, rotation_paths: List[str],
+                                rotation_mode: str = None, is_teleport_point: bool = None,
+                                auto_play: bool = None) -> bool:
+        """
+        Link rotation files to a departure point.
+
+        Args:
+            point_id: ID of the departure point
+            rotation_paths: List of rotation file paths to link
+            rotation_mode: Optional rotation selection mode ("random", "sequential", "single")
+            is_teleport_point: Optional flag to enable Port flow navigation
+            auto_play: Optional flag to enable auto-trigger
+
+        Returns:
+            True if successful, False if point not found
+        """
+        point = self.get_departure_point(point_id)
+        if not point:
+            return False
+
+        point.rotation_paths = rotation_paths
+
+        if rotation_mode is not None:
+            point.rotation_mode = rotation_mode
+
+        if is_teleport_point is not None:
+            point.is_teleport_point = is_teleport_point
+
+        if auto_play is not None:
+            point.auto_play = auto_play
+
+        logger.info(f"Linked {len(rotation_paths)} rotation(s) to point '{point.name}' "
+                   f"(mode={point.rotation_mode}, teleport={point.is_teleport_point})")
+        return True
+
+    def unlink_rotation_from_point(self, point_id: str, rotation_path: str) -> bool:
+        """
+        Remove a specific rotation from a departure point's linked rotations.
+
+        Args:
+            point_id: ID of the departure point
+            rotation_path: Rotation file path to remove
+
+        Returns:
+            True if removed, False if point not found or rotation not linked
+        """
+        point = self.get_departure_point(point_id)
+        if not point:
+            return False
+
+        if rotation_path in point.rotation_paths:
+            point.rotation_paths.remove(rotation_path)
+            logger.info(f"Unlinked rotation '{rotation_path}' from point '{point.name}'")
+            return True
+
+        return False
+
+    def get_point_rotations(self, point_id: str) -> Optional[List[str]]:
+        """
+        Get all linked rotation paths for a departure point.
+
+        Args:
+            point_id: ID of the departure point
+
+        Returns:
+            List of rotation paths if point found, None otherwise
+        """
+        point = self.get_departure_point(point_id)
+        if point:
+            return point.rotation_paths.copy()
+        return None
 
     @property
     def tr_x(self) -> int:

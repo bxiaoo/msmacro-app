@@ -16,6 +16,7 @@ from .playback_commands import PlaybackCommandHandler
 from .skills_commands import SkillsCommandHandler
 from .cv_commands import CVCommandHandler
 from .system_commands import SystemCommandHandler
+from .cv_auto_commands import CVAutoCommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class CommandDispatcher:
         self.skills_handler = SkillsCommandHandler(daemon)
         self.cv_handler = CVCommandHandler(daemon)
         self.system_handler = SystemCommandHandler(daemon)
+        self.cv_auto_handler = CVAutoCommandHandler(daemon)
 
     async def dispatch(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -145,6 +147,18 @@ class CommandDispatcher:
         # System information commands
         elif cmd == "system_stats":
             return await self.system_handler.system_stats(msg)
+
+        # CV-AUTO commands
+        elif cmd == "cv_auto_start":
+            return await self.cv_auto_handler.cv_auto_start(msg)
+        elif cmd == "cv_auto_stop":
+            return await self.cv_auto_handler.cv_auto_stop(msg)
+        elif cmd == "cv_auto_status":
+            return await self.cv_auto_handler.cv_auto_status(msg)
+
+        # Rotation linking command
+        elif cmd == "link_rotations_to_point":
+            return await self.cv_handler.link_rotations_to_point(msg)
 
         # Unknown command
         else:
