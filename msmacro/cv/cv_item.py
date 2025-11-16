@@ -54,9 +54,9 @@ class CVItem:
     name: str
     map_config_name: Optional[str]  # Can be null if map config deleted
     pathfinding_rotations: Dict[str, List[str]]
-    pathfinding_config: Dict[str, Any] = field(default_factory=dict)
     departure_points: List[DeparturePoint]
     created_at: float
+    pathfinding_config: Dict[str, Any] = field(default_factory=dict)
     last_used_at: float = 0.0
     is_active: bool = False
     description: str = ""
