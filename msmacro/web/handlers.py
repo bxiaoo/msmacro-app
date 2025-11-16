@@ -722,39 +722,88 @@ async def api_cv_map_configs_create(request: web.Request):
         from msmacro.cv.map_config import get_manager, MapConfig
         import time
 
-        data = await request.json()
+        # Parse JSON with error handling
+        try:
+            data = await request.json()
+        except Exception as e:
+            log.warning(f"Invalid JSON in map config create request: {e}")
+            return _json({"error": "Invalid JSON in request body"}, 400)
+
+        # Validate request body is not empty
+        if not data:
+            log.warning("Empty request body in map config create")
+            return _json({"error": "Request body cannot be empty"}, 400)
 
         # Validate required fields
         required_fields = ["name", "tl_x", "tl_y", "width", "height"]
         for field in required_fields:
             if field not in data:
+                log.warning(f"Map config create request missing field: {field}")
                 return _json({"error": f"Missing required field: {field}"}, 400)
 
-        # Create config object
-        config = MapConfig(
-            name=data["name"],
-            tl_x=int(data["tl_x"]),
-            tl_y=int(data["tl_y"]),
-            width=int(data["width"]),
-            height=int(data["height"]),
-            created_at=time.time(),
-            last_used_at=0.0,
-            is_active=False
-        )
+        # Validate name is not empty
+        name = str(data["name"]).strip()
+        if not name:
+            log.warning("Map config create request has empty name")
+            return _json({"error": "Map config name cannot be empty"}, 400)
 
+        # Validate numeric fields
+        try:
+            tl_x = int(data["tl_x"])
+            tl_y = int(data["tl_y"])
+            width = int(data["width"])
+            height = int(data["height"])
+        except (ValueError, TypeError) as e:
+            log.warning(f"Map config create request has invalid numeric values: {e}")
+            return _json({"error": "Coordinate values must be valid integers"}, 400)
+
+        # Validate coordinate ranges
+        if tl_x < 0 or tl_y < 0:
+            log.warning(f"Map config '{name}' has negative coordinates: tl_x={tl_x}, tl_y={tl_y}")
+            return _json({"error": "Top-left coordinates cannot be negative"}, 400)
+
+        if width <= 0 or height <= 0:
+            log.warning(f"Map config '{name}' has invalid dimensions: width={width}, height={height}")
+            return _json({"error": "Width and height must be greater than 0"}, 400)
+
+        if tl_x + width > 1280 or tl_y + height > 720:
+            log.warning(f"Map config '{name}' exceeds frame bounds: ({tl_x + width}, {tl_y + height}) > (1280, 720)")
+            return _json({"error": f"Region exceeds frame bounds. Max position: ({tl_x + width}, {tl_y + height}), allowed: (1280, 720)"}, 400)
+
+        # Create config object
+        try:
+            config = MapConfig(
+                name=name,
+                tl_x=tl_x,
+                tl_y=tl_y,
+                width=width,
+                height=height,
+                created_at=time.time(),
+                last_used_at=0.0,
+                is_active=False
+            )
+        except (TypeError, ValueError) as e:
+            log.warning(f"Map config '{name}' construction failed: {e}")
+            return _json({"error": f"Invalid map config data: {str(e)}"}, 400)
+
+        # Save config
         manager = get_manager()
-        manager.save_config(config)
+        try:
+            manager.save_config(config)
+            log.info(f"✓ Created map config: {name} ({tl_x}, {tl_y}, {width}x{height})")
+        except ValueError as e:
+            # Config already exists or validation error
+            log.warning(f"Map config '{name}' save failed: {e}")
+            return _json({"error": str(e)}, 400)
 
         return _json({
             "success": True,
             "config": config.to_dict()
         })
 
-    except ValueError as e:
-        return _json({"error": str(e)}, 400)
     except Exception as e:
         log.error(f"Failed to create map config: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_map_configs_delete(request: web.Request):
