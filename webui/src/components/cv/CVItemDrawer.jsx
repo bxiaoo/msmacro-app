@@ -67,21 +67,32 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
   }, [editingItem, isOpen])
 
   const handleContinue = () => {
+    console.log('[CVItemDrawer] Step 1 → Step 2')
+    console.log('[CVItemDrawer] Map config:', mapConfigName)
+    console.log('[CVItemDrawer] Pathfinding config:', pathfindingConfig)
     setCurrentStep(2)
   }
 
   const handleBack = () => {
+    console.log('[CVItemDrawer] Step 2 → Step 1')
     setCurrentStep(1)
   }
 
   const handleSaveClick = () => {
+    console.log('[CVItemDrawer] Save validation started')
+    console.log('[CVItemDrawer] Map config:', mapConfigName)
+    console.log('[CVItemDrawer] Departure points:', departurePoints.length)
+    console.log('[CVItemDrawer] Pathfinding config:', pathfindingConfig)
+
     // Validate before opening dialog
     if (!mapConfigName) {
+      console.error('[CVItemDrawer] Validation failed: No map config selected')
       alert('Please select a map configuration')
       return
     }
 
     if (departurePoints.length === 0) {
+      console.error('[CVItemDrawer] Validation failed: No departure points')
       alert('Please add at least one departure point')
       return
     }
@@ -89,9 +100,12 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
     // Check that at least one point has rotations
     const hasRotations = departurePoints.some(p => p.rotation_paths && p.rotation_paths.length > 0)
     if (!hasRotations) {
+      console.error('[CVItemDrawer] Validation failed: No rotations linked')
       alert('At least one departure point must have linked rotations')
       return
     }
+
+    console.log('[CVItemDrawer] Validation passed, opening name dialog')
 
     // Pre-fill name if editing
     if (editingItem) {
@@ -120,15 +134,43 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
     }
 
     try {
+      const operation = editingItem ? 'Updating' : 'Creating'
+      console.log(`[CVItemDrawer] ${operation} CV Item...`)
+      console.log('[CVItemDrawer] Item data:', JSON.stringify(item, null, 2))
+
       if (editingItem) {
         await updateCVItem(editingItem.name, item)
+        console.log('[CVItemDrawer] CV Item updated successfully:', itemName.trim())
       } else {
         await createCVItem(item)
+        console.log('[CVItemDrawer] CV Item created successfully:', itemName.trim())
       }
+
       setShowNameDialog(false)
       onSave()
     } catch (error) {
-      alert(`Failed to save CV Item: ${error.message}`)
+      console.error('[CVItemDrawer] Failed to save CV Item:', error)
+
+      // Extract detailed error information
+      const errorMessage = error.body?.error || error.message || 'Unknown error'
+      const statusCode = error.status || 'N/A'
+
+      let userMessage = `Failed to ${editingItem ? 'update' : 'create'} CV Item (HTTP ${statusCode}): ${errorMessage}`
+
+      // Add specific guidance based on error type
+      if (statusCode === 400) {
+        userMessage += '\n\n❌ Validation failed. Please check:\n' +
+          '• CV Item name is unique and not empty\n' +
+          '• At least one departure point exists\n' +
+          '• At least one departure point has rotations linked\n' +
+          '• Map config exists and is valid'
+      } else if (statusCode === 500) {
+        userMessage += '\n\n❌ Server error occurred. Check the backend logs for details.'
+      } else if (statusCode === 'N/A') {
+        userMessage += '\n\n❌ Network error. Please check your connection and ensure the backend is running.'
+      }
+
+      alert(userMessage)
     }
   }
 

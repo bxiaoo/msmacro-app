@@ -11,26 +11,71 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
   const [width, setWidth] = useState(150)
   const [height, setHeight] = useState(45)
   const [previewUrl, setPreviewUrl] = useState(null)
+  const [previewError, setPreviewError] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Update preview when coordinates change
   useEffect(() => {
     const url = `/api/cv/frame-lossless?tl_x=${tlX}&tl_y=${tlY}&width=${width}&height=${height}&t=${Date.now()}`
+    console.log('[MapConfigCreateForm] Preview URL updated:', url)
+    console.log('[MapConfigCreateForm] Coordinates:', { tlX, tlY, width, height })
     setPreviewUrl(url)
+    setPreviewError(false) // Reset error when coordinates change
   }, [tlX, tlY, width, height])
 
   const handleSave = async () => {
+    // Validate name
     if (!name.trim()) {
       alert('Please enter a name for the map configuration')
       return
     }
 
+    // Validate coordinates
+    if (tlX < 0 || tlY < 0 || width <= 0 || height <= 0) {
+      alert('Invalid coordinates. All values must be positive, and width/height must be greater than 0.')
+      console.error('[MapConfigCreateForm] Invalid coordinates:', { tlX, tlY, width, height })
+      return
+    }
+
+    if (tlX + width > 1280 || tlY + height > 720) {
+      alert(`Coordinates out of bounds. Region (${tlX + width}, ${tlY + height}) exceeds maximum dimensions (1280, 720).`)
+      console.error('[MapConfigCreateForm] Coordinates out of bounds:', { tlX, tlY, width, height, max: [1280, 720] })
+      return
+    }
+
     setSaving(true)
     try {
+      console.log('[MapConfigCreateForm] Creating map config with params:', {
+        name: name.trim(),
+        tlX,
+        tlY,
+        width,
+        height
+      })
+
       await createMapConfig(name.trim(), tlX, tlY, width, height)
+
+      console.log('[MapConfigCreateForm] Map config created successfully:', name.trim())
       onCreated(name.trim())
     } catch (error) {
-      alert(`Failed to create map config: ${error.message}`)
+      console.error('[MapConfigCreateForm] Failed to create map config:', error)
+
+      // Extract detailed error information
+      const errorMessage = error.body?.error || error.message || 'Unknown error'
+      const statusCode = error.status || 'N/A'
+
+      let userMessage = `Failed to create map config (HTTP ${statusCode}): ${errorMessage}`
+
+      // Add specific guidance based on error type
+      if (statusCode === 400) {
+        userMessage += '\n\nValidation failed. The map config name might already exist or contain invalid characters.'
+      } else if (statusCode === 500) {
+        userMessage += '\n\nServer error occurred. Check the backend logs for details.'
+      } else if (statusCode === 'N/A') {
+        userMessage += '\n\nNetwork error. Please check your connection and ensure the backend is running.'
+      }
+
+      alert(userMessage)
     } finally {
       setSaving(false)
     }
@@ -45,15 +90,35 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
       <h4 className="font-bold text-base text-gray-900">Create new map</h4>
 
       {/* Live Preview */}
-      <div className="border-2 border-gray-300 rounded overflow-hidden bg-gray-50">
+      <div className="border-2 border-gray-300 rounded overflow-hidden bg-gray-50 min-h-[100px] flex flex-col">
         {previewUrl && (
-          <img
-            key={previewUrl}
-            src={previewUrl}
-            alt="Map preview"
-            className="w-full h-auto"
-            onError={() => console.error('Failed to load preview')}
-          />
+          <>
+            <img
+              key={previewUrl}
+              src={previewUrl}
+              alt="Map preview"
+              className="w-full h-auto"
+              onError={(e) => {
+                console.error('[MapConfigCreateForm] Failed to load preview')
+                console.error('[MapConfigCreateForm] Preview URL:', previewUrl)
+                console.error('[MapConfigCreateForm] Coordinates:', { tlX, tlY, width, height })
+                console.error('[MapConfigCreateForm] Error:', e)
+                setPreviewError(true)
+              }}
+              onLoad={() => {
+                console.log('[MapConfigCreateForm] Preview loaded successfully')
+                setPreviewError(false)
+              }}
+            />
+            {previewError && (
+              <div className="bg-red-50 border-t border-red-200 p-3 text-center">
+                <p className="text-red-600 text-sm font-medium">⚠️ Failed to load preview</p>
+                <p className="text-red-500 text-xs mt-1">
+                  Check if CV frame capture is running. The daemon must be active to show live previews.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -88,6 +88,10 @@ class CVItem:
         if not self.name or not self.name.strip():
             return False, "CV Item name cannot be empty"
 
+        # Validate map_config_name is set
+        if not self.map_config_name:
+            return False, "CV Item must have a map configuration assigned"
+
         if not self.departure_points:
             return False, "CV Item must have at least one departure point"
 
@@ -95,6 +99,12 @@ class CVItem:
         has_rotations = any(point.rotation_paths for point in self.departure_points)
         if not has_rotations:
             return False, "At least one departure point must have linked rotations"
+
+        # Validate pathfinding_config if present
+        if self.pathfinding_config:
+            class_type = self.pathfinding_config.get('class_type', 'other')
+            if class_type not in ('other', 'magician'):
+                return False, f"Invalid pathfinding class_type: {class_type}"
 
         return True, ""
 

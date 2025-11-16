@@ -1972,47 +1972,138 @@ async def api_cv_items_create(request: web.Request):
         from ..cv.cv_item import get_cv_item_manager, CVItem
         from ..cv.map_config import DeparturePoint
 
-        data = await request.json()
+        # Parse JSON with error handling
+        try:
+            data = await request.json()
+        except Exception:
+            log.warning("Invalid JSON in CV Item create request")
+            return _json({"error": "Invalid JSON in request body"}, 400)
 
-        # Extract departure points
+        # Validate request body is not empty
+        if not data:
+            log.warning("Empty request body in CV Item create")
+            return _json({"error": "Request body cannot be empty"}, 400)
+
+        # Validate required field: name
+        name = data.get('name')
+        if not name:
+            log.warning("CV Item create request missing 'name' field")
+            return _json({"error": "Field 'name' is required"}, 400)
+
+        name = name.strip()
+        if not name:
+            log.warning("CV Item create request has empty 'name' field")
+            return _json({"error": "Field 'name' cannot be empty"}, 400)
+
+        # Validate required field: map_config_name
+        map_config_name = data.get('map_config_name')
+        if not map_config_name:
+            log.warning(f"CV Item '{name}' create request missing 'map_config_name'")
+            return _json({"error": "Field 'map_config_name' is required. A CV Item must reference a map configuration."}, 400)
+
+        # Validate pathfinding_rotations structure
+        pathfinding_rotations = data.get('pathfinding_rotations', {
+            'near': [], 'medium': [], 'far': [], 'very_far': []
+        })
+        if not isinstance(pathfinding_rotations, dict):
+            log.warning(f"CV Item '{name}' has invalid pathfinding_rotations type")
+            return _json({"error": "Field 'pathfinding_rotations' must be an object"}, 400)
+
+        required_rotation_keys = {'near', 'medium', 'far', 'very_far'}
+        if not all(k in pathfinding_rotations for k in required_rotation_keys):
+            log.warning(f"CV Item '{name}' pathfinding_rotations missing required keys")
+            return _json({"error": "Field 'pathfinding_rotations' must have keys: near, medium, far, very_far"}, 400)
+
+        for key in required_rotation_keys:
+            if not isinstance(pathfinding_rotations[key], list):
+                log.warning(f"CV Item '{name}' pathfinding_rotations['{key}'] is not a list")
+                return _json({"error": f"Field 'pathfinding_rotations.{key}' must be a list"}, 400)
+
+        # Validate pathfinding_config structure
+        pathfinding_config = data.get('pathfinding_config', {})
+        if not isinstance(pathfinding_config, dict):
+            log.warning(f"CV Item '{name}' has invalid pathfinding_config type")
+            return _json({"error": "Field 'pathfinding_config' must be an object"}, 400)
+
+        class_type = pathfinding_config.get('class_type', 'other')
+        if class_type not in ('other', 'magician'):
+            log.warning(f"CV Item '{name}' has invalid class_type: {class_type}")
+            return _json({"error": "Field 'pathfinding_config.class_type' must be 'other' or 'magician'"}, 400)
+
+        # Validate departure_points structure
         points_data = data.get('departure_points', [])
-        departure_points = [DeparturePoint.from_dict(p) for p in points_data]
+        if not isinstance(points_data, list):
+            log.warning(f"CV Item '{name}' has invalid departure_points type")
+            return _json({"error": "Field 'departure_points' must be a list"}, 400)
+
+        # Parse departure points with validation
+        departure_points = []
+        for i, point_data in enumerate(points_data):
+            if not isinstance(point_data, dict):
+                log.warning(f"CV Item '{name}' departure_point[{i}] is not an object")
+                return _json({"error": f"Departure point at index {i} must be an object"}, 400)
+
+            # Check required fields
+            required_point_fields = ['id', 'name', 'x', 'y', 'order']
+            for field in required_point_fields:
+                if field not in point_data:
+                    log.warning(f"CV Item '{name}' departure_point[{i}] missing field '{field}'")
+                    return _json({"error": f"Departure point at index {i} missing required field '{field}'"}, 400)
+
+            try:
+                departure_points.append(DeparturePoint.from_dict(point_data))
+            except (TypeError, KeyError, ValueError) as e:
+                log.warning(f"CV Item '{name}' departure_point[{i}] construction failed: {e}")
+                return _json({"error": f"Invalid departure point at index {i}: {str(e)}"}, 400)
 
         # Create CV Item
-        item = CVItem(
-            name=data['name'],
-            map_config_name=data.get('map_config_name'),
-            pathfinding_rotations=data.get('pathfinding_rotations', {
-                'near': [], 'medium': [], 'far': [], 'very_far': []
-            }),
-            pathfinding_config=data.get('pathfinding_config', {}),
-            departure_points=departure_points,
-            created_at=time.time(),
-            description=data.get('description', ''),
-            tags=data.get('tags', [])
-        )
+        try:
+            item = CVItem(
+                name=name,
+                map_config_name=map_config_name,
+                pathfinding_rotations=pathfinding_rotations,
+                pathfinding_config=pathfinding_config,
+                departure_points=departure_points,
+                created_at=time.time(),
+                description=data.get('description', ''),
+                tags=data.get('tags', [])
+            )
+        except (TypeError, ValueError) as e:
+            log.warning(f"CV Item '{name}' construction failed: {e}")
+            return _json({"error": f"Invalid CV Item data: {str(e)}"}, 400)
 
         # Validate
         is_valid, error_msg = item.validate()
         if not is_valid:
+            log.warning(f"CV Item '{name}' validation failed: {error_msg}")
             return _json({"error": error_msg}, 400)
 
         # Save
         manager = get_cv_item_manager()
-        manager.create_item(item)
+        try:
+            manager.create_item(item)
+            log.info(f"✓ Created CV Item: {name}")
+        except ValueError as e:
+            # Item already exists or validation error
+            log.warning(f"CV Item '{name}' creation failed: {e}")
+            return _json({"error": str(e)}, 400)
 
         return _json({"ok": True, "item": item.to_dict()})
 
     except Exception as e:
         log.error(f"Failed to create CV Item: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_items_get(request: web.Request):
     """
     GET /api/cv-items/{name} - Get specific CV Item
     """
-    name = request.match_info['name']
+    # Validate URL parameter
+    name = request.match_info.get('name')
+    if not name:
+        log.warning("CV Item get request missing URL parameter 'name'")
+        return _json({"error": "URL parameter 'name' is required"}, 400)
 
     try:
         from ..cv.cv_item import get_cv_item_manager
@@ -2020,12 +2111,13 @@ async def api_cv_items_get(request: web.Request):
         item = manager.get_item(name)
 
         if not item:
+            log.info(f"CV Item not found: {name}")
             return _json({"error": "CV Item not found"}, 404)
 
         return _json(item.to_dict())
     except Exception as e:
-        log.error(f"Failed to get CV Item: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        log.error(f"Failed to get CV Item '{name}': {e}", exc_info=True)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_items_update(request: web.Request):
@@ -2034,71 +2126,172 @@ async def api_cv_items_update(request: web.Request):
 
     Body (JSON): Complete CVItem object
     """
-    name = request.match_info['name']
+    # Validate URL parameter
+    name = request.match_info.get('name')
+    if not name:
+        log.warning("CV Item update request missing URL parameter 'name'")
+        return _json({"error": "URL parameter 'name' is required"}, 400)
 
     try:
         from ..cv.cv_item import get_cv_item_manager, CVItem
         from ..cv.map_config import DeparturePoint
 
-        data = await request.json()
+        # Parse JSON with error handling
+        try:
+            data = await request.json()
+        except Exception:
+            log.warning(f"Invalid JSON in CV Item update request for '{name}'")
+            return _json({"error": "Invalid JSON in request body"}, 400)
 
-        # Extract departure points
+        # Validate request body is not empty
+        if not data:
+            log.warning(f"Empty request body in CV Item update for '{name}'")
+            return _json({"error": "Request body cannot be empty"}, 400)
+
+        # Validate required field: name
+        new_name = data.get('name')
+        if not new_name:
+            log.warning(f"CV Item update request for '{name}' missing 'name' field")
+            return _json({"error": "Field 'name' is required"}, 400)
+
+        new_name = new_name.strip()
+        if not new_name:
+            log.warning(f"CV Item update request for '{name}' has empty 'name' field")
+            return _json({"error": "Field 'name' cannot be empty"}, 400)
+
+        # Validate required field: map_config_name
+        map_config_name = data.get('map_config_name')
+        if not map_config_name:
+            log.warning(f"CV Item '{name}' update request missing 'map_config_name'")
+            return _json({"error": "Field 'map_config_name' is required. A CV Item must reference a map configuration."}, 400)
+
+        # Validate pathfinding_rotations structure
+        pathfinding_rotations = data.get('pathfinding_rotations', {
+            'near': [], 'medium': [], 'far': [], 'very_far': []
+        })
+        if not isinstance(pathfinding_rotations, dict):
+            log.warning(f"CV Item '{name}' update has invalid pathfinding_rotations type")
+            return _json({"error": "Field 'pathfinding_rotations' must be an object"}, 400)
+
+        required_rotation_keys = {'near', 'medium', 'far', 'very_far'}
+        if not all(k in pathfinding_rotations for k in required_rotation_keys):
+            log.warning(f"CV Item '{name}' update pathfinding_rotations missing required keys")
+            return _json({"error": "Field 'pathfinding_rotations' must have keys: near, medium, far, very_far"}, 400)
+
+        for key in required_rotation_keys:
+            if not isinstance(pathfinding_rotations[key], list):
+                log.warning(f"CV Item '{name}' update pathfinding_rotations['{key}'] is not a list")
+                return _json({"error": f"Field 'pathfinding_rotations.{key}' must be a list"}, 400)
+
+        # Validate pathfinding_config structure
+        pathfinding_config = data.get('pathfinding_config', {})
+        if not isinstance(pathfinding_config, dict):
+            log.warning(f"CV Item '{name}' update has invalid pathfinding_config type")
+            return _json({"error": "Field 'pathfinding_config' must be an object"}, 400)
+
+        class_type = pathfinding_config.get('class_type', 'other')
+        if class_type not in ('other', 'magician'):
+            log.warning(f"CV Item '{name}' update has invalid class_type: {class_type}")
+            return _json({"error": "Field 'pathfinding_config.class_type' must be 'other' or 'magician'"}, 400)
+
+        # Validate departure_points structure
         points_data = data.get('departure_points', [])
-        departure_points = [DeparturePoint.from_dict(p) for p in points_data]
+        if not isinstance(points_data, list):
+            log.warning(f"CV Item '{name}' update has invalid departure_points type")
+            return _json({"error": "Field 'departure_points' must be a list"}, 400)
+
+        # Parse departure points with validation
+        departure_points = []
+        for i, point_data in enumerate(points_data):
+            if not isinstance(point_data, dict):
+                log.warning(f"CV Item '{name}' update departure_point[{i}] is not an object")
+                return _json({"error": f"Departure point at index {i} must be an object"}, 400)
+
+            # Check required fields
+            required_point_fields = ['id', 'name', 'x', 'y', 'order']
+            for field in required_point_fields:
+                if field not in point_data:
+                    log.warning(f"CV Item '{name}' update departure_point[{i}] missing field '{field}'")
+                    return _json({"error": f"Departure point at index {i} missing required field '{field}'"}, 400)
+
+            try:
+                departure_points.append(DeparturePoint.from_dict(point_data))
+            except (TypeError, KeyError, ValueError) as e:
+                log.warning(f"CV Item '{name}' update departure_point[{i}] construction failed: {e}")
+                return _json({"error": f"Invalid departure point at index {i}: {str(e)}"}, 400)
 
         # Create updated item
-        updated_item = CVItem(
-            name=data['name'],
-            map_config_name=data.get('map_config_name'),
-            pathfinding_rotations=data.get('pathfinding_rotations', {
-                'near': [], 'medium': [], 'far': [], 'very_far': []
-            }),
-            pathfinding_config=data.get('pathfinding_config', {}),
-            departure_points=departure_points,
-            created_at=data.get('created_at', time.time()),
-            last_used_at=data.get('last_used_at', 0.0),
-            is_active=data.get('is_active', False),
-            description=data.get('description', ''),
-            tags=data.get('tags', [])
-        )
+        try:
+            updated_item = CVItem(
+                name=new_name,
+                map_config_name=map_config_name,
+                pathfinding_rotations=pathfinding_rotations,
+                pathfinding_config=pathfinding_config,
+                departure_points=departure_points,
+                created_at=data.get('created_at', time.time()),
+                last_used_at=data.get('last_used_at', 0.0),
+                is_active=data.get('is_active', False),
+                description=data.get('description', ''),
+                tags=data.get('tags', [])
+            )
+        except (TypeError, ValueError) as e:
+            log.warning(f"CV Item '{name}' update construction failed: {e}")
+            return _json({"error": f"Invalid CV Item data: {str(e)}"}, 400)
 
         # Validate
         is_valid, error_msg = updated_item.validate()
         if not is_valid:
+            log.warning(f"CV Item '{name}' update validation failed: {error_msg}")
             return _json({"error": error_msg}, 400)
 
         # Update
         manager = get_cv_item_manager()
-        manager.update_item(name, updated_item)
+        try:
+            manager.update_item(name, updated_item)
+            log.info(f"✓ Updated CV Item: {name} → {new_name}")
+        except ValueError as e:
+            # Item not found, name conflict, or validation error
+            log.warning(f"CV Item '{name}' update failed: {e}")
+            return _json({"error": str(e)}, 400)
 
         return _json({"ok": True})
 
     except Exception as e:
-        log.error(f"Failed to update CV Item: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        log.error(f"Failed to update CV Item '{name}': {e}", exc_info=True)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_items_delete(request: web.Request):
     """
     DELETE /api/cv-items/{name} - Delete CV Item
     """
-    name = request.match_info['name']
+    # Validate URL parameter
+    name = request.match_info.get('name')
+    if not name:
+        log.warning("CV Item delete request missing URL parameter 'name'")
+        return _json({"error": "URL parameter 'name' is required"}, 400)
 
     try:
         from ..cv.cv_item import get_cv_item_manager
         manager = get_cv_item_manager()
-        success = manager.delete_item(name)
+
+        try:
+            success = manager.delete_item(name)
+        except ValueError as e:
+            # Handle "Cannot delete active CV Item" error
+            log.warning(f"CV Item '{name}' deletion blocked: {e}")
+            return _json({"error": str(e)}, 400)
 
         if not success:
-            return _json({"error": "CV Item not found or is active"}, 400)
+            log.info(f"CV Item not found for deletion: {name}")
+            return _json({"error": "CV Item not found"}, 404)
 
+        log.info(f"✓ Deleted CV Item: {name}")
         return _json({"ok": True})
-    except ValueError as e:
-        # Handle "Cannot delete active CV Item" error
-        return _json({"error": str(e)}, 400)
+
     except Exception as e:
-        log.error(f"Failed to delete CV Item: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        log.error(f"Failed to delete CV Item '{name}': {e}", exc_info=True)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_items_activate(request: web.Request):
@@ -2111,24 +2304,50 @@ async def api_cv_items_activate(request: web.Request):
     3. Load departure points
     4. Mark CV Item as active
     """
-    name = request.match_info['name']
+    # Validate URL parameter
+    name = request.match_info.get('name')
+    if not name:
+        log.warning("CV Item activate request missing URL parameter 'name'")
+        return _json({"error": "URL parameter 'name' is required"}, 400)
 
     try:
         from ..cv.cv_item import get_cv_item_manager
         manager = get_cv_item_manager()
-        item = manager.activate_item(name)
+
+        # Check if item exists first
+        item_check = manager.get_item(name)
+        if not item_check:
+            log.warning(f"CV Item not found for activation: {name}")
+            return _json({"error": "CV Item not found"}, 404)
+
+        # Check if map config is assigned
+        if not item_check.map_config_name:
+            log.warning(f"CV Item '{name}' has no map config assigned")
+            return _json({"error": "CV Item has no map config assigned. Please edit the item and select a map configuration."}, 400)
+
+        # Attempt activation
+        try:
+            item = manager.activate_item(name)
+        except ValueError as e:
+            # Map config not found or other validation error
+            log.warning(f"CV Item '{name}' activation failed: {e}")
+            return _json({"error": str(e)}, 400)
 
         if not item:
-            return _json({"error": "CV Item not found or map config missing"}, 400)
+            # This shouldn't happen given the checks above, but handle it
+            log.error(f"CV Item '{name}' activation returned None unexpectedly")
+            return _json({"error": "Failed to activate CV Item. Map configuration may not exist."}, 400)
 
+        log.info(f"✓ Activated CV Item: {name}")
         return _json({
             "ok": True,
             "item": item.to_dict(),
             "map_config_activated": True
         })
+
     except Exception as e:
-        log.error(f"Failed to activate CV Item: {e}", exc_info=True)
-        return _json({"error": str(e)}, 500)
+        log.error(f"Failed to activate CV Item '{name}': {e}", exc_info=True)
+        return _json({"error": "Internal server error"}, 500)
 
 
 async def api_cv_items_get_active(request: web.Request):
