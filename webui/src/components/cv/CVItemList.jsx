@@ -116,7 +116,7 @@ export function CVItemList() {
           onActivate={handleActivate}
           onEdit={handleEdit}
           onDelete={handleDelete}
-          showDeparturePoints={true}
+          showDeparturePoints={false}
         />
       ))}
 

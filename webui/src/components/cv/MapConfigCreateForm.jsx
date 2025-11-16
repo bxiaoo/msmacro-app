@@ -16,9 +16,9 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
 
   // Update preview when coordinates change
   useEffect(() => {
-    const url = `/api/cv/frame-lossless?tl_x=${tlX}&tl_y=${tlY}&width=${width}&height=${height}&t=${Date.now()}`
+    const url = `/api/cv/frame-lossless?x=${tlX}&y=${tlY}&w=${width}&h=${height}&t=${Date.now()}`
     console.log('[MapConfigCreateForm] Preview URL updated:', url)
-    console.log('[MapConfigCreateForm] Coordinates:', { tlX, tlY, width, height })
+    console.log('[MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
     setPreviewUrl(url)
     setPreviewError(false) // Reset error when coordinates change
   }, [tlX, tlY, width, height])
