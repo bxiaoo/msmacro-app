@@ -59,20 +59,40 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
       onCreated(name.trim())
     } catch (error) {
       console.error('[MapConfigCreateForm] Failed to create map config:', error)
+      console.error('[MapConfigCreateForm] Error details:', {
+        message: error.message,
+        status: error.status,
+        body: error.body,
+        fullError: JSON.stringify(error, Object.getOwnPropertyNames(error))
+      })
 
-      // Extract detailed error information
-      const errorMessage = error.body?.error || error.message || 'Unknown error'
+      // Extract detailed error information - try multiple sources
+      let errorMessage = 'Unknown error'
+
+      // Try to get error message from various sources
+      if (typeof error === 'string') {
+        errorMessage = error
+      } else if (error.message && typeof error.message === 'string') {
+        errorMessage = error.message
+      } else if (error.body?.error && typeof error.body.error === 'string') {
+        errorMessage = error.body.error
+      } else if (error.body?.message && typeof error.body.message === 'string') {
+        errorMessage = error.body.message
+      } else if (error.toString && error.toString() !== '[object Object]') {
+        errorMessage = error.toString()
+      }
+
       const statusCode = error.status || 'N/A'
 
-      let userMessage = `Failed to create map config (HTTP ${statusCode}): ${errorMessage}`
+      let userMessage = `Failed to create map config (HTTP ${statusCode}):\n${errorMessage}`
 
       // Add specific guidance based on error type
       if (statusCode === 400) {
-        userMessage += '\n\nValidation failed. The map config name might already exist or contain invalid characters.'
+        userMessage += '\n\n💡 Validation failed. Please check:\n• Map config name doesn\'t already exist\n• All coordinates are valid numbers\n• Region fits within 1280x720 frame'
       } else if (statusCode === 500) {
-        userMessage += '\n\nServer error occurred. Check the backend logs for details.'
+        userMessage += '\n\n⚠️ Server error occurred. Check the backend logs for details.'
       } else if (statusCode === 'N/A') {
-        userMessage += '\n\nNetwork error. Please check your connection and ensure the backend is running.'
+        userMessage += '\n\n🔌 Network error. Please check:\n• Backend daemon is running\n• You\'re connected to the server'
       }
 
       alert(userMessage)
