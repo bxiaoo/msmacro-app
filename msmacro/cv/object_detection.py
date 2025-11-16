@@ -992,3 +992,35 @@ class MinimapObjectDetector:
         self._max_time_ms = 0.0
         self._min_time_ms = float('inf')
         self._detection_count = 0
+
+
+# Global singleton instance
+_detector: Optional[MinimapObjectDetector] = None
+_detector_lock = __import__('threading').Lock()
+
+
+def get_detector() -> Optional[MinimapObjectDetector]:
+    """
+    Get the global MinimapObjectDetector singleton instance.
+
+    Returns:
+        MinimapObjectDetector instance if initialized, None otherwise
+    """
+    global _detector
+    return _detector
+
+
+def set_detector(detector: Optional[MinimapObjectDetector]) -> None:
+    """
+    Set the global MinimapObjectDetector singleton instance.
+
+    Args:
+        detector: MinimapObjectDetector instance or None to clear
+    """
+    global _detector
+    with _detector_lock:
+        _detector = detector
+        if detector:
+            logger.info(f"Object detector instance set (enabled={detector.enabled})")
+        else:
+            logger.info("Object detector instance cleared")
