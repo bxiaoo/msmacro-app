@@ -16,11 +16,16 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
 
   // Update preview when coordinates change
   useEffect(() => {
-    const url = `/api/cv/frame-lossless?x=${tlX}&y=${tlY}&w=${width}&h=${height}&t=${Date.now()}`
-    console.log('[MapConfigCreateForm] Preview URL updated:', url)
-    console.log('[MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
-    setPreviewUrl(url)
-    setPreviewError(false) // Reset error when coordinates change
+    // Small delay to ensure capture is ready
+    const timer = setTimeout(() => {
+      const url = `/api/cv/frame-lossless?x=${tlX}&y=${tlY}&w=${width}&h=${height}&t=${Date.now()}`
+      console.log('[MapConfigCreateForm] Preview URL updated:', url)
+      console.log('[MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
+      setPreviewUrl(url)
+      setPreviewError(false) // Reset error when coordinates change
+    }, 100) // 100ms delay to let capture initialize
+
+    return () => clearTimeout(timer)
   }, [tlX, tlY, width, height])
 
   const handleSave = async () => {
