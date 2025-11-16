@@ -67,6 +67,8 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
                 value={settings.jump_key || 'SPACE'}
                 onChange={(e) => updateSetting('jump_key', e.target.value)}
                 className="w-48 bg-gray-100"
+                autoComplete="off"
+                data-form-type="other"
               />
               <p className="text-xs text-muted-foreground leading-tight">
                 Key alias for jumping actions. Examples: SPACE, Q, ALT, UP

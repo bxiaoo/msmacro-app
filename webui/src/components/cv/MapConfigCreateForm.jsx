@@ -65,6 +65,8 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Enter map name"
           className="w-full"
+          autoComplete="off"
+          data-form-type="other"
         />
       </div>
 
