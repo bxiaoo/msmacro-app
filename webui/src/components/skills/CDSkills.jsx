@@ -11,23 +11,10 @@ import {
 import { Plus } from 'lucide-react'
 import { SkillCell } from './SkillCell'
 import { SkillGroup } from './SkillGroup'
-import { DropLine } from './ui/drop-line'
+import { DropLine } from '../ui/drop-line'
+import { AddButton } from '../ui/add-button'
 
-function AddSkillButton({ onClick }) {
-  return (
-    <div
-      className="relative rounded-[4px] shrink-0 w-full cursor-pointer"
-      onClick={onClick}
-    >
-      <div className="box-border content-stretch flex items-center justify-center overflow-clip px-0 py-[18px] relative w-full">
-        <div className="overflow-clip relative shrink-0 size-[20px]">
-          <Plus size={20} className="text-gray-600" />
-        </div>
-      </div>
-      <div aria-hidden="true" className="absolute border-2 border-dashed border-gray-300 inset-0 pointer-events-none rounded-[4px]" />
-    </div>
-  )
-}
+
 
 export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSkill, onDeleteSkill, onReorderSkills }) {
   const [activeId, setActiveId] = useState(null)
@@ -238,7 +225,7 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
         <div className="px-4 py-4">
             <div className="flex flex-col gap-3 w-full">
               {items.length === 0 ? (
-                <AddSkillButton onClick={addNewSkill} />
+                <AddButton onClick={addNewSkill} />
               ) : (
                 <>
                   {items.map((item) => {
@@ -303,7 +290,7 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
                     }
                   })}
 
-                  <AddSkillButton onClick={addNewSkill} />
+                  <AddButton onClick={addNewSkill} />
                   {activeId && <DropLine id={'after-list'} isActive={overId === 'after-list'} />}
                 </>
               )}

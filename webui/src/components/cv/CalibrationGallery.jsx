@@ -5,8 +5,8 @@ import {
   getCalibrationSampleURL,
   downloadAllCalibrationSamples,
   deleteCalibrationSample
-} from '../api'
-import { Button } from './ui/button'
+} from '../../api'
+import { Button } from '../ui/button'
 
 export function CalibrationGallery({ refreshTrigger }) {
   const [samples, setSamples] = useState([])

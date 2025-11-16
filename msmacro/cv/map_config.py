@@ -632,6 +632,14 @@ class MapConfigManager:
             logger.info(f"Deleted map config: {name}")
 
         self._save()
+
+        # Notify CV Item manager about deletion
+        try:
+            from .cv_item import get_cv_item_manager
+            get_cv_item_manager().handle_map_config_deleted(name)
+        except Exception as e:
+            logger.warning(f"Failed to notify CV Item manager about map config deletion: {e}")
+
         return True
 
     def activate_config(self, name: str) -> Optional[MapConfig]:

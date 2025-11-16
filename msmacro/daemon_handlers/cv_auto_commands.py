@@ -12,12 +12,14 @@ import logging
 from typing import Dict, Any, Optional
 
 from msmacro.cv.map_config import get_manager as get_map_manager
+from msmacro.cv.cv_item import get_cv_item_manager
 from msmacro.cv.object_detection import get_detector
 from msmacro.daemon.point_navigator import PointNavigator
 from msmacro.cv.pathfinding import PathfindingController
 from msmacro.cv.port_flow import PortFlowHandler, PortDetector
 from msmacro.core.player import Player
 from msmacro.io.hidio import HIDWriter
+from msmacro.utils.keymap import name_to_usage
 
 try:
     from msmacro.events import emit
@@ -55,10 +57,12 @@ class CVAutoCommandHandler:
         self._port_detector: Optional[PortDetector] = None
 
         # CV-AUTO settings
-        self._loop = True
+        self._loop = 1  # Loop count (int, not bool)
         self._speed = 1.0
         self._jitter_time = 0.05
         self._jitter_hold = 0.02
+        self._jump_key = "SPACE"  # Jump key alias for pathfinding
+        self._loop_counter = 0  # Track completed loop cycles
 
     async def cv_auto_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -67,10 +71,11 @@ class CVAutoCommandHandler:
         Message format:
         {
             "cmd": "cv_auto_start",
-            "loop": true,              # Loop back to first point after last
+            "loop": 1,                 # Loop count (repeat entire sequence N times)
             "speed": 1.0,              # Rotation playback speed
             "jitter_time": 0.05,       # Time jitter for human-like playback
-            "jitter_hold": 0.02        # Hold duration jitter
+            "jitter_hold": 0.02,       # Hold duration jitter
+            "jump_key": "SPACE"        # Jump key alias (default: "SPACE")
         }
 
         Returns:
@@ -80,15 +85,36 @@ class CVAutoCommandHandler:
         if self._cv_auto_task and not self._cv_auto_task.done():
             return {"error": "CV-AUTO mode already running"}
 
-        # Get active map config
-        map_manager = get_map_manager()
-        map_config = map_manager.get_active_config()
+        # Try to get active CV Item first (new system)
+        cv_item_manager = get_cv_item_manager()
+        active_cv_item = cv_item_manager.get_active_item()
 
-        if not map_config:
-            return {"error": "No active map config selected"}
+        # Get map config and departure points
+        if active_cv_item:
+            # Use CV Item system (new)
+            log.info(f"Using active CV Item: {active_cv_item.name}")
+            map_manager = get_map_manager()
+            map_config = map_manager.get_active_config()
 
-        if not map_config.departure_points:
-            return {"error": "No departure points configured in active map"}
+            if not map_config:
+                return {"error": "CV Item is active but map config is not loaded"}
+
+            departure_points = active_cv_item.departure_points
+            pathfinding_config = active_cv_item.pathfinding_config
+        else:
+            # Fallback to direct map config (legacy)
+            log.info("No active CV Item, falling back to direct map config")
+            map_manager = get_map_manager()
+            map_config = map_manager.get_active_config()
+
+            if not map_config:
+                return {"error": "No active map config or CV Item selected"}
+
+            departure_points = map_config.departure_points
+            pathfinding_config = {}
+
+        if not departure_points:
+            return {"error": "No departure points configured"}
 
         # Check if object detection is running
         detector = get_detector()
@@ -96,20 +122,30 @@ class CVAutoCommandHandler:
             return {"error": "Object detection must be enabled first"}
 
         # Extract settings
-        self._loop = msg.get("loop", True)
+        self._loop = msg.get("loop", 1)  # Loop count (int)
         self._speed = msg.get("speed", 1.0)
         self._jitter_time = msg.get("jitter_time", 0.05)
         self._jitter_hold = msg.get("jitter_hold", 0.02)
+        self._jump_key = msg.get("jump_key", "SPACE")  # Jump key alias
+
+        # Convert jump_key to HID usage ID
+        jump_key_usage = name_to_usage(self._jump_key)
+        if jump_key_usage == 0:
+            log.warning(f"Invalid jump key alias '{self._jump_key}', using default SPACE (44)")
+            jump_key_usage = 44  # Default to SPACE
 
         log.info(
             f"Starting CV-AUTO mode: map='{map_config.name}', "
-            f"points={len(map_config.departure_points)}, "
-            f"loop={self._loop}, speed={self._speed}"
+            f"points={len(departure_points)}, "
+            f"loop={self._loop}, speed={self._speed}, jump_key='{self._jump_key}' ({jump_key_usage}), "
+            f"pathfinding_config={'configured' if pathfinding_config else 'legacy'}"
         )
 
         # Initialize components
         try:
-            self._navigator = PointNavigator(map_config, loop=self._loop)
+            # Always use loop=True for navigator (we handle loop count manually)
+            self._navigator = PointNavigator(map_config, loop=True)
+            self._loop_counter = 0  # Reset loop counter
 
             hid_writer = HIDWriter(self.daemon.hid_path if hasattr(self.daemon, 'hid_path')
                                    else "/dev/hidg0")
@@ -122,7 +158,12 @@ class CVAutoCommandHandler:
                         return (result.player.x, result.player.y)
                 return None
 
-            self._pathfinder = PathfindingController(hid_writer, get_position)
+            self._pathfinder = PathfindingController(
+                hid_writer,
+                get_position,
+                pathfinding_config=pathfinding_config,
+                jump_key=jump_key_usage
+            )
             self._port_handler = PortFlowHandler(hid_writer, get_position)
             self._port_detector = PortDetector()
 
@@ -139,7 +180,7 @@ class CVAutoCommandHandler:
         # Update daemon mode
         self.daemon.mode = "CV_AUTO"
         emit("MODE", mode="CV_AUTO")
-        emit("CV_AUTO_STARTED", map_name=map_config.name, total_points=len(map_config.departure_points))
+        emit("CV_AUTO_STARTED", map_name=map_config.name, total_points=len(departure_points))
 
         log.info("CV-AUTO mode started successfully")
         return {"ok": True}
@@ -322,11 +363,20 @@ class CVAutoCommandHandler:
                             log.info(f"Auto-play disabled for point '{current_point.name}', skipping")
 
                     # Advance to next point
+                    current_index = self._navigator.get_state().current_point_index
                     has_next = self._navigator.advance()
-                    if not has_next:
-                        log.info("Reached end of departure points (no loop), stopping CV-AUTO")
-                        await self._stop_cv_auto("Sequence completed")
-                        break
+                    next_index = self._navigator.get_state().current_point_index
+
+                    # Check if we completed a cycle (looped back to first point)
+                    if next_index == 0 and current_index > 0:
+                        self._loop_counter += 1
+                        log.info(f"Completed cycle {self._loop_counter}/{self._loop}")
+
+                        # Check if we've completed all desired loops
+                        if self._loop_counter >= self._loop:
+                            log.info(f"Completed {self._loop} loop(s), stopping CV-AUTO")
+                            await self._stop_cv_auto(f"Completed {self._loop} loop cycles")
+                            break
 
                     next_point = self._navigator.get_current_point()
                     log.info(f"Advanced to next point: '{next_point.name}'")

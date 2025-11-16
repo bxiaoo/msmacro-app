@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Save, X } from 'lucide-react'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { NumberInput } from './ui/number-input'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { NumberInput } from '../ui/number-input'
 
 export function NewSkillModal({ isOpen, onClose, onSave, editingSkill = null }) {
   const [name, setName] = useState('')

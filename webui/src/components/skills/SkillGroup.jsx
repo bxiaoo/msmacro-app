@@ -1,7 +1,7 @@
 import { Plus } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SkillCell } from './SkillCell'
-import { DropLine } from './ui/drop-line'
+import { DropLine } from '../ui/drop-line'
 
 function DelaySeparator({ delay, onDelayClick }) {
   return (

@@ -9,12 +9,12 @@ import { Header } from './components/Header.jsx'
 import { NavigationTabs } from './components/NavigationTabs.jsx'
 import { ActionButtonGroup } from './components/ActionButtonGroup.jsx'
 import { StateMessage } from './components/StateMessage.jsx'
-import { MacroList } from './components/files/MacroList.jsx'
-import { CDSkills } from './components/CDSkills.jsx'
-import { CVConfiguration } from './components/CVConfiguration.jsx'
-import { PlaySettingsModal } from './components/PlaySettingsModal.jsx'
-import { PostRecordingModal } from './components/PostRecordingModal.jsx'
-import { NewSkillModal } from './components/NewSkillModal.jsx'
+import { MacroList } from './components/rotations/MacroList.jsx'
+import { CDSkills } from './components/skills/CDSkills.jsx'
+import { CVItemList } from './components/cv/CVItemList.jsx'
+import { PlaySettingsModal } from './components/rotations/PlaySettingsModal.jsx'
+import { PostRecordingModal } from './components/rotations/PostRecordingModal.jsx'
+import { NewSkillModal } from './components/skills/NewSkillModal.jsx'
 
 export default function App(){
   const { executeAction, isPending } = useApiAction()
@@ -454,7 +454,7 @@ export default function App(){
             onReorderSkills={handleReorderSkills}
           />
         )}
-        {activeTab === 'cv-config' && <CVConfiguration />}
+        {activeTab === 'cv-items' && <CVItemList />}
       </div>
 
       {/* Bottom section - Sticky at bottom, always visible */}

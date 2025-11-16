@@ -396,3 +396,50 @@ async function API(path, opts = {}) {
       method: "DELETE"
     });
   }
+
+  // ---------- CV Items ----------
+  export function listCVItems() {
+    return API("/api/cv-items");
+  }
+
+  export function createCVItem(item) {
+    return API("/api/cv-items", {
+      method: "POST",
+      body: JSON.stringify(item),
+    });
+  }
+
+  export function getCVItem(name) {
+    return API(`/api/cv-items/${encodePath(name)}`);
+  }
+
+  export function updateCVItem(name, item) {
+    return API(`/api/cv-items/${encodePath(name)}`, {
+      method: "PUT",
+      body: JSON.stringify(item),
+    });
+  }
+
+  export function deleteCVItem(name) {
+    return API(`/api/cv-items/${encodePath(name)}`, {
+      method: "DELETE",
+    });
+  }
+
+  export function activateCVItem(name) {
+    return API(`/api/cv-items/${encodePath(name)}/activate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  export function getActiveCVItem() {
+    return API("/api/cv-items/active");
+  }
+
+  export function deactivateCVItem() {
+    return API("/api/cv-items/deactivate", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { Download, AlertCircle, CheckCircle, XCircle, Pipette } from 'lucide-react'
 import { saveCalibrationSample, getCVStatus } from '../api'
 import { Button } from './ui/button'
-import { CalibrationGallery } from './CalibrationGallery'
-import { CalibrationWizard } from './CalibrationWizard'
+import { CalibrationGallery } from './cv/CalibrationGallery'
+import { CalibrationWizard } from './cv/CalibrationWizard'
 
 export default function EventsPanel() {
   // Sample save state
@@ -90,7 +90,7 @@ export default function EventsPanel() {
   }
 
   return (
-    <div className="bg-white p-4 relative rounded-tl-[8px] rounded-tr-[8px] w-full max-h-[65vh] flex flex-col">
+    <div className="bg-white p-4 relative rounded-tl-[8px] rounded-tr-[8px] w-full max-h-[95vh] flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -124,7 +124,7 @@ export default function EventsPanel() {
                 setShowCalibration(true)
               }}
             >
-              Calibrate Player Color
+              Player
             </Button>
             <Button
               size="sm"
@@ -134,7 +134,7 @@ export default function EventsPanel() {
                 setShowCalibration(true)
               }}
             >
-              Calibrate Other Players
+              Other player
             </Button>
           </div>
         </div>

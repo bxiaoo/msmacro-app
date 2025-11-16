@@ -1,5 +1,5 @@
-import { NumberInput } from "./ui/number-input";
-import { Input } from "./ui/input";
+import { NumberInput } from "../ui/number-input";
+import { Input } from "../ui/input";
 
 export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange }) {
   if (!isOpen) return null;
@@ -57,7 +57,22 @@ export function PlaySettingsModal({ isOpen, onClose, settings, onSettingsChange 
               min={1}
               className="w-48"
             />
-            
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Jump Key
+              </label>
+              <Input
+                placeholder="e.g., SPACE, Q, UP"
+                value={settings.jump_key || 'SPACE'}
+                onChange={(e) => updateSetting('jump_key', e.target.value)}
+                className="w-48 bg-gray-100"
+              />
+              <p className="text-xs text-muted-foreground leading-tight">
+                Key alias for jumping actions. Examples: SPACE, Q, ALT, UP
+              </p>
+            </div>
+
             {/* Randomization Settings */}
             <div className="space-y-3 pt-3 border-t border-gray-200">
               <h3 className="text-md font-medium text-foreground">

@@ -1,8 +1,8 @@
 import { ChevronDown, Edit, Trash2, Menu } from 'lucide-react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { Switch } from './ui/switch'
-import { NumberInput } from './ui/number-input'
-import { Checkbox } from './ui/checkbox'
+import { Switch } from '../ui/switch'
+import { NumberInput } from '../ui/number-input'
+import { Checkbox } from '../ui/checkbox'
 
 export function SkillCell({
   id,

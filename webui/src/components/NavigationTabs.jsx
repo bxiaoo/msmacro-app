@@ -38,15 +38,15 @@ export function NavigationTabs({
                 count={rotationsCount}
             />
             <TabItem
+                label="CV"
+                active={activeTab === 'cv-items'}
+                onClick={() => onTabChange?.('cv-items')}
+            />
+            <TabItem
                 label="Skills"
                 active={activeTab === 'cd-skills'}
                 onClick={() => onTabChange?.('cd-skills')}
                 count={skillsCount}
-            />
-            <TabItem
-                label="CV Config"
-                active={activeTab === 'cv-config'}
-                onClick={() => onTabChange?.('cv-config')}
             />
         </div>
     )

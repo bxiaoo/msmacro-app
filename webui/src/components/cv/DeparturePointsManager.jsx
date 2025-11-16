@@ -6,9 +6,9 @@ import {
   updateDeparturePoint,
   getDeparturePointsStatus,
   getObjectDetectionStatus
-} from '../api'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
+} from '../../api'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 
 const TOLERANCE_MODES = [
   { value: 'both', label: 'Both X & Y ±', description: 'Player must be within tolerance in both directions' },

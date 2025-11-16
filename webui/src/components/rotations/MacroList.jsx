@@ -2,7 +2,7 @@ import * as React from 'react'
 import { getStatus, renameFile, deleteFile, deleteFolder } from '../../api.js'
 import { buildTree, flattenFiles } from '../../hooks/useFileTree.js'
 import { dirname, basename, ensureJson, joinPath } from '../../utils/paths.js'
-import { MacroItem } from "./MacroItem";
+import { MacroItem } from "./MacroItem.jsx";
 
 export function MacroList({ onSelectedChange }){
   const [tree, setTree] = React.useState([])

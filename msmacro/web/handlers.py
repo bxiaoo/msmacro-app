@@ -1823,10 +1823,11 @@ async def api_cv_auto_start(request: web.Request):
 
     Body (JSON):
     {
-        "loop": true,              # Loop back to first point after last
+        "loop": 1,                 # Loop count (repeat entire sequence N times)
         "speed": 1.0,              # Rotation playback speed
         "jitter_time": 0.05,       # Time jitter for human-like playback
-        "jitter_hold": 0.02        # Hold duration jitter
+        "jitter_hold": 0.02,       # Hold duration jitter
+        "jump_key": "SPACE"        # Jump key alias (default: "SPACE")
     }
     """
     try:
@@ -1910,4 +1911,261 @@ async def api_link_rotations_to_point(request: web.Request):
         return _json(resp)
     except Exception as e:
         log.error(f"Failed to link rotations: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+# ========== CV Item Endpoints ==========
+
+async def api_cv_items_list(request: web.Request):
+    """
+    GET /api/cv-items - List all CV Items
+
+    Returns:
+    {
+        "items": [CVItem, ...],
+        "active_item": str | null
+    }
+    """
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        items = manager.list_items()
+        active = manager.get_active_item()
+
+        return _json({
+            "items": [item.to_dict() for item in items],
+            "active_item": active.name if active else None
+        })
+    except Exception as e:
+        log.error(f"Failed to list CV Items: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_create(request: web.Request):
+    """
+    POST /api/cv-items - Create new CV Item
+
+    Body (JSON):
+    {
+        "name": str,
+        "map_config_name": str | null,
+        "pathfinding_rotations": {
+            "near": List[str],
+            "medium": List[str],
+            "far": List[str],
+            "very_far": List[str]
+        },
+        "pathfinding_config": {
+            "class_type": "other" | "magician",
+            "rope_lift_key": str,
+            "diagonal_movement_key": str (other class only),
+            "double_jump_up_allowed": bool (other class only),
+            "y_axis_jump_skill": str (other class only),
+            "teleport_skill": str (magician class only)
+        } (optional),
+        "departure_points": List[DeparturePoint],
+        "description": str (optional),
+        "tags": List[str] (optional)
+    }
+    """
+    try:
+        from ..cv.cv_item import get_cv_item_manager, CVItem
+        from ..cv.map_config import DeparturePoint
+
+        data = await request.json()
+
+        # Extract departure points
+        points_data = data.get('departure_points', [])
+        departure_points = [DeparturePoint.from_dict(p) for p in points_data]
+
+        # Create CV Item
+        item = CVItem(
+            name=data['name'],
+            map_config_name=data.get('map_config_name'),
+            pathfinding_rotations=data.get('pathfinding_rotations', {
+                'near': [], 'medium': [], 'far': [], 'very_far': []
+            }),
+            pathfinding_config=data.get('pathfinding_config', {}),
+            departure_points=departure_points,
+            created_at=time.time(),
+            description=data.get('description', ''),
+            tags=data.get('tags', [])
+        )
+
+        # Validate
+        is_valid, error_msg = item.validate()
+        if not is_valid:
+            return _json({"error": error_msg}, 400)
+
+        # Save
+        manager = get_cv_item_manager()
+        manager.create_item(item)
+
+        return _json({"ok": True, "item": item.to_dict()})
+
+    except Exception as e:
+        log.error(f"Failed to create CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_get(request: web.Request):
+    """
+    GET /api/cv-items/{name} - Get specific CV Item
+    """
+    name = request.match_info['name']
+
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        item = manager.get_item(name)
+
+        if not item:
+            return _json({"error": "CV Item not found"}, 404)
+
+        return _json(item.to_dict())
+    except Exception as e:
+        log.error(f"Failed to get CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_update(request: web.Request):
+    """
+    PUT /api/cv-items/{name} - Update CV Item
+
+    Body (JSON): Complete CVItem object
+    """
+    name = request.match_info['name']
+
+    try:
+        from ..cv.cv_item import get_cv_item_manager, CVItem
+        from ..cv.map_config import DeparturePoint
+
+        data = await request.json()
+
+        # Extract departure points
+        points_data = data.get('departure_points', [])
+        departure_points = [DeparturePoint.from_dict(p) for p in points_data]
+
+        # Create updated item
+        updated_item = CVItem(
+            name=data['name'],
+            map_config_name=data.get('map_config_name'),
+            pathfinding_rotations=data.get('pathfinding_rotations', {
+                'near': [], 'medium': [], 'far': [], 'very_far': []
+            }),
+            pathfinding_config=data.get('pathfinding_config', {}),
+            departure_points=departure_points,
+            created_at=data.get('created_at', time.time()),
+            last_used_at=data.get('last_used_at', 0.0),
+            is_active=data.get('is_active', False),
+            description=data.get('description', ''),
+            tags=data.get('tags', [])
+        )
+
+        # Validate
+        is_valid, error_msg = updated_item.validate()
+        if not is_valid:
+            return _json({"error": error_msg}, 400)
+
+        # Update
+        manager = get_cv_item_manager()
+        manager.update_item(name, updated_item)
+
+        return _json({"ok": True})
+
+    except Exception as e:
+        log.error(f"Failed to update CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_delete(request: web.Request):
+    """
+    DELETE /api/cv-items/{name} - Delete CV Item
+    """
+    name = request.match_info['name']
+
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        success = manager.delete_item(name)
+
+        if not success:
+            return _json({"error": "CV Item not found or is active"}, 400)
+
+        return _json({"ok": True})
+    except ValueError as e:
+        # Handle "Cannot delete active CV Item" error
+        return _json({"error": str(e)}, 400)
+    except Exception as e:
+        log.error(f"Failed to delete CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_activate(request: web.Request):
+    """
+    POST /api/cv-items/{name}/activate - Activate CV Item
+
+    This will:
+    1. Deactivate current CV Item
+    2. Activate the CV Item's map config
+    3. Load departure points
+    4. Mark CV Item as active
+    """
+    name = request.match_info['name']
+
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        item = manager.activate_item(name)
+
+        if not item:
+            return _json({"error": "CV Item not found or map config missing"}, 400)
+
+        return _json({
+            "ok": True,
+            "item": item.to_dict(),
+            "map_config_activated": True
+        })
+    except Exception as e:
+        log.error(f"Failed to activate CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_get_active(request: web.Request):
+    """
+    GET /api/cv-items/active - Get active CV Item
+
+    Returns:
+        CVItem dict if active, {"active_item": null} otherwise
+    """
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        item = manager.get_active_item()
+
+        if item:
+            return _json(item.to_dict())
+        else:
+            return _json({"active_item": None})
+    except Exception as e:
+        log.error(f"Failed to get active CV Item: {e}", exc_info=True)
+        return _json({"error": str(e)}, 500)
+
+
+async def api_cv_items_deactivate(request: web.Request):
+    """
+    POST /api/cv-items/deactivate - Deactivate current CV Item
+
+    This will:
+    1. Deactivate current CV Item
+    2. Deactivate map config
+    """
+    try:
+        from ..cv.cv_item import get_cv_item_manager
+        manager = get_cv_item_manager()
+        manager.deactivate()
+
+        return _json({"ok": True})
+    except Exception as e:
+        log.error(f"Failed to deactivate CV Item: {e}", exc_info=True)
         return _json({"error": str(e)}, 500)

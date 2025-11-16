@@ -1,5 +1,11 @@
 # CV-AUTO Rotation System
 
+**Version**: 2.0
+**Status**: Production (Enhanced with CV Item System)
+**Last Updated**: December 2025
+
+> **🔗 Related Documentation**: For the complete **CV Item System** (including class-based pathfinding), see [12_CV_ITEM_SYSTEM.md](./12_CV_ITEM_SYSTEM.md)
+
 ## Overview
 
 The CV-AUTO Rotation System is a comprehensive computer vision-based automation feature that enables automatic rotation playback triggered by player position detection. The system monitors player location on the minimap, automatically plays configured rotations when departure points are reached, and navigates between waypoints using intelligent pathfinding or portal mechanics.
@@ -8,11 +14,27 @@ The CV-AUTO Rotation System is a comprehensive computer vision-based automation 
 
 - **Automatic Rotation Playback**: Rotations trigger automatically when player reaches configured departure points
 - **Sequential Waypoint Navigation**: Progress through multiple departure points in order (Point 1 → 2 → 3...)
-- **3-Tier Pathfinding System**: Simple directional, recorded sequences, or waypoint-based navigation
+- **✅ CV Item System Integration**: Package map config, pathfinding config, and departure points into reusable items
+- **✅ Class-Based Pathfinding**: Character-specific movement (other/magician classes) with skill configurations
+- **3-Tier Pathfinding Strategy**: Class-based, recorded sequences, or simple directional (legacy)
 - **Port Flow Navigation**: Special handling for MapleStory portal/teleport mechanics
 - **Multiple Rotation Modes**: Random, sequential, or single rotation selection per point
 - **Loop Support**: Automatically cycle back to first point after completing sequence
 - **Real-time Status Monitoring**: Track current point, rotations played, and progress
+
+### 🆕 What's New in Version 2.1 (December 2025)
+
+- ✅ **Configurable Jump Key**: Jump key now configurable via Play Settings (default: "SPACE")
+- ✅ **Loop Count System**: Loop parameter changed from boolean to integer (loop N times)
+- ✅ **Play Settings Integration**: Full integration with PlaySettingsModal for global configuration
+
+### 🆕 What's New in Version 2.0 (December 2025)
+
+- ✅ **CV Item System**: Complete automation setups now packaged as reusable CV Items
+- ✅ **Class-Based Pathfinding**: Replaces distance-based system with character-specific movement logic
+- ✅ **Humanlike Timing**: ±10% jitter on all pathfinding movements for natural feel
+- ✅ **Skill Configuration**: Rope lift, diagonal movement, teleport, and jump skills
+- ✅ **2-Step Creation Wizard**: Intuitive UI for creating CV Items with live preview
 
 ---
 
@@ -243,6 +265,47 @@ def select_strategy(distance, target_point):
     return SimplePathfinder()
 ```
 
+### Jump Key Configuration
+
+**New in December 2025**: Jump key is now configurable via Play Settings instead of being hardcoded.
+
+#### Key Concepts
+
+- **Jump Key**: The key used for jumping actions in pathfinding (double jump, vertical movement, etc.)
+- **Arrow Keys**: Directional input keys (UP, DOWN, LEFT, RIGHT) remain hardcoded for map navigation
+- **Key Aliases**: Use human-readable string aliases instead of HID usage IDs
+
+#### Configuration
+
+**Default**: `"SPACE"` (HID usage ID: 44)
+
+**Supported Aliases**:
+- Letters: `"A"` through `"Z"`
+- Special keys: `"SPACE"`, `"Q"`, `"ALT"`, `"SHIFT"`, `"CTRL"`
+- Function keys: `"F1"` through `"F12"`
+- Arrow keys: `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"` (though UP arrow is for directional input)
+
+**Configuration Method**:
+1. Click Settings icon in Header
+2. Open PlaySettingsModal
+3. Set "Jump Key" field to desired key alias
+4. Key is applied globally to all CV-AUTO pathfinding
+
+#### Usage in Pathfinding
+
+**ClassBasedPathfinder** uses the configured jump key for:
+- Double jump horizontal movement
+- Double jump UP movement (jump action, not directional UP)
+- Y-axis jump with skill
+- Jump down movement
+- Diagonal jump with skill
+
+**Directional uses of arrow keys** (unchanged):
+- UP arrow in double jump UP (as directional modifier)
+- UP arrow in magician teleport (directional input)
+- DOWN arrow in all down movements
+- LEFT/RIGHT arrows in all horizontal movements
+
 ---
 
 ## Port Flow Navigation
@@ -407,10 +470,11 @@ POST /api/cv-auto/start
 Content-Type: application/json
 
 {
-  "loop": true,           # Loop back to first point after last
+  "loop": 1,              # Loop count (repeat entire sequence N times)
   "speed": 1.0,           # Rotation playback speed multiplier
   "jitter_time": 0.05,    # Time jitter for human-like playback
-  "jitter_hold": 0.02     # Hold duration jitter
+  "jitter_hold": 0.02,    # Hold duration jitter
+  "jump_key": "SPACE"     # Jump key alias (default: "SPACE")
 }
 ```
 
@@ -577,10 +641,11 @@ For complex navigation between points:
 # Navigate to CV-AUTO Control Panel
 1. Ensure Object Detection is enabled
 2. Ensure active map config is selected
-3. Configure settings:
-   - Loop: Enabled (cycle through points)
+3. Configure settings (via Settings icon in Header):
+   - Loop: 1 (play once), or N (repeat N times)
    - Speed: 1.0 (normal speed)
    - Jitter: Default values (human-like)
+   - Jump Key: "SPACE" (or custom key like "Q", "ALT")
 4. Click "Start CV-AUTO"
 5. Monitor status: current point, rotations played, cycles
 6. Click "Stop CV-AUTO" when done
@@ -821,9 +886,11 @@ Point 1 (Victoria Road) → Play rotation → Pathfind to Point 2 (Portal)
 |---------|-------------------|-----------|
 | **Object Detection Interval** | 500ms | Balance accuracy vs. CPU usage |
 | **Tolerance Value** | 5-10 pixels | Too low = missed hits, too high = early triggers |
+| **Loop Count** | 1-10 | 1 = play once, higher values for repeated farming |
 | **Speed** | 1.0 | Normal playback, reduce for slower machines |
 | **Jitter Time** | 0.05s | Human-like timing variation |
 | **Jitter Hold** | 0.02s | Prevents detection as bot |
+| **Jump Key** | "SPACE" | Default jump key, change if character uses different key |
 
 ### Resource Usage
 
@@ -943,6 +1010,33 @@ To contribute to CV-AUTO development:
 ---
 
 ## Changelog
+
+### v2.1.0 (December 2025)
+
+#### Added
+- ✅ **Configurable Jump Key**: Jump key now configurable via Play Settings (default: "SPACE")
+  - Supports string key aliases (e.g., "SPACE", "Q", "ALT")
+  - Global configuration applies to all CV-AUTO pathfinding
+  - Converted via `name_to_usage()` keymap utility
+- ✅ **Loop Count**: Loop parameter changed from boolean to integer
+  - `loop=N` means repeat entire CV-AUTO sequence N times
+  - Tracks completed cycles and stops after N loops
+  - Default: 1 (play once)
+
+#### Changed
+- 🔄 ClassBasedPathfinder uses configurable jump key instead of hardcoded ARROW_UP
+- 🔄 PathfindingController accepts jump_key parameter (HID usage ID)
+- 🔄 CV-AUTO handler tracks loop counter and implements N-cycle logic
+- 🔄 PlaySettingsModal updated with jump_key input field
+- 🔄 API documentation updated to reflect loop count and jump_key parameters
+
+#### Technical Details
+- Jump key configuration stored globally in play settings
+- Arrow keys (UP, DOWN, LEFT, RIGHT) remain hardcoded for directional input
+- Jump key used for: double jump, vertical movement, diagonal jump
+- Backward compatible: defaults to SPACE if not configured
+
+---
 
 ### v1.0.0 (November 2025)
 

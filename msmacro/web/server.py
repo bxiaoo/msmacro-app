@@ -66,6 +66,15 @@ from .handlers import (
     api_cv_auto_stop,
     api_cv_auto_status,
     api_link_rotations_to_point,
+    # CV Item handlers
+    api_cv_items_list,
+    api_cv_items_create,
+    api_cv_items_get,
+    api_cv_items_update,
+    api_cv_items_delete,
+    api_cv_items_activate,
+    api_cv_items_get_active,
+    api_cv_items_deactivate,
     # System handlers
     api_system_stats,
 )
@@ -181,6 +190,16 @@ def make_app() -> web.Application:
 
         # Rotation linking
         web.put("/api/cv/map-configs/{map_name}/departure-points/{point_id}/rotations", api_link_rotations_to_point),
+
+        # CV Item management
+        web.get("/api/cv-items", api_cv_items_list),
+        web.post("/api/cv-items", api_cv_items_create),
+        web.get("/api/cv-items/{name}", api_cv_items_get),
+        web.put("/api/cv-items/{name}", api_cv_items_update),
+        web.delete("/api/cv-items/{name}", api_cv_items_delete),
+        web.post("/api/cv-items/{name}/activate", api_cv_items_activate),
+        web.get("/api/cv-items/active", api_cv_items_get_active),
+        web.post("/api/cv-items/deactivate", api_cv_items_deactivate),
 
         # Health check
         web.get("/api/ping", lambda r: web.json_response({"ok": True})),
