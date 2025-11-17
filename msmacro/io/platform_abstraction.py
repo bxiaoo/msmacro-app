@@ -189,7 +189,7 @@ class MockEcodes:
     KEY_SPACE = 57
     KEY_CAPSLOCK = 58
 
-    # Function keys
+    # Function keys (F1-F24)
     KEY_F1 = 59
     KEY_F2 = 60
     KEY_F3 = 61
@@ -202,6 +202,18 @@ class MockEcodes:
     KEY_F10 = 68
     KEY_F11 = 87
     KEY_F12 = 88
+    KEY_F13 = 183
+    KEY_F14 = 184
+    KEY_F15 = 185
+    KEY_F16 = 186
+    KEY_F17 = 187
+    KEY_F18 = 188
+    KEY_F19 = 189
+    KEY_F20 = 190
+    KEY_F21 = 191
+    KEY_F22 = 192
+    KEY_F23 = 193
+    KEY_F24 = 194
 
     # Additional keys and keypad
     KEY_NUMLOCK = 69
