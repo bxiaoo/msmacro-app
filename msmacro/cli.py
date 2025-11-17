@@ -3,18 +3,52 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import time
+import platform
 from pathlib import Path
 
-from evdev import InputDevice, ecodes
+# Platform detection
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
+# Try to import evdev (Linux-only)
+try:
+    from evdev import InputDevice, ecodes
+    HAS_EVDEV = True
+except ImportError:
+    # On macOS, evdev is not available
+    HAS_EVDEV = False
+    InputDevice = None
+    ecodes = None
+    if not IS_MACOS:
+        print("Warning: evdev module not found. Keyboard features will not work.", file=sys.stderr)
 
 from .utils.config import SETTINGS
-from .io.keyboard import find_keyboard_event
-from .core.bridge import Bridge
-from .core.player import Player
-from .utils.keymap import is_modifier, mod_bit, usage_from_ecode, parse_hotkey
 from .daemon import run_daemon
 from .io.ipc import send
+
+# Conditional imports for keyboard-related modules (Linux-only)
+if HAS_EVDEV:
+    from .io.keyboard import find_keyboard_event
+    from .core.bridge import Bridge
+    from .core.player import Player
+    from .utils.keymap import is_modifier, mod_bit, usage_from_ecode, parse_hotkey
+
+
+def _require_evdev(command_name: str):
+    """Check if evdev is available, exit with helpful message if not."""
+    if not HAS_EVDEV:
+        print(f"❌ Error: '{command_name}' command requires Linux evdev support", file=sys.stderr)
+        print(f"\nThis command is not available on macOS because it requires:", file=sys.stderr)
+        print(f"  - /dev/input/event* devices (keyboard capture)", file=sys.stderr)
+        print(f"  - /dev/hidg0 device (HID output)", file=sys.stderr)
+        print(f"\nAvailable on macOS:", file=sys.stderr)
+        print(f"  ✅ daemon  - CV system (capture, detection, calibration)", file=sys.stderr)
+        print(f"  ✅ ctl     - Daemon control", file=sys.stderr)
+        print(f"  ✅ list    - List recordings", file=sys.stderr)
+        print(f"\nFor full functionality, use msmacro on a Raspberry Pi or Linux system.", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------- helpers for non-daemon hotkey stop during local playback ----------
@@ -183,12 +217,14 @@ async def live_loop(evdev_path: str, stop_hotkey: str, record_hotkey: str):
 
 
 def cmd_live(args):
+    _require_evdev("live")
     dev = args.device or find_keyboard_event()
     print(f"[live] {dev} → {SETTINGS.hidg_path}")
     asyncio.run(live_loop(dev, args.stop_hotkey, args.record_hotkey))
 
 
 def cmd_record(args):
+    _require_evdev("record")
     # One-shot record with interactive prompt (manual mode)
     from .recorder import Recorder
 
@@ -241,6 +277,7 @@ def cmd_list(args):
 
 
 def cmd_play(args):
+    _require_evdev("play")
     dev = args.device or find_keyboard_event()
     if args.pick:
         p = Path(SETTINGS.record_dir)
