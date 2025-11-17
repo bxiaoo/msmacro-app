@@ -31,16 +31,33 @@ async def _serve_one(reader, writer, handler):
             await writer.wait_closed()
 
 async def send(path, payload: dict, timeout=5.0):
+    """
+    Send IPC command to daemon and wait for response.
+
+    Args:
+        path: Unix socket path
+        payload: Command dict to send
+        timeout: Total timeout for both connection and response (default 5.0s)
+
+    Raises:
+        asyncio.TimeoutError: If connection or response takes too long
+        RuntimeError: If no response or daemon returns error
+    """
     # Set limit to 2MB to support large frame data transfers (base64-encoded JPEGs can be ~300KB)
     reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(path, limit=2**21), timeout=timeout)
-    writer.write((json.dumps(payload) + "\n").encode("utf-8"))
-    await writer.drain()
-    line = await reader.readline()
-    writer.close()
-    await writer.wait_closed()
-    if not line:
-        raise RuntimeError("no response")
-    resp = json.loads(line.decode("utf-8"))
-    if not resp.get("ok"):
-        raise RuntimeError(resp.get("error", "unknown error"))
-    return resp["result"]
+    try:
+        writer.write((json.dumps(payload) + "\n").encode("utf-8"))
+        await writer.drain()
+
+        # CRITICAL FIX: Add timeout to readline to prevent indefinite hangs
+        line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+
+        if not line:
+            raise RuntimeError("no response")
+        resp = json.loads(line.decode("utf-8"))
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("error", "unknown error"))
+        return resp["result"]
+    finally:
+        writer.close()
+        await writer.wait_closed()
