@@ -1,4 +1,4 @@
-from evdev import ecodes
+from ..io.platform_abstraction import ecodes
 
 # Modifier bits (for byte0 of HID report)
 MOD_BITS = {
