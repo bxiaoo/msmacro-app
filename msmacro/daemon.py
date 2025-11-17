@@ -17,23 +17,47 @@ import logging
 import time
 import random
 import os
+import platform
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from evdev import InputDevice, ecodes
+# Platform abstraction
+from .io.platform_abstraction import (
+    IS_MACOS, IS_LINUX, HAS_EVDEV, HAS_HID_GADGET,
+    log_platform_info, ecodes
+)
 
 from .utils.config import SETTINGS
-from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
-from .core.bridge import Bridge
-from .core.player import Player
-from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
-from .core.skills import SkillManager
-from .core.skill_injector import SkillInjector
 from .io.ipc import start_server
 from .cv import get_capture_instance, CVCaptureError
-from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
 from .daemon_handlers.command_dispatcher import CommandDispatcher
+
+# Import keyboard and HID modules (they handle platform dispatch internally)
+from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
 from .io.hidio import HIDWriter
+
+# Conditional imports for modules that require evdev
+if HAS_EVDEV:
+    from .core.bridge import Bridge
+    from .core.player import Player
+    from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
+    from .core.skills import SkillManager
+    from .core.skill_injector import SkillInjector
+    from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
+else:
+    # Provide stub classes for macOS (won't be instantiated on macOS)
+    Bridge = None
+    Player = None
+    Recorder = None
+    list_recordings_recursive = None
+    resolve_record_path = None
+    SkillManager = None
+    SkillInjector = None
+    parse_hotkey = None
+    usage_from_ecode = None
+    is_modifier = None
+    mod_bit = None
 
 try:
     from .events import emit  # type: ignore

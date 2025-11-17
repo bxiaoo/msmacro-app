@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
-from evdev import ecodes
+from ..io.platform_abstraction import ecodes
 from msmacro.cv.map_config import DeparturePoint
 from msmacro.utils.keymap import HID_USAGE, NAME_TO_ECODE
 
