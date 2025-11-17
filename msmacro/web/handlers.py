@@ -39,8 +39,16 @@ def _rec_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-async def _daemon(cmd: str, **payload):
-    return await send(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"), {"cmd": cmd, **payload})
+async def _daemon(cmd: str, timeout: float = 5.0, **payload):
+    """
+    Send IPC command to daemon.
+
+    Args:
+        cmd: Command name
+        timeout: IPC timeout in seconds (default 5.0, use higher for CV operations)
+        **payload: Additional command parameters
+    """
+    return await send(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"), {"cmd": cmd, **payload}, timeout=timeout)
 
 def _json(data, status=200):
     return web.json_response(data, status=status)
@@ -1344,7 +1352,8 @@ async def api_cv_frame_lossless(request: web.Request):
         except (ValueError, TypeError):
             return web.Response(status=400, text="Invalid manual crop parameters")
 
-        result = await _daemon("cv_get_frame")
+        # Use 15s timeout for CV operations (camera initialization can take 3-4s on macOS)
+        result = await _daemon("cv_get_frame", timeout=15.0)
         if "error" in result:
             return web.Response(status=500, text=result["error"])
 
@@ -1421,8 +1430,8 @@ async def api_cv_raw_minimap(request: web.Request):
         500: Server error
     """
     try:
-        # Get raw minimap via IPC
-        result = await _daemon("cv_get_raw_minimap")
+        # Get raw minimap via IPC (use 15s timeout for CV operations)
+        result = await _daemon("cv_get_raw_minimap", timeout=15.0)
 
         if not result.get("success", True):
             error_code = result.get("error", "unknown")
@@ -1499,8 +1508,8 @@ async def api_cv_detection_preview(request: web.Request):
     """
     log.debug("🖼️ Detection preview requested")
     try:
-        # Get detection preview via IPC (runs entirely in daemon process)
-        result = await _daemon("cv_get_detection_preview")
+        # Get detection preview via IPC (runs entirely in daemon process, use 15s timeout)
+        result = await _daemon("cv_get_detection_preview", timeout=15.0)
 
         # Handle errors
         if not result.get("success"):
