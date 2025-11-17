@@ -203,8 +203,18 @@ class MockEcodes:
     KEY_F11 = 87
     KEY_F12 = 88
 
-    # Additional keys
+    # Additional keys and keypad
     KEY_NUMLOCK = 69
+    KEY_KP0 = 82
+    KEY_KP1 = 79
+    KEY_KP2 = 80
+    KEY_KP3 = 81
+    KEY_KP4 = 75
+    KEY_KP5 = 76
+    KEY_KP6 = 77
+    KEY_KP7 = 71
+    KEY_KP8 = 72
+    KEY_KP9 = 73
     KEY_KPSLASH = 98
     KEY_KPDOT = 83
     KEY_KPPLUS = 78
