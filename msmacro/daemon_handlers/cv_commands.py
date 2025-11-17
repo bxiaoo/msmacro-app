@@ -8,6 +8,7 @@ starting/stopping capture and retrieving frames and status.
 import asyncio
 import base64
 import logging
+import time
 from dataclasses import asdict
 from typing import Dict, Any
 from ..cv import get_capture_instance, CVCaptureError
@@ -78,22 +79,33 @@ class CVCommandHandler:
 
         # Auto-start capture if not running
         if not status.get('capturing'):
-            logger.info("CV capture not running, auto-starting...")
+            logger.info("📹 CV capture not running, auto-starting...")
+            logger.info("📹 This may take 2-4 seconds on macOS for camera initialization...")
             try:
+                start_time = time.time()
                 await capture.start()
-                logger.info("CV capture auto-started successfully")
+                init_time = time.time() - start_time
+                logger.info(f"📹 CV capture auto-started in {init_time:.2f}s")
 
                 # Wait up to 3 seconds for first frame to be captured
+                logger.debug("📹 Waiting for first frame...")
                 for attempt in range(30):  # 30 x 0.1s = 3 seconds
                     await asyncio.sleep(0.1)
                     frame_result = capture.get_latest_frame()
                     if frame_result is not None:
-                        logger.info(f"First frame captured after {(attempt + 1) * 0.1:.1f}s")
+                        total_time = time.time() - start_time
+                        logger.info(f"✅ First frame captured after {total_time:.2f}s total ({(attempt + 1) * 0.1:.1f}s wait)")
                         break
+                    # Log progress every second
+                    if (attempt + 1) % 10 == 0:
+                        logger.debug(f"📹 Still waiting for first frame... {(attempt + 1) * 0.1:.1f}s elapsed")
                 else:
                     # Timeout waiting for first frame
+                    total_time = time.time() - start_time
                     last_error = capture.get_status().get('last_error')
+                    frames_captured = capture.get_status().get('frames_captured', 0)
                     error_detail = f": {last_error}" if last_error else ""
+                    logger.error(f"⏱️ Timeout waiting for first frame after {total_time:.2f}s (frames_captured={frames_captured}){error_detail}")
                     raise RuntimeError(f"Timed out waiting for first frame after auto-start{error_detail}")
 
             except CVCaptureError as e:
