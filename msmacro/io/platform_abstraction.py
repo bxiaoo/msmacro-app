@@ -204,8 +204,16 @@ class MockEcodes:
     KEY_F12 = 88
 
     # Additional keys
+    KEY_NUMLOCK = 69
+    KEY_KPSLASH = 98
+    KEY_KPDOT = 83
+    KEY_KPPLUS = 78
+    KEY_KPMINUS = 74
+    KEY_KPENTER = 96
     KEY_RIGHTCTRL = 97
+    KEY_SYSRQ = 99
     KEY_RIGHTALT = 100
+    KEY_LINEFEED = 101
     KEY_HOME = 102
     KEY_UP = 103
     KEY_PAGEUP = 104
@@ -216,10 +224,50 @@ class MockEcodes:
     KEY_PAGEDOWN = 109
     KEY_INSERT = 110
     KEY_DELETE = 111
-
-    # Modifier keys
+    KEY_MACRO = 112
+    KEY_MUTE = 113
+    KEY_VOLUMEDOWN = 114
+    KEY_VOLUMEUP = 115
+    KEY_POWER = 116
+    KEY_KPEQUAL = 117
+    KEY_KPPLUSMINUS = 118
+    KEY_PAUSE = 119
+    KEY_SCALE = 120
+    KEY_KPCOMMA = 121
+    KEY_HANGEUL = 122
+    KEY_HANGUEL = 122
+    KEY_HANJA = 123
+    KEY_YEN = 124
     KEY_LEFTMETA = 125
     KEY_RIGHTMETA = 126
+    KEY_COMPOSE = 127
+    KEY_STOP = 128
+    KEY_AGAIN = 129
+    KEY_PROPS = 130
+    KEY_UNDO = 131
+    KEY_FRONT = 132
+    KEY_COPY = 133
+    KEY_OPEN = 134
+    KEY_PASTE = 135
+    KEY_FIND = 136
+    KEY_CUT = 137
+    KEY_HELP = 138
+    KEY_MENU = 139
+    KEY_CALC = 140
+    KEY_SETUP = 141
+    KEY_SLEEP = 142
+    KEY_WAKEUP = 143
+    KEY_FILE = 144
+    KEY_PRINT = 70
+    KEY_SCROLLLOCK = 71
+    KEY_102ND = 86
+    KEY_RO = 89
+    KEY_KATAKANA = 90
+    KEY_HIRAGANA = 91
+    KEY_HENKAN = 92
+    KEY_KATAKANAHIRAGANA = 93
+    KEY_MUHENKAN = 94
+    KEY_KPJPCOMMA = 95
 
 
 # Export appropriate ecodes based on platform
