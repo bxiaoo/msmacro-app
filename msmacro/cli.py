@@ -318,7 +318,9 @@ def cmd_ctl(args):
     """Client for the daemon's UNIX socket control API."""
     # watch mode: stream events file
     if args.action == "watch":
-        path = os.environ.get("MSMACRO_EVENTS", "/run/msmacro.events")
+        # Platform-aware events file path
+        default_events = "/tmp/msmacro.events" if IS_MACOS else "/run/msmacro.events"
+        path = os.environ.get("MSMACRO_EVENTS", default_events)
         print(f"[watch] {path} (Ctrl+C to stop)")
         while not os.path.exists(path):
             time.sleep(0.2)

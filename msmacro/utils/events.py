@@ -1,6 +1,11 @@
-import json, os, pathlib, time
+import json, os, pathlib, time, platform
 
-PATH = os.environ.get("MSMACRO_EVENTS", "/run/msmacro.events")
+# Platform-aware events file path: use /tmp on macOS, /run on Linux
+if platform.system() == "Darwin":
+    _default_events = "/tmp/msmacro.events"
+else:
+    _default_events = "/run/msmacro.events"
+PATH = os.environ.get("MSMACRO_EVENTS", _default_events)
 
 def path() -> str:
     return PATH
