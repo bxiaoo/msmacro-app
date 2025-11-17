@@ -80,7 +80,9 @@ from .handlers import (
 )
 
 # ---- Config ----
-STATIC_DIR = Path(os.environ.get("MSMACRO_WEB_STATIC", "/opt/msmacro-app/msmacro/web/static")).resolve()
+# Use path relative to this module, or env var if set
+_default_static = Path(__file__).parent / "static"
+STATIC_DIR = Path(os.environ.get("MSMACRO_WEB_STATIC", str(_default_static))).resolve()
 INDEX_FILE = STATIC_DIR / "index.html"
 WEB_HOST = os.environ.get("MSMACRO_WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("MSMACRO_WEB_PORT", "8787"))
