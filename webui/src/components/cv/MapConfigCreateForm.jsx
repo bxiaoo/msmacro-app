@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, Save, Square } from 'lucide-react'
-import { createMapConfig } from '../../api'
+import { createMapConfig, getCVStatus, startCVCapture } from '../../api'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
@@ -12,21 +12,72 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
   const [height, setHeight] = useState(45)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [previewError, setPreviewError] = useState(false)
+  const [cvStatus, setCvStatus] = useState({ initializing: true, capturing: false, error: null })
   const [saving, setSaving] = useState(false)
 
-  // Update preview when coordinates change
+  // Auto-start CV capture when component mounts
   useEffect(() => {
-    // Small delay to ensure capture is ready
+    const initCV = async () => {
+      try {
+        console.log('📹 [MapConfigCreateForm] Checking CV status...')
+        const status = await getCVStatus()
+
+        if (!status.capturing) {
+          console.log('📹 [MapConfigCreateForm] CV not capturing, auto-starting...')
+          setCvStatus({ initializing: true, capturing: false, error: null })
+
+          await startCVCapture({ device_index: 0 })
+          console.log('✅ [MapConfigCreateForm] CV started successfully')
+
+          // Wait a moment for first frame
+          await new Promise(resolve => setTimeout(resolve, 500))
+
+          const newStatus = await getCVStatus()
+          setCvStatus({ initializing: false, capturing: newStatus.capturing, error: null })
+        } else {
+          console.log('✅ [MapConfigCreateForm] CV already capturing')
+          setCvStatus({ initializing: false, capturing: true, error: null })
+        }
+      } catch (error) {
+        console.error('❌ [MapConfigCreateForm] Failed to start CV:', error)
+        setCvStatus({ initializing: false, capturing: false, error: error.message || 'Failed to start camera' })
+      }
+    }
+
+    initCV()
+  }, []) // Run once on mount
+
+  // Update preview when coordinates change (only if CV is ready)
+  useEffect(() => {
+    // Don't load preview if CV is still initializing or failed
+    if (cvStatus.initializing) {
+      console.log('⏳ [MapConfigCreateForm] Waiting for CV to initialize...')
+      return
+    }
+
+    if (cvStatus.error) {
+      console.log('❌ [MapConfigCreateForm] CV error, not loading preview:', cvStatus.error)
+      setPreviewError(true)
+      return
+    }
+
+    if (!cvStatus.capturing) {
+      console.log('⚠️ [MapConfigCreateForm] CV not capturing, not loading preview')
+      setPreviewError(true)
+      return
+    }
+
+    // CV is ready, load preview with small delay
     const timer = setTimeout(() => {
       const url = `/api/cv/frame-lossless?x=${tlX}&y=${tlY}&w=${width}&h=${height}&t=${Date.now()}`
-      console.log('[MapConfigCreateForm] Preview URL updated:', url)
-      console.log('[MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
+      console.log('📸 [MapConfigCreateForm] Loading preview:', url)
+      console.log('📐 [MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
       setPreviewUrl(url)
       setPreviewError(false) // Reset error when coordinates change
-    }, 100) // 100ms delay to let capture initialize
+    }, 100)
 
     return () => clearTimeout(timer)
-  }, [tlX, tlY, width, height])
+  }, [tlX, tlY, width, height, cvStatus])
 
   const handleSave = async () => {
     // Validate name
@@ -116,7 +167,26 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
 
       {/* Live Preview */}
       <div className="border-2 border-gray-300 rounded overflow-hidden bg-gray-50 min-h-[100px] flex flex-col">
-        {previewUrl && (
+        {cvStatus.initializing && (
+          <div className="bg-blue-50 p-4 text-center">
+            <p className="text-blue-600 text-sm font-medium">📹 Camera initializing...</p>
+            <p className="text-blue-500 text-xs mt-1">
+              This may take 2-4 seconds on macOS
+            </p>
+          </div>
+        )}
+
+        {cvStatus.error && (
+          <div className="bg-red-50 p-4 text-center">
+            <p className="text-red-600 text-sm font-medium">❌ Camera failed to start</p>
+            <p className="text-red-500 text-xs mt-1">{cvStatus.error}</p>
+            <p className="text-red-400 text-xs mt-2">
+              Check that a capture device is connected and the daemon is running
+            </p>
+          </div>
+        )}
+
+        {!cvStatus.initializing && !cvStatus.error && cvStatus.capturing && previewUrl && (
           <>
             <img
               key={previewUrl}
@@ -124,14 +194,14 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
               alt="Map preview"
               className="w-full h-auto"
               onError={(e) => {
-                console.error('[MapConfigCreateForm] Failed to load preview')
+                console.error('❌ [MapConfigCreateForm] Failed to load preview')
                 console.error('[MapConfigCreateForm] Preview URL:', previewUrl)
                 console.error('[MapConfigCreateForm] Coordinates:', { tlX, tlY, width, height })
                 console.error('[MapConfigCreateForm] Error:', e)
                 setPreviewError(true)
               }}
               onLoad={() => {
-                console.log('[MapConfigCreateForm] Preview loaded successfully')
+                console.log('✅ [MapConfigCreateForm] Preview loaded successfully')
                 setPreviewError(false)
               }}
             />
@@ -139,11 +209,20 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
               <div className="bg-red-50 border-t border-red-200 p-3 text-center">
                 <p className="text-red-600 text-sm font-medium">⚠️ Failed to load preview</p>
                 <p className="text-red-500 text-xs mt-1">
-                  Check if CV frame capture is running. The daemon must be active to show live previews.
+                  Frame request failed. Check backend logs for details.
                 </p>
               </div>
             )}
           </>
+        )}
+
+        {!cvStatus.initializing && !cvStatus.error && !cvStatus.capturing && (
+          <div className="bg-yellow-50 p-4 text-center">
+            <p className="text-yellow-600 text-sm font-medium">⚠️ Camera not capturing</p>
+            <p className="text-yellow-500 text-xs mt-1">
+              Try refreshing the page or check the daemon status
+            </p>
+          </div>
         )}
       </div>
 
