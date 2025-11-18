@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFiles } from '../../api'
+import { getStatus } from '../../api'
 import { Checkbox } from '../ui/checkbox'
 
 /**
@@ -23,8 +23,16 @@ export function RotationSelector({
       try {
         setLoading(true)
         setError(null)
-        const files = await listFiles()
-        setAvailableRotations(Array.isArray(files) ? files : [])
+        // Use getStatus() API like the Rotations tab does
+        const st = await getStatus()
+        const tree = Array.isArray(st?.tree) ? st.tree : []
+
+        // Extract all .json files from the tree (flatten)
+        const files = tree
+          .filter(item => item.type === 'file' && item.rel.endsWith('.json'))
+          .map(item => item.rel)
+
+        setAvailableRotations(files)
       } catch (err) {
         console.error('[RotationSelector] Failed to load rotations:', err)
         setError(err.message || 'Failed to load rotations')
