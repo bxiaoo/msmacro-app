@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getStatus } from '../../api'
+import { buildTree, flattenFiles } from '../../hooks/useFileTree'
 import { Checkbox } from '../ui/checkbox'
 
 /**
@@ -25,12 +26,12 @@ export function RotationSelector({
         setError(null)
         // Use getStatus() API like the Rotations tab does
         const st = await getStatus()
-        const tree = Array.isArray(st?.tree) ? st.tree : []
+        const items = Array.isArray(st?.tree) ? st.tree : []
 
-        // Extract all .json files from the tree (flatten)
-        const files = tree
-          .filter(item => item.type === 'file' && item.rel.endsWith('.json'))
-          .map(item => item.rel)
+        // Build tree and flatten files exactly like MacroList does
+        const tree = buildTree(items)
+        const allFiles = flattenFiles(tree)
+        const files = allFiles.map(f => f.rel)
 
         setAvailableRotations(files)
       } catch (err) {
