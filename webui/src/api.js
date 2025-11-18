@@ -37,7 +37,12 @@ async function API(path, opts = {}) {
   }
   
   export function listFiles() {
-    return API("/api/files");
+    return API("/api/files").then(resp => {
+      // Handle both direct array and {files: [...]} response formats
+      if (Array.isArray(resp)) return resp;
+      if (resp && Array.isArray(resp.files)) return resp.files;
+      return [];
+    });
   }
   
   // ---------- Recording ----------
@@ -517,5 +522,23 @@ async function API(path, opts = {}) {
     return API("/api/cv-items/deactivate", {
       method: "POST",
       body: JSON.stringify({}),
+    });
+  }
+
+  // ---------- CV-AUTO ----------
+  export function getCVAutoStatus() {
+    return API("/api/cv-auto/status");
+  }
+
+  export function startCVAuto(options = {}) {
+    return API("/api/cv-auto/start", {
+      method: "POST",
+      body: JSON.stringify(options),
+    });
+  }
+
+  export function stopCVAuto() {
+    return API("/api/cv-auto/stop", {
+      method: "POST",
     });
   }

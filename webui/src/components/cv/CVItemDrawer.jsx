@@ -47,7 +47,12 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
         y_axis_jump_skill: '',
         teleport_skill: ''
       })
-      setDeparturePoints(editingItem.departure_points || [])
+      // Normalize departure points to ensure rotation_paths is always an array
+      const normalizedPoints = (editingItem.departure_points || []).map(point => ({
+        ...point,
+        rotation_paths: Array.isArray(point.rotation_paths) ? point.rotation_paths : []
+      }))
+      setDeparturePoints(normalizedPoints)
     } else {
       // Reset for new item
       setItemName('')
@@ -126,7 +131,7 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
     const item = {
       name: itemName.trim(),
       map_config_name: mapConfigName,
-      pathfinding_rotations,
+      pathfinding_rotations: { near: [], medium: [], far: [], very_far: [] },  // Deprecated - kept for backward compatibility
       pathfinding_config: pathfindingConfig,
       departure_points: departurePoints,
       description: '',
