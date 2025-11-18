@@ -39,8 +39,16 @@ def _rec_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-async def _daemon(cmd: str, **payload):
-    return await send(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"), {"cmd": cmd, **payload})
+async def _daemon(cmd: str, timeout: float = 5.0, **payload):
+    """
+    Send IPC command to daemon.
+
+    Args:
+        cmd: Command name
+        timeout: IPC timeout in seconds (default 5.0, use higher for CV operations)
+        **payload: Additional command parameters
+    """
+    return await send(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"), {"cmd": cmd, **payload}, timeout=timeout)
 
 def _json(data, status=200):
     return web.json_response(data, status=status)
@@ -1330,6 +1338,7 @@ async def api_cv_frame_lossless(request: web.Request):
     NOTE: Underlying source frame is currently JPEG-compressed upstream; this
     endpoint avoids an additional JPEG generation step by emitting PNG.
     """
+    log.debug(f"🔵 api_cv_frame_lossless called with params: {dict(request.query)}")
     try:
         manual = False
         try:
@@ -1341,10 +1350,19 @@ async def api_cv_frame_lossless(request: web.Request):
                 y = int(q.get("y", 0))
                 w = int(q.get("w", 0))
                 h = int(q.get("h", 0))
-        except (ValueError, TypeError):
+                log.debug(f"📐 Manual crop requested: x={x}, y={y}, w={w}, h={h}")
+        except (ValueError, TypeError) as e:
+            log.warning(f"❌ Invalid manual crop parameters: {e}")
             return web.Response(status=400, text="Invalid manual crop parameters")
 
-        result = await _daemon("cv_get_frame")
+        # Use 30s timeout for CV operations (camera initialization can take 3-4s on macOS)
+        log.debug("📡 Calling _daemon('cv_get_frame', timeout=30.0)...")
+        try:
+            result = await _daemon("cv_get_frame", timeout=30.0)
+            log.debug("✅ _daemon returned successfully")
+        except asyncio.TimeoutError as e:
+            log.error(f"⏱️ IPC timeout after 30s waiting for cv_get_frame: {e}")
+            return web.Response(status=504, text="Gateway timeout - daemon took too long to respond (>30s). Camera may be initializing.")
         if "error" in result:
             return web.Response(status=500, text=result["error"])
 
@@ -1421,8 +1439,8 @@ async def api_cv_raw_minimap(request: web.Request):
         500: Server error
     """
     try:
-        # Get raw minimap via IPC
-        result = await _daemon("cv_get_raw_minimap")
+        # Get raw minimap via IPC (use 30s timeout for CV operations)
+        result = await _daemon("cv_get_raw_minimap", timeout=30.0)
 
         if not result.get("success", True):
             error_code = result.get("error", "unknown")
@@ -1499,8 +1517,8 @@ async def api_cv_detection_preview(request: web.Request):
     """
     log.debug("🖼️ Detection preview requested")
     try:
-        # Get detection preview via IPC (runs entirely in daemon process)
-        result = await _daemon("cv_get_detection_preview")
+        # Get detection preview via IPC (runs entirely in daemon process, use 30s timeout)
+        result = await _daemon("cv_get_detection_preview", timeout=30.0)
 
         # Handle errors
         if not result.get("success"):

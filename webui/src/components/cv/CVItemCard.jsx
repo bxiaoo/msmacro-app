@@ -3,7 +3,7 @@ import { Pencil, Trash2, Menu } from 'lucide-react'
 import { Checkbox } from '../ui/checkbox'
 import { getDeparturePointsStatus } from '../../api'
 
-export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showDeparturePoints }) {
+export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showDeparturePoints, mapConfig }) {
   const [playerPosition, setPlayerPosition] = useState(null)
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
 
@@ -121,13 +121,28 @@ export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showD
           {/* Live Map Preview */}
           {livePreviewUrl && (
             <div className="border-2 border-gray-300 rounded overflow-hidden">
-              <img
-                key={livePreviewUrl}
-                src={livePreviewUrl}
-                alt="Live minimap"
-                className="w-full h-auto"
-                onError={() => console.error('Failed to load preview')}
-              />
+              {mapConfig ? (
+                <div
+                  className="relative w-full"
+                  style={{ paddingBottom: `${(mapConfig.height / mapConfig.width) * 100}%` }}
+                >
+                  <img
+                    key={livePreviewUrl}
+                    src={livePreviewUrl}
+                    alt="Live minimap"
+                    className="absolute top-0 left-0 w-full h-full object-cover"
+                    onError={() => console.error('Failed to load preview')}
+                  />
+                </div>
+              ) : (
+                <img
+                  key={livePreviewUrl}
+                  src={livePreviewUrl}
+                  alt="Live minimap"
+                  className="w-full h-auto"
+                  onError={() => console.error('Failed to load preview')}
+                />
+              )}
             </div>
           )}
         </div>

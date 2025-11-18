@@ -143,8 +143,11 @@ class PlaybackCommandHandler:
 
         # Stop playback if in PLAYING mode
         if self.daemon.mode == "PLAYING" and self.daemon._stop_event:
-            log.info("Setting stop event for playback")
+            log.info("🛑 STOP COMMAND: Setting stop_event (id=%s, is_set_before=%s)",
+                     id(self.daemon._stop_event), self.daemon._stop_event.is_set())
             self.daemon._stop_event.set()
+            log.info("🛑 STOP COMMAND: stop_event.set() called (is_set_after=%s)",
+                     self.daemon._stop_event.is_set())
 
             # Also try to cancel the play task if it exists
             if hasattr(self.daemon, '_play_task') and self.daemon._play_task and not self.daemon._play_task.done():

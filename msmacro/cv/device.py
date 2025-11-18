@@ -1,14 +1,23 @@
 """
 HDMI capture device detection and validation.
+
+Platform-aware implementation:
+- Linux: Uses V4L2 (/dev/video*, v4l2-ctl)
+- macOS: Uses OpenCV AVFoundation backend
 """
 
 import logging
 import subprocess
+import platform
 from pathlib import Path
 from typing import Optional, List, Dict
 import asyncio
 
 logger = logging.getLogger(__name__)
+
+# Detect platform at module load time
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
 
 
 class CaptureDevice:
@@ -28,6 +37,26 @@ class CaptureDevice:
 def list_video_devices() -> List[CaptureDevice]:
     """
     Enumerate all video devices available on the system.
+
+    Platform-aware implementation:
+    - macOS: Uses OpenCV AVFoundation to probe devices
+    - Linux: Uses V4L2 (/dev/video*) with format filtering
+
+    Returns:
+        List of CaptureDevice objects with actual capture capability
+    """
+    if IS_MACOS:
+        # Use macOS-specific implementation
+        from .device_macos import list_video_devices_macos
+        return list_video_devices_macos()
+    else:
+        # Use Linux V4L2 implementation (original code)
+        return _list_video_devices_linux()
+
+
+def _list_video_devices_linux() -> List[CaptureDevice]:
+    """
+    Linux-specific device enumeration using V4L2.
 
     Filters out metadata-only devices that have no capture formats.
 
@@ -263,6 +292,29 @@ async def find_capture_device_with_retry(
 def validate_device_access(device: CaptureDevice) -> bool:
     """
     Validate that a capture device is accessible.
+
+    Platform-aware implementation:
+    - macOS: Uses OpenCV to test device access
+    - Linux: Checks /dev/video* device file access
+
+    Args:
+        device: CaptureDevice to validate
+
+    Returns:
+        True if device is accessible, False otherwise
+    """
+    if IS_MACOS:
+        # Use macOS-specific validation
+        from .device_macos import validate_device_access_macos
+        return validate_device_access_macos(device)
+    else:
+        # Use Linux V4L2 validation (original code)
+        return _validate_device_access_linux(device)
+
+
+def _validate_device_access_linux(device: CaptureDevice) -> bool:
+    """
+    Linux-specific device validation using file system access.
 
     Args:
         device: CaptureDevice to validate

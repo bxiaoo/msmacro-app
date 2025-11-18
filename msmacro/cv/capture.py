@@ -1,5 +1,9 @@
 """
 Main capture manager for HDMI video capture cards using OpenCV.
+
+Platform-aware implementation:
+- Linux: Uses V4L2 backend
+- macOS: Uses AVFoundation backend
 """
 
 import asyncio
@@ -8,6 +12,7 @@ import logging
 import threading
 import time
 import os
+import platform
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 import cv2
@@ -20,6 +25,10 @@ from .frame_buffer import FrameBuffer, FrameMetadata
 from .region_analysis import bgr_to_yuyv_bytes, Region
 
 logger = logging.getLogger(__name__)
+
+# Detect platform at module load time
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
 
 
 class CVCaptureError(Exception):
@@ -344,12 +353,20 @@ class CVCapture:
 
         logger.info(f"Initializing capture on {self._device.device_path}")
 
-        # Try opening by explicit device path first (more reliable on multi-node capture cards)
-        open_attempts = [
-            (self._device.device_path, cv2.CAP_V4L2),
-            (self._device.device_index, cv2.CAP_V4L2),
-            (self._device.device_index, cv2.CAP_ANY),
-        ]
+        # Platform-aware backend selection
+        if IS_MACOS:
+            # macOS: Use AVFoundation backend (device index only, no path support)
+            open_attempts = [
+                (self._device.device_index, cv2.CAP_AVFOUNDATION),
+                (self._device.device_index, cv2.CAP_ANY),
+            ]
+        else:
+            # Linux: Try explicit device path first (more reliable on multi-node capture cards)
+            open_attempts = [
+                (self._device.device_path, cv2.CAP_V4L2),
+                (self._device.device_index, cv2.CAP_V4L2),
+                (self._device.device_index, cv2.CAP_ANY),
+            ]
 
         self._capture = None
         last_error = None

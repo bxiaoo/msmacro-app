@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Target, Pencil, Trash2, ChevronDown } from 'lucide-react'
-import { getDeparturePointsStatus, listFiles } from '../../api'
+import { Target, Pencil, Trash2 } from 'lucide-react'
+import { getDeparturePointsStatus, getCVStatus, startCVCapture, activateMapConfig, getObjectDetectionStatus, startObjectDetection, listMapConfigs } from '../../api'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { RotationSelector } from '../shared/RotationSelector'
 
 const TOLERANCE_MODES = [
   { value: 'both', label: 'Both X & Y ±' },
@@ -23,10 +24,103 @@ export function CVItemDepartureStep({
   const [playerDetected, setPlayerDetected] = useState(false)
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
   const [expandedPoint, setExpandedPoint] = useState(null)
-  const [availableRotations, setAvailableRotations] = useState([])
+  const [mapConfig, setMapConfig] = useState(null)
+  const [initStatus, setInitStatus] = useState({
+    cvReady: false,
+    mapActive: false,
+    odReady: false,
+    error: null,
+    initializing: true
+  })
 
+  // Load map config for aspect ratio calculation
   useEffect(() => {
-    // Poll player position and update preview
+    const loadMapConfig = async () => {
+      if (!mapConfigName) return
+      try {
+        const data = await listMapConfigs()
+        const configs = Array.isArray(data) ? data : data.configs || []
+        const config = configs.find(c => c.name === mapConfigName)
+        setMapConfig(config)
+      } catch (error) {
+        console.error('Failed to load map config:', error)
+      }
+    }
+    loadMapConfig()
+  }, [mapConfigName])
+
+  // Initialize CV capture, map config, and object detection on mount
+  useEffect(() => {
+    const initializeStep = async () => {
+      try {
+        console.log('📹 [CVItemDepartureStep] Starting initialization...')
+        setInitStatus(prev => ({ ...prev, initializing: true, error: null }))
+
+        // Step 1: Ensure CV capture is running
+        console.log('📹 [CVItemDepartureStep] Checking CV status...')
+        const cvStatus = await getCVStatus()
+
+        if (!cvStatus.capturing) {
+          console.log('📹 [CVItemDepartureStep] CV not capturing, auto-starting...')
+          await startCVCapture({ device_index: 0 })
+          console.log('✅ [CVItemDepartureStep] CV started successfully')
+
+          // Wait for first frame
+          await new Promise(resolve => setTimeout(resolve, 500))
+        } else {
+          console.log('✅ [CVItemDepartureStep] CV already capturing')
+        }
+
+        setInitStatus(prev => ({ ...prev, cvReady: true }))
+
+        // Step 2: Activate the map config
+        if (mapConfigName) {
+          console.log('🗺️ [CVItemDepartureStep] Activating map config:', mapConfigName)
+          await activateMapConfig(mapConfigName)
+          console.log('✅ [CVItemDepartureStep] Map config activated')
+          setInitStatus(prev => ({ ...prev, mapActive: true }))
+        } else {
+          console.warn('⚠️ [CVItemDepartureStep] No map config name provided')
+        }
+
+        // Step 3: Start object detection if not running
+        console.log('🎯 [CVItemDepartureStep] Checking object detection status...')
+        const odStatus = await getObjectDetectionStatus()
+
+        if (!odStatus.running) {
+          console.log('🎯 [CVItemDepartureStep] Object detection not running, starting...')
+          await startObjectDetection()
+          console.log('✅ [CVItemDepartureStep] Object detection started')
+        } else {
+          console.log('✅ [CVItemDepartureStep] Object detection already running')
+        }
+
+        setInitStatus(prev => ({ ...prev, odReady: true, initializing: false }))
+        console.log('✅ [CVItemDepartureStep] Initialization complete')
+
+      } catch (error) {
+        console.error('❌ [CVItemDepartureStep] Initialization failed:', error)
+        setInitStatus(prev => ({
+          ...prev,
+          initializing: false,
+          error: error.message || 'Initialization failed'
+        }))
+      }
+    }
+
+    initializeStep()
+  }, [mapConfigName])
+
+  // Poll player position and update preview (only when initialized)
+  useEffect(() => {
+    // Don't start polling until initialization is complete
+    if (initStatus.initializing || initStatus.error || !initStatus.cvReady || !initStatus.odReady) {
+      console.log('⏳ [CVItemDepartureStep] Waiting for initialization...', initStatus)
+      return
+    }
+
+    console.log('🔄 [CVItemDepartureStep] Starting polling loop')
+
     const interval = setInterval(async () => {
       try {
         const status = await getDeparturePointsStatus()
@@ -42,17 +136,11 @@ export function CVItemDepartureStep({
       }
     }, 500)
 
-    return () => clearInterval(interval)
-  }, [mapConfigName])
-
-  useEffect(() => {
-    // Load available rotations
-    listFiles().then(files => {
-      setAvailableRotations(files)
-    }).catch(error => {
-      console.error('Failed to load rotations:', error)
-    })
-  }, [])
+    return () => {
+      console.log('🛑 [CVItemDepartureStep] Stopping polling loop')
+      clearInterval(interval)
+    }
+  }, [mapConfigName, initStatus])
 
   const handleCapture = () => {
     if (!playerDetected || !playerPosition) {
@@ -89,39 +177,65 @@ export function CVItemDepartureStep({
     onDeparturePointsChange(departurePoints.filter((_, i) => i !== index))
   }
 
-  const handleAddRotation = (pointIndex, rotationPath) => {
-    const point = departurePoints[pointIndex]
-    if (!point.rotation_paths.includes(rotationPath)) {
-      handleUpdatePoint(pointIndex, {
-        rotation_paths: [...point.rotation_paths, rotationPath]
-      })
-    }
-  }
-
-  const handleRemoveRotation = (pointIndex, rotationPath) => {
-    const point = departurePoints[pointIndex]
-    handleUpdatePoint(pointIndex, {
-      rotation_paths: point.rotation_paths.filter(r => r !== rotationPath)
-    })
-  }
-
   return (
     <div className="flex flex-col gap-4 w-full">
+      {/* Initialization Status Banner */}
+      {initStatus.initializing && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-blue-800 font-semibold text-sm">🔄 Initializing step 2...</p>
+          <div className="mt-2 space-y-1 text-xs text-blue-700">
+            <p>✓ CV Capture: {initStatus.cvReady ? 'Ready' : 'Starting...'}</p>
+            <p>✓ Map Config: {initStatus.mapActive ? 'Activated' : 'Activating...'}</p>
+            <p>✓ Object Detection: {initStatus.odReady ? 'Ready' : 'Starting...'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {initStatus.error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-800 font-semibold text-sm">❌ Initialization failed</p>
+          <p className="text-red-700 text-xs mt-1">{initStatus.error}</p>
+          <p className="text-red-600 text-xs mt-2">
+            Please check that the daemon is running and the camera is connected.
+          </p>
+        </div>
+      )}
+
       {/* Live Map Preview */}
       <div className="flex flex-col gap-2">
         <h3 className="font-semibold text-base text-gray-900">Live Map Preview</h3>
         <div className="bg-gray-100 rounded p-4 border border-gray-200">
-          {livePreviewUrl ? (
-            <img
-              key={livePreviewUrl}
-              src={livePreviewUrl}
-              alt="Live minimap"
-              className="w-full h-auto rounded"
-              onError={() => console.error('Failed to load preview')}
-            />
+          {livePreviewUrl && !initStatus.initializing && !initStatus.error ? (
+            mapConfig ? (
+              <div
+                className="relative w-full rounded overflow-hidden"
+                style={{ paddingBottom: `${(mapConfig.height / mapConfig.width) * 100}%` }}
+              >
+                <img
+                  key={livePreviewUrl}
+                  src={livePreviewUrl}
+                  alt="Live minimap"
+                  className="absolute top-0 left-0 w-full h-full object-cover"
+                  onError={() => console.error('Failed to load preview')}
+                />
+              </div>
+            ) : (
+              <img
+                key={livePreviewUrl}
+                src={livePreviewUrl}
+                alt="Live minimap"
+                className="w-full h-auto rounded"
+                onError={() => console.error('Failed to load preview')}
+              />
+            )
           ) : (
             <div className="flex items-center justify-center py-16 text-gray-400">
-              <p className="text-sm">No preview available</p>
+              <p className="text-sm">
+                {initStatus.initializing ? 'Initializing...' :
+                 initStatus.error ? 'Preview unavailable' :
+                 'No preview available'}
+              </p>
             </div>
           )}
         </div>
@@ -254,47 +368,10 @@ export function CVItemDepartureStep({
                       {/* Linked rotations */}
                       <div className="flex flex-col gap-2">
                         <label className="text-sm text-gray-900">Linked rotations</label>
-
-                        {/* Selected rotations */}
-                        <div className="space-y-1">
-                          {point.rotation_paths.map((rotation) => (
-                            <div key={rotation} className="bg-gray-200 rounded overflow-hidden">
-                              <div className="flex items-center p-1.5">
-                                <div className="px-2.5 py-2">
-                                  <div className="w-5 h-5 bg-gray-900 rounded flex items-center justify-center">
-                                    <ChevronDown size={14} className="text-white" />
-                                  </div>
-                                </div>
-                                <div className="flex-1 px-2">
-                                  <p className="font-bold text-base text-gray-900">{rotation.replace('.json', '')}</p>
-                                </div>
-                                <button
-                                  onClick={() => handleRemoveRotation(index, rotation)}
-                                  className="p-2.5 hover:bg-gray-300 rounded-sm transition-colors"
-                                  title="Remove"
-                                >
-                                  <Trash2 size={14} className="text-gray-900" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Add rotation */}
-                        <select
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleAddRotation(index, e.target.value)
-                              e.target.value = ''
-                            }
-                          }}
-                          className="w-full bg-gray-100 border border-gray-300 rounded px-2 py-1.5 text-sm"
-                        >
-                          <option value="">Add rotation...</option>
-                          {availableRotations.map((rot) => (
-                            <option key={rot} value={rot}>{rot}</option>
-                          ))}
-                        </select>
+                        <RotationSelector
+                          selectedRotations={point.rotation_paths || []}
+                          onChange={(newRotations) => handleUpdatePoint(index, { rotation_paths: newRotations })}
+                        />
                       </div>
 
                       {/* Save/Cancel buttons */}

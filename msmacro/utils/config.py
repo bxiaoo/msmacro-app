@@ -1,4 +1,5 @@
 import os
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +13,13 @@ DEFAULT_SKILLSDIR = Path(
 DEFAULT_CALIBRATION_DIR = Path(
     os.environ.get("MSMACRO_CALIBRATION_DIR", str(Path.home() / ".local/share/msmacro/calibration"))
 )
-DEFAULT_SOCKET = os.environ.get("MSMACRO_SOCKET", "/run/msmacro.sock")
+
+# Platform-aware socket path: use /tmp on macOS, /run on Linux
+if platform.system() == "Darwin":
+    _default_socket = "/tmp/msmacro.sock"
+else:
+    _default_socket = "/run/msmacro.sock"
+DEFAULT_SOCKET = os.environ.get("MSMACRO_SOCKET", _default_socket)
 
 @dataclass
 class Settings:

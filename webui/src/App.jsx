@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream } from './api.js'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream, listCVItems, getCVAutoStatus } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import { useSkillsOpenState } from './hooks/useSkillsOpenState.js'
 import EventsPanel from './components/EventsPanel.jsx'
@@ -24,6 +24,10 @@ export default function App(){
   const [isPostRecording, setIsPostRecording] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playingMacroName, setPlayingMacroName] = useState('')
+
+  // CV-AUTO states
+  const [activeCVItem, setActiveCVItem] = useState(null)
+  const [isCVAutoPlaying, setIsCVAutoPlaying] = useState(false)
 
   // Use refs for start times to avoid timer resets
   const recordingStartTimeRef = useRef(undefined)
@@ -109,6 +113,28 @@ export default function App(){
     const t = setInterval(refresh, 2000)
     return () => clearInterval(t)
   }, [refresh])
+
+  // Poll CV status (active item and CV-AUTO playing state)
+  useEffect(() => {
+    const refreshCVStatus = async () => {
+      try {
+        // Get active CV item
+        const cvItems = await listCVItems()
+        const activeItem = cvItems.find(item => item.is_active)
+        setActiveCVItem(activeItem ? activeItem.name : null)
+
+        // Get CV-AUTO playing status
+        const cvAutoStatus = await getCVAutoStatus()
+        setIsCVAutoPlaying(cvAutoStatus.is_running || false)
+      } catch (err) {
+        // Silently fail - CV might not be initialized
+      }
+    }
+
+    refreshCVStatus()
+    const interval = setInterval(refreshCVStatus, 2000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Connect SSE EventStream for real-time updates
   useEffect(() => {
@@ -505,8 +531,11 @@ export default function App(){
         <StateMessage
           isPlaying={isPlaying}
           isRecording={isRecording}
+          isCVActivated={!!activeCVItem}
+          isCVPlaying={isCVAutoPlaying}
           startTime={isPlaying ? playingStartTime : recordingStartTime}
           macroName={playingMacroName}
+          cvItemName={activeCVItem}
         />
 
         {/* Action buttons */}

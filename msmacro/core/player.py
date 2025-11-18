@@ -153,12 +153,13 @@ class Player:
         
         while elapsed < delay:
             if stop_event.is_set():
+                log.info("🛑 STOP: detected in _sleep_or_stop at elapsed=%.3f/%.3f", elapsed, delay)
                 return True
-            
+
             sleep_time = min(check_interval, delay - elapsed)
             await asyncio.sleep(sleep_time)
             elapsed += sleep_time
-            
+
         return False
 
     # ---------------- core playback ----------------
@@ -317,9 +318,28 @@ class Player:
 
             for t, kind, usage in events:
                 wait = max(0.0, t - now)
+
+                # DIAGNOSTIC: Log stop event state before sleep
+                log.info("🔍 PRE-SLEEP: stop_event=%s, is_set=%s, wait=%.3f",
+                         stop_event is not None,
+                         stop_event.is_set() if stop_event else False,
+                         wait)
+
                 if await self._sleep_or_stop(wait, stop_event):
+                    log.info("🛑 STOP: _sleep_or_stop returned True")
                     self.w.all_up(); return False
                 now = t
+
+                # DIAGNOSTIC: Log stop event state after sleep
+                log.info("🔍 POST-SLEEP: stop_event=%s, is_set=%s",
+                         stop_event is not None,
+                         stop_event.is_set() if stop_event else False)
+
+                # Check stop event immediately after sleep, before processing event
+                if stop_event and stop_event.is_set():
+                    log.info("🛑 STOP: stop_event.is_set() returned True after sleep")
+                    self.w.all_up()
+                    return False
 
                 # Check for skill injection (only when no keys are pressed)
                 if skill_injector:

@@ -22,77 +22,37 @@ import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-# Platform abstraction
-from .io.platform_abstraction import (
-    IS_MACOS, IS_LINUX, HAS_EVDEV, HAS_HID_GADGET,
-    log_platform_info, ecodes
-)
+# Platform detection
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
+# Try to import evdev (Linux-only)
+try:
+    from evdev import InputDevice, ecodes
+    HAS_EVDEV = True
+except ImportError:
+    # On macOS, evdev is not available
+    HAS_EVDEV = False
+    InputDevice = None
+    ecodes = None
+    if not IS_MACOS:
+        print("Warning: evdev module not found. Keyboard features will not work.", file=sys.stderr)
 
 from .utils.config import SETTINGS
 from .io.ipc import start_server
 from .cv import get_capture_instance, CVCaptureError
 from .daemon_handlers.command_dispatcher import CommandDispatcher
 
-# Import keyboard and HID modules (they handle platform dispatch internally)
-from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
-from .io.hidio import HIDWriter
-
-# Conditional imports for modules that require evdev
+# Conditional imports for keyboard-related modules (Linux-only)
 if HAS_EVDEV:
-    from evdev import InputDevice
+    from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
     from .core.bridge import Bridge
     from .core.player import Player
     from .core.recorder import Recorder, list_recordings_recursive, resolve_record_path
     from .core.skills import SkillManager
     from .core.skill_injector import SkillInjector
     from .utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
-else:
-    # Import mock implementations for macOS
-    from .io.keyboard_mock import MockInputDevice as InputDevice
-
-    # Provide stub classes for macOS (won't be instantiated on macOS)
-    Bridge = None
-    Player = None
-    Recorder = None
-    list_recordings_recursive = None
-    resolve_record_path = None
-    SkillInjector = None
-    parse_hotkey = None
-    usage_from_ecode = None
-    is_modifier = None
-    mod_bit = None
-
-    # Mock SkillManager for macOS
-    class MockSkillManager:
-        """Mock skill manager for macOS development."""
-        def __init__(self, skills_dir):
-            self.skills_dir = skills_dir
-            logging.getLogger(__name__).warning(
-                "🔶 MOCK: SkillManager - skills disabled on macOS"
-            )
-
-        def list_skills(self):
-            return []
-
-        def create_skill_from_frontend_data(self, skill_data):
-            raise RuntimeError("Skills not available on macOS - deploy to Linux for full functionality")
-
-        def save_skill(self, skill):
-            raise RuntimeError("Skills not available on macOS - deploy to Linux for full functionality")
-
-        def update_skill(self, skill_id, skill_data):
-            raise RuntimeError("Skills not available on macOS - deploy to Linux for full functionality")
-
-        def delete_skill(self, skill_id):
-            raise RuntimeError("Skills not available on macOS - deploy to Linux for full functionality")
-
-        def get_selected_skills(self):
-            return []
-
-        def reorder_skills(self, skills_data):
-            return []
-
-    SkillManager = MockSkillManager
+    from .io.hidio import HIDWriter
 
 try:
     from .events import emit  # type: ignore

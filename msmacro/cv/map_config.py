@@ -121,6 +121,10 @@ class DeparturePoint:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'DeparturePoint':
         """Create DeparturePoint from dictionary."""
+        # Ensure rotation_paths is always a list (data migration for old formats)
+        if 'rotation_paths' in data and not isinstance(data['rotation_paths'], list):
+            data = data.copy()  # Don't mutate input
+            data['rotation_paths'] = []
         return cls(**data)
 
 

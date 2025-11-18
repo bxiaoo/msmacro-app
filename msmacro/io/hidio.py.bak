@@ -4,9 +4,6 @@ import logging
 import glob
 from typing import Iterable
 
-# Platform abstraction
-from .platform_abstraction import IS_MACOS, IS_LINUX, HAS_HID_GADGET
-
 log = logging.getLogger(__name__)
 
 def _build_report(modmask: int, keys: Iterable[int]) -> bytes:
@@ -17,7 +14,7 @@ def _build_report(modmask: int, keys: Iterable[int]) -> bytes:
     arr[2:8] = ks
     return bytes(arr)
 
-class LinuxHIDWriter:
+class HIDWriter:
     def __init__(self, path: str = "/dev/hidg0"):
         # Validate that this looks like a HID gadget device
         if not path.startswith("/dev/hidg"):
@@ -177,15 +174,3 @@ class LinuxHIDWriter:
             os.close(self.fd)
         except OSError:
             pass
-
-
-# Platform-aware HIDWriter export
-# On macOS or when HID gadget is not available, use mock implementation
-# On Linux with HID gadget, use real implementation
-if IS_MACOS or not HAS_HID_GADGET:
-    from .hidio_mock import MockHIDWriter
-    HIDWriter = MockHIDWriter
-    log.info("Using MockHIDWriter (macOS or HID gadget not available)")
-else:
-    HIDWriter = LinuxHIDWriter
-    log.debug("Using LinuxHIDWriter (real HID gadget)")

@@ -37,7 +37,12 @@ async function API(path, opts = {}) {
   }
   
   export function listFiles() {
-    return API("/api/files");
+    return API("/api/files").then(resp => {
+      // Handle both direct array and {files: [...]} response formats
+      if (Array.isArray(resp)) return resp;
+      if (resp && Array.isArray(resp.files)) return resp.files;
+      return [];
+    });
   }
   
   // ---------- Recording ----------
@@ -288,54 +293,130 @@ async function API(path, opts = {}) {
       this.onFiles = onFiles;
       this.source = null;
       this.reconnectTimer = null;
+      this.closed = false;
+      this.reconnectAttempts = 0;
+      this.maxReconnectAttempts = 5;
       this.connect();
     }
-  
+
     connect() {
-      if (this.source) {
-        this.source.close();
+      // Don't reconnect if explicitly closed
+      if (this.closed) {
+        console.log("EventStream: Not connecting because stream was closed");
+        return;
       }
-  
-      this.source = new EventSource("/api/events");
-  
-      this.source.onmessage = (e) => {
+
+      // Close any existing connection first
+      if (this.source) {
         try {
-          const data = JSON.parse(e.data);
-          if (data.type === "mode" && this.onMode) {
-            this.onMode(data.mode);
-          } else if (data.type === "files" && this.onFiles) {
-            this.onFiles(data.files);
+          this.source.close();
+        } catch (e) {
+          console.warn("EventStream: Error closing old connection:", e);
+        }
+        this.source = null;
+      }
+
+      try {
+        console.log("EventStream: Connecting to /api/events...");
+        this.source = new EventSource("/api/events");
+
+        this.source.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "mode" && this.onMode) {
+              this.onMode(data.mode);
+            } else if (data.type === "files" && this.onFiles) {
+              this.onFiles(data.files);
+            }
+
+            // Reset reconnect counter on successful message
+            this.reconnectAttempts = 0;
+          } catch (err) {
+            console.error("EventStream parse error:", err);
           }
-        } catch (err) {
-          console.error("EventStream parse error:", err);
+        };
+
+        this.source.onerror = (e) => {
+          console.warn("EventStream connection error:", e);
+
+          // Check if we should give up
+          if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error("EventStream: Max reconnect attempts reached, giving up");
+            this.close();
+            return;
+          }
+
+          // Close the failed connection
+          try {
+            if (this.source) {
+              this.source.close();
+            }
+          } catch (closeErr) {
+            console.warn("EventStream: Error closing failed connection:", closeErr);
+          }
+
+          // Don't reconnect if explicitly closed
+          if (this.closed) {
+            return;
+          }
+
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 16000);
+          this.reconnectAttempts++;
+
+          console.log(`EventStream: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+          // Reconnect with exponential backoff
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = setTimeout(() => this.connect(), delay);
+        };
+
+        this.source.onopen = () => {
+          console.log("EventStream: Connected successfully");
+          this.reconnectAttempts = 0;
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+          }
+        };
+      } catch (err) {
+        console.error("EventStream: Failed to create EventSource:", err);
+
+        // Don't reconnect if explicitly closed
+        if (this.closed) {
+          return;
         }
-      };
-  
-      this.source.onerror = () => {
-        console.log("EventStream connection lost, reconnecting...");
-        this.source.close();
-        
-        // Reconnect after 2 seconds
-        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = setTimeout(() => this.connect(), 2000);
-      };
-  
-      this.source.onopen = () => {
-        console.log("EventStream connected");
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer);
-          this.reconnectTimer = null;
+
+        // Retry connection after delay
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 16000);
+        this.reconnectAttempts++;
+
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          console.log(`EventStream: Retrying connection in ${delay}ms...`);
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = setTimeout(() => this.connect(), delay);
+        } else {
+          console.error("EventStream: Max reconnect attempts reached, giving up");
         }
-      };
+      }
     }
-  
+
     close() {
+      console.log("EventStream: Closing connection");
+      this.closed = true;
+      this.reconnectAttempts = 0;
+
       if (this.reconnectTimer) {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
       }
+
       if (this.source) {
-        this.source.close();
+        try {
+          this.source.close();
+        } catch (e) {
+          console.warn("EventStream: Error during close:", e);
+        }
         this.source = null;
       }
     }
@@ -441,5 +522,23 @@ async function API(path, opts = {}) {
     return API("/api/cv-items/deactivate", {
       method: "POST",
       body: JSON.stringify({}),
+    });
+  }
+
+  // ---------- CV-AUTO ----------
+  export function getCVAutoStatus() {
+    return API("/api/cv-auto/status");
+  }
+
+  export function startCVAuto(options = {}) {
+    return API("/api/cv-auto/start", {
+      method: "POST",
+      body: JSON.stringify(options),
+    });
+  }
+
+  export function stopCVAuto() {
+    return API("/api/cv-auto/stop", {
+      method: "POST",
     });
   }
