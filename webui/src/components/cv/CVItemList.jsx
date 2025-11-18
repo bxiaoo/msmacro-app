@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { CirclePlus } from 'lucide-react'
-import { listCVItems, activateCVItem, deactivateCVItem, deleteCVItem } from '../../api'
+import { listCVItems, activateCVItem, deactivateCVItem, deleteCVItem, listMapConfigs } from '../../api'
 import { CVItemCard } from './CVItemCard'
 import { CVItemDrawer } from './CVItemDrawer'
 import {AddButton} from "../ui/add-button.jsx";
@@ -11,6 +11,7 @@ export function CVItemList() {
   const [loading, setLoading] = useState(true)
   const [showDrawer, setShowDrawer] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
+  const [mapConfigs, setMapConfigs] = useState([])
 
   // Load CV items from API
   const loadCVItems = async () => {
@@ -25,8 +26,19 @@ export function CVItemList() {
     }
   }
 
+  // Load map configs for aspect ratio calculation
+  const loadMapConfigs = async () => {
+    try {
+      const data = await listMapConfigs()
+      setMapConfigs(Array.isArray(data) ? data : data.configs || [])
+    } catch (error) {
+      console.error('Failed to load map configs:', error)
+    }
+  }
+
   useEffect(() => {
     loadCVItems()
+    loadMapConfigs()
   }, [])
 
   const handleActivate = async (name) => {
@@ -108,17 +120,23 @@ export function CVItemList() {
   return (
     <div className="flex flex-col gap-2 px-3 py-0">
       {/* CV Items list */}
-      {items.map((item) => (
-        <CVItemCard
-          key={item.name}
-          item={item}
-          isActive={item.name === activeItemName}
-          onActivate={handleActivate}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          showDeparturePoints={item.name === activeItemName}
-        />
-      ))}
+      {items.map((item) => {
+        // Find the map config for this CV item
+        const mapConfig = mapConfigs.find(config => config.name === item.map_config_name)
+
+        return (
+          <CVItemCard
+            key={item.name}
+            item={item}
+            isActive={item.name === activeItemName}
+            onActivate={handleActivate}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            showDeparturePoints={item.name === activeItemName}
+            mapConfig={mapConfig}
+          />
+        )
+      })}
 
         <AddButton onClick={handleAdd} />
 

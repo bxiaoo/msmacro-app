@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Target, Pencil, Trash2 } from 'lucide-react'
-import { getDeparturePointsStatus, getCVStatus, startCVCapture, activateMapConfig, getObjectDetectionStatus, startObjectDetection } from '../../api'
+import { getDeparturePointsStatus, getCVStatus, startCVCapture, activateMapConfig, getObjectDetectionStatus, startObjectDetection, listMapConfigs } from '../../api'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { RotationSelector } from '../shared/RotationSelector'
@@ -24,6 +24,7 @@ export function CVItemDepartureStep({
   const [playerDetected, setPlayerDetected] = useState(false)
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
   const [expandedPoint, setExpandedPoint] = useState(null)
+  const [mapConfig, setMapConfig] = useState(null)
   const [initStatus, setInitStatus] = useState({
     cvReady: false,
     mapActive: false,
@@ -31,6 +32,22 @@ export function CVItemDepartureStep({
     error: null,
     initializing: true
   })
+
+  // Load map config for aspect ratio calculation
+  useEffect(() => {
+    const loadMapConfig = async () => {
+      if (!mapConfigName) return
+      try {
+        const data = await listMapConfigs()
+        const configs = Array.isArray(data) ? data : data.configs || []
+        const config = configs.find(c => c.name === mapConfigName)
+        setMapConfig(config)
+      } catch (error) {
+        console.error('Failed to load map config:', error)
+      }
+    }
+    loadMapConfig()
+  }, [mapConfigName])
 
   // Initialize CV capture, map config, and object detection on mount
   useEffect(() => {
@@ -190,13 +207,28 @@ export function CVItemDepartureStep({
         <h3 className="font-semibold text-base text-gray-900">Live Map Preview</h3>
         <div className="bg-gray-100 rounded p-4 border border-gray-200">
           {livePreviewUrl && !initStatus.initializing && !initStatus.error ? (
-            <img
-              key={livePreviewUrl}
-              src={livePreviewUrl}
-              alt="Live minimap"
-              className="w-full h-auto rounded"
-              onError={() => console.error('Failed to load preview')}
-            />
+            mapConfig ? (
+              <div
+                className="relative w-full rounded overflow-hidden"
+                style={{ paddingBottom: `${(mapConfig.height / mapConfig.width) * 100}%` }}
+              >
+                <img
+                  key={livePreviewUrl}
+                  src={livePreviewUrl}
+                  alt="Live minimap"
+                  className="absolute top-0 left-0 w-full h-full object-cover"
+                  onError={() => console.error('Failed to load preview')}
+                />
+              </div>
+            ) : (
+              <img
+                key={livePreviewUrl}
+                src={livePreviewUrl}
+                alt="Live minimap"
+                className="w-full h-auto rounded"
+                onError={() => console.error('Failed to load preview')}
+              />
+            )
           ) : (
             <div className="flex items-center justify-center py-16 text-gray-400">
               <p className="text-sm">
