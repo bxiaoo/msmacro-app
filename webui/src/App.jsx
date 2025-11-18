@@ -258,8 +258,8 @@ export default function App(){
    * staring playing
    */
   const handlePlay = useCallback(() => {
-    // Check if CV item is active → start CV-AUTO
-    if (activeCVItem) {
+    // If on CV tab AND CV item is active → start CV-AUTO
+    if (activeTab === 'cv-items' && activeCVItem) {
       executeAction('play',
         () => startCVAuto({
           loop: playSettings.loop,
@@ -270,9 +270,11 @@ export default function App(){
         }),
         refresh
       );
+      return; // Exit after starting CV-AUTO
     }
-    // Otherwise play selected rotations normally
-    else if (selected && selected.length > 0) {
+
+    // Play selected rotations normally
+    if (selected && selected.length > 0) {
       // Get selected skills for injection during playback
       const selectedSkills = cdSkills.filter(skill => skill.isSelected)
 
@@ -284,7 +286,7 @@ export default function App(){
         refresh
       );
     }
-  }, [executeAction, activeCVItem, selected, playSettings, refresh, cdSkills])
+  }, [executeAction, activeTab, activeCVItem, selected, playSettings, refresh, cdSkills])
 
   /**
    * stop playing
