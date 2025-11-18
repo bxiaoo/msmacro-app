@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream, listCVItems, getCVAutoStatus } from './api.js'
+import { getStatus, startRecord, stop, play, saveLast, previewLast, discardLast, deleteFile, listSkills, saveSkill, updateSkill, deleteSkill as deleteSkillAPI, reorderSkills, EventStream, listCVItems, getCVAutoStatus, startCVAuto, stopCVAuto } from './api.js'
 import { useApiAction } from './hooks/useApiAction.js'
 import { useSkillsOpenState } from './hooks/useSkillsOpenState.js'
 import EventsPanel from './components/EventsPanel.jsx'
@@ -119,9 +119,8 @@ export default function App(){
     const refreshCVStatus = async () => {
       try {
         // Get active CV item
-        const cvItems = await listCVItems()
-        const activeItem = cvItems.find(item => item.is_active)
-        setActiveCVItem(activeItem ? activeItem.name : null)
+        const response = await listCVItems()
+        setActiveCVItem(response.active_item || null)
 
         // Get CV-AUTO playing status
         const cvAutoStatus = await getCVAutoStatus()
@@ -259,7 +258,21 @@ export default function App(){
    * staring playing
    */
   const handlePlay = useCallback(() => {
-    if (selected && selected.length > 0) {
+    // Check if CV item is active → start CV-AUTO
+    if (activeCVItem) {
+      executeAction('play',
+        () => startCVAuto({
+          loop: playSettings.loop,
+          speed: playSettings.speed,
+          jitter_time: playSettings.jitter_time,
+          jitter_hold: playSettings.jitter_hold,
+          jump_key: "SPACE"
+        }),
+        refresh
+      );
+    }
+    // Otherwise play selected rotations normally
+    else if (selected && selected.length > 0) {
       // Get selected skills for injection during playback
       const selectedSkills = cdSkills.filter(skill => skill.isSelected)
 
@@ -271,14 +284,20 @@ export default function App(){
         refresh
       );
     }
-  }, [executeAction, selected, playSettings, refresh, cdSkills])
+  }, [executeAction, activeCVItem, selected, playSettings, refresh, cdSkills])
 
   /**
    * stop playing
    */
   const handleStop = useCallback(() => {
-    executeAction('stop', () => stop(), refresh)
-  }, [executeAction, refresh])
+    // If CV-AUTO is running, stop it
+    if (isCVAutoPlaying) {
+      executeAction('stop', () => stopCVAuto(), refresh)
+    } else {
+      // Otherwise stop regular playback
+      executeAction('stop', () => stop(), refresh)
+    }
+  }, [executeAction, isCVAutoPlaying, refresh])
 
   const handlePlaySetting = useCallback(() => {
       setIsDebugWindowOpen(false)
@@ -430,8 +449,8 @@ export default function App(){
   }, [])
 
   const canPlay = useMemo(() =>
-    selected.length > 0 && !isRecording && !isPostRecording && !isPlaying && !isPending('play'),
-    [selected.length, isRecording, isPostRecording, isPlaying, isPending]
+    (selected.length > 0 || activeCVItem) && !isRecording && !isPostRecording && !isPlaying && !isPending('play'),
+    [selected.length, activeCVItem, isRecording, isPostRecording, isPlaying, isPending]
   )
 
   // Calculate selected counts for tab badges
