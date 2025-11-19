@@ -8,7 +8,9 @@ Handles IPC commands for CV-based automatic rotation playback:
 """
 
 import asyncio
+import contextlib
 import logging
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 from msmacro.cv.map_config import get_manager as get_map_manager
@@ -19,7 +21,20 @@ from msmacro.cv.pathfinding import PathfindingController
 from msmacro.cv.port_flow import PortFlowHandler, PortDetector
 from msmacro.core.player import Player
 from msmacro.io.hidio import HIDWriter, AsyncHIDWriter
+from msmacro.io.platform_abstraction import IS_MACOS
+from msmacro.utils.config import SETTINGS
 from msmacro.utils.keymap import name_to_usage
+
+# Platform-specific imports for keyboard monitoring
+if not IS_MACOS:
+    from evdev import InputDevice, ecodes
+    from msmacro.utils.keymap import parse_hotkey
+else:
+    from msmacro.io.keyboard_mock import MockInputDevice as InputDevice
+    # Mock ecodes for macOS
+    class ecodes:
+        EV_KEY = 1
+    parse_hotkey = None
 
 try:
     from msmacro.events import emit
@@ -167,6 +182,7 @@ class CVAutoCommandHandler:
         self._jitter_time = msg.get("jitter_time", 0.05)
         self._jitter_hold = msg.get("jitter_hold", 0.02)
         self._jump_key = msg.get("jump_key", "SPACE")  # Jump key alias
+        self._active_skills = msg.get("active_skills", [])  # CD skills for injection
 
         # Convert jump_key to HID usage ID
         jump_key_usage = name_to_usage(self._jump_key)
@@ -221,8 +237,15 @@ class CVAutoCommandHandler:
             log.error(f"Failed to initialize CV-AUTO components: {e}", exc_info=True)
             return {"error": f"Initialization failed: {str(e)}"}
 
+        # Pause bridge runner to block physical keyboard (like PLAY mode)
+        log.info("Pausing bridge runner to block physical keyboard during CV-AUTO...")
+        await self.daemon._pause_runner()
+
         # Create stop event
         self._cv_auto_stop_event = asyncio.Event()
+
+        # Start hotkey watcher for stop shortcut
+        await self._start_cv_auto_hotkeys()
 
         # Start CV-AUTO loop
         self._cv_auto_task = asyncio.create_task(self._cv_auto_loop())
@@ -267,6 +290,9 @@ class CVAutoCommandHandler:
             except asyncio.CancelledError:
                 pass
 
+        # Stop hotkey watcher
+        await self._stop_cv_auto_hotkeys()
+
         # Cleanup
         self._cv_auto_task = None
         self._cv_auto_stop_event = None
@@ -274,6 +300,10 @@ class CVAutoCommandHandler:
         self._pathfinder = None
         self._port_handler = None
         self._port_detector = None
+
+        # Restart bridge runner to enable physical keyboard again
+        log.info("Restarting bridge runner to enable physical keyboard...")
+        await self.daemon._ensure_runner_started()
 
         # Return to BRIDGE mode
         self.daemon.mode = "BRIDGE"
@@ -532,6 +562,11 @@ class CVAutoCommandHandler:
             hid_path = self.daemon.hid_path if hasattr(self.daemon, 'hid_path') else "/dev/hidg0"
             player = Player(hid_path)
 
+            # Create or reuse SkillInjector if active_skills configured
+            skill_injector = self.daemon._get_or_create_skill_injector(
+                getattr(self, '_active_skills', [])
+            )
+
             success = await player.play(
                 path=full_path,
                 speed=self._speed,
@@ -541,7 +576,7 @@ class CVAutoCommandHandler:
                 stop_event=self._cv_auto_stop_event,
                 ignore_keys=[],
                 ignore_tolerance=0,
-                skill_injector=None
+                skill_injector=skill_injector  # Use SkillInjector for CD skill casting
             )
             return success
         except Exception as e:
@@ -560,3 +595,114 @@ class CVAutoCommandHandler:
 
         if self._cv_auto_stop_event:
             self._cv_auto_stop_event.set()
+
+    async def _cv_auto_hotkeys(self):
+        """
+        Listen for the stop chord while in CV_AUTO mode and set self._cv_auto_stop_event.
+
+        Similar to daemon._play_hotkeys() but for CV-AUTO mode.
+        """
+        stop_spec = getattr(SETTINGS, "stop_hotkey", "LCTRL+Q")
+        log.debug("CV-AUTO hotkeys watcher starting (mode=%s, stop_event=%s)",
+                  self.daemon.mode, self._cv_auto_stop_event is not None)
+
+        try:
+            if parse_hotkey is None:
+                log.warning("CV-AUTO hotkeys: parse_hotkey not available (macOS mock mode)")
+                return
+            mod_ec, key_ec = parse_hotkey(stop_spec)
+        except Exception:
+            mod_ec = key_ec = None
+
+        # Resolve keyboard device
+        evdev_path = self.daemon.evdev_path
+        if not evdev_path or not Path(evdev_path).exists():
+            from msmacro.io.keyboard import find_keyboard_with_retry
+            evdev_path = await find_keyboard_with_retry(max_retries=10)
+
+        if not evdev_path:
+            log.warning("CV-AUTO hotkeys: No keyboard found after retries, disabling hotkey support")
+            return
+
+        try:
+            dev = InputDevice(evdev_path)
+            log.debug("CV-AUTO hotkeys: Successfully opened device %s", evdev_path)
+        except Exception as e:
+            log.warning("CV-AUTO hotkeys: cannot open %s: %s", evdev_path, e)
+            return
+
+        log.debug("CV-AUTO hotkeys watcher running (stop=%s)", stop_spec)
+
+        mod_dn = key_dn = armed = False
+        try:
+            async for ev in dev.async_read_loop():
+                # Exit if mode changed or stop event cleared
+                if self.daemon.mode != "CV_AUTO" or not self._cv_auto_stop_event:
+                    log.debug("CV-AUTO watcher: mode changed or no stop event, exiting")
+                    break
+                if ev.type != ecodes.EV_KEY:
+                    continue
+                code, val = ev.code, ev.value
+                if val == 2:  # repeat
+                    continue
+
+                if val == 1:
+                    log.debug("CV-AUTO watcher: key DOWN code=%d", code)
+                elif val == 0:
+                    log.debug("CV-AUTO watcher: key UP code=%d", code)
+
+                if mod_ec is not None and key_ec is not None:
+                    if code == mod_ec:
+                        mod_dn = (val != 0)
+                        if mod_dn and key_dn:
+                            armed = True
+                            log.debug("CV-AUTO watcher: stop chord ARMED")
+                        if armed and not mod_dn and not key_dn:
+                            log.info("CV-AUTO hotkey: STOP")
+                            log.debug("CV-AUTO hotkey: Setting stop event (current mode=%s)", self.daemon.mode)
+                            if self._cv_auto_stop_event:
+                                self._cv_auto_stop_event.set()
+                                log.info("CV-AUTO stop event SET")
+                            break
+                    elif code == key_ec:
+                        key_dn = (val != 0)
+                        if mod_dn and key_dn:
+                            armed = True
+                            log.debug("CV-AUTO watcher: stop chord ARMED")
+                        if armed and not mod_dn and not key_dn:
+                            log.info("CV-AUTO hotkey: STOP")
+                            log.debug("CV-AUTO hotkey: Setting stop event (current mode=%s)", self.daemon.mode)
+                            if self._cv_auto_stop_event:
+                                self._cv_auto_stop_event.set()
+                                log.info("CV-AUTO stop event SET")
+                            break
+        except asyncio.CancelledError:
+            log.debug("CV-AUTO hotkeys watcher cancelled")
+        except Exception:
+            log.exception("CV-AUTO hotkeys watcher crashed.")
+        finally:
+            with contextlib.suppress(Exception):
+                dev.close()
+            log.debug("CV-AUTO hotkeys watcher stopped.")
+
+    async def _start_cv_auto_hotkeys(self):
+        """Start the CV-AUTO hotkey watcher task."""
+        if getattr(self, "_cv_auto_hotkey_task", None) and not self._cv_auto_hotkey_task.done():
+            return
+        if self.daemon.mode != "CV_AUTO":
+            return
+        log.info("Starting CV-AUTO hotkey watcher (stop shortcut: %s)",
+                 getattr(SETTINGS, "stop_hotkey", "LCTRL+Q"))
+        self._cv_auto_hotkey_task = asyncio.create_task(self._cv_auto_hotkeys())
+
+    async def _stop_cv_auto_hotkeys(self):
+        """Stop the CV-AUTO hotkey watcher task."""
+        t = getattr(self, "_cv_auto_hotkey_task", None)
+        if t and not t.done():
+            log.info("Stopping CV-AUTO hotkey watcher...")
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+        self._cv_auto_hotkey_task = None

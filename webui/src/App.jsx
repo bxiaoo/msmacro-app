@@ -62,7 +62,7 @@ export default function App(){
       return newMode
     })
 
-    if (newMode === 'PLAYING') {
+    if (newMode === 'PLAYING' || newMode === 'CV_AUTO') {
       setIsPostRecording(false)
       setIsRecording(false)
       setIsPlaying(true)
@@ -269,13 +269,19 @@ export default function App(){
     // If on CV tab AND CV item is active → start CV-AUTO
     if (activeTab === 'cv-items' && activeCVItem) {
       console.log('▶️ Starting CV-AUTO mode with item:', activeCVItem)
+
+      // Get selected skills for injection during rotation playback (same as normal PLAY)
+      const selectedSkills = cdSkills.filter(skill => skill.isSelected)
+      console.log('▶️ CV-AUTO: Using', selectedSkills.length, 'selected skills')
+
       executeAction('play',
         () => startCVAuto({
           loop: playSettings.loop,
           speed: playSettings.speed,
           jitter_time: playSettings.jitter_time,
           jitter_hold: playSettings.jitter_hold,
-          jump_key: "SPACE"
+          jump_key: "SPACE",
+          active_skills: selectedSkills  // Include skills for injection
         }),
         refresh
       );
