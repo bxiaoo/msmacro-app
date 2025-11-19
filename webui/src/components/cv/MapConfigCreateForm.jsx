@@ -19,15 +19,12 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
   useEffect(() => {
     const initCV = async () => {
       try {
-        console.log('📹 [MapConfigCreateForm] Checking CV status...')
         const status = await getCVStatus()
 
         if (!status.capturing) {
-          console.log('📹 [MapConfigCreateForm] CV not capturing, auto-starting...')
           setCvStatus({ initializing: true, capturing: false, error: null })
 
           await startCVCapture({ device_index: 0 })
-          console.log('✅ [MapConfigCreateForm] CV started successfully')
 
           // Wait a moment for first frame
           await new Promise(resolve => setTimeout(resolve, 500))
@@ -35,7 +32,6 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
           const newStatus = await getCVStatus()
           setCvStatus({ initializing: false, capturing: newStatus.capturing, error: null })
         } else {
-          console.log('✅ [MapConfigCreateForm] CV already capturing')
           setCvStatus({ initializing: false, capturing: true, error: null })
         }
       } catch (error) {
@@ -51,18 +47,15 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
   useEffect(() => {
     // Don't load preview if CV is still initializing or failed
     if (cvStatus.initializing) {
-      console.log('⏳ [MapConfigCreateForm] Waiting for CV to initialize...')
       return
     }
 
     if (cvStatus.error) {
-      console.log('❌ [MapConfigCreateForm] CV error, not loading preview:', cvStatus.error)
       setPreviewError(true)
       return
     }
 
     if (!cvStatus.capturing) {
-      console.log('⚠️ [MapConfigCreateForm] CV not capturing, not loading preview')
       setPreviewError(true)
       return
     }
@@ -70,8 +63,6 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
     // CV is ready, load preview with small delay
     const timer = setTimeout(() => {
       const url = `/api/cv/frame-lossless?x=${tlX}&y=${tlY}&w=${width}&h=${height}&t=${Date.now()}`
-      console.log('📸 [MapConfigCreateForm] Loading preview:', url)
-      console.log('📐 [MapConfigCreateForm] Coordinates:', { x: tlX, y: tlY, w: width, h: height })
       setPreviewUrl(url)
       setPreviewError(false) // Reset error when coordinates change
     }, 100)
@@ -101,17 +92,8 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
 
     setSaving(true)
     try {
-      console.log('[MapConfigCreateForm] Creating map config with params:', {
-        name: name.trim(),
-        tlX,
-        tlY,
-        width,
-        height
-      })
-
       await createMapConfig(name.trim(), tlX, tlY, width, height)
 
-      console.log('[MapConfigCreateForm] Map config created successfully:', name.trim())
       onCreated(name.trim())
     } catch (error) {
       console.error('[MapConfigCreateForm] Failed to create map config:', error)
@@ -201,7 +183,6 @@ export function MapConfigCreateForm({ onCreated, onCancel }) {
                 setPreviewError(true)
               }}
               onLoad={() => {
-                console.log('✅ [MapConfigCreateForm] Preview loaded successfully')
                 setPreviewError(false)
               }}
             />

@@ -71,8 +71,6 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
     setActiveId(null)
     setOverId(null)
 
-    console.log('[DnD] Drag ended:', { draggedId, dropId })
-
     if (!draggedId || !dropId) return
     if (draggedId === dropId) return
 
@@ -140,22 +138,17 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
     // Interpret drop target
     if (typeof dropId === 'string' && dropId.startsWith('before:')) {
       const key = dropId.slice('before:'.length)
-      console.log('[DnD] Dropping before skill:', key)
       insertSingleBefore(draggedId, key)
     } else if (typeof dropId === 'string' && dropId.startsWith('before-in:')) {
       const memberId = dropId.slice('before-in:'.length)
-      console.log('[DnD] Dropping before member in group:', memberId)
       if (!insertIntoGroupBefore(draggedId, memberId)) insertSingleBefore(draggedId, memberId)
     } else if (dropId === 'after-list') {
-      console.log('[DnD] Dropping at end of list')
       bs.push({ type: 'single', skillIds: [draggedId] })
     } else if (typeof dropId === 'string' && dropId.startsWith('on-group:')) {
       const gid = dropId.slice('on-group:'.length)
-      console.log('[DnD] Dropping on group:', gid)
       insertIntoGroupEnd(draggedId, gid)
     } else {
       // Dropped on skill cell id
-      console.log('[DnD] Dropping on skill cell:', dropId)
       const target = skills.find(s => String(s.id) === String(dropId))
       if (target && String(target.id) !== String(draggedId)) {
         if (target.groupId) {
@@ -179,8 +172,6 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
       }
     }
 
-    console.log('[DnD] New block structure:', bs)
-
     // Produce updated skills
     const id2orig = new Map(skills.map(s => [s.id, s]))
     const updated = []
@@ -198,7 +189,6 @@ export function CDSkills({ skills, onOpenNewSkillModal, onEditSkill, onUpdateSki
       }
     }
 
-    console.log('[DnD] Updated skills:', updated)
     if (onReorderSkills) await onReorderSkills(updated)
   }
 

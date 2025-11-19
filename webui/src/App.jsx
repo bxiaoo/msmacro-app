@@ -193,7 +193,7 @@ export default function App(){
    * @param {file id} fileId 
    */
   const handleDelete = (folderId, fileId) => {
-    console.log('handle delete folder/files')
+    // TODO: Implement delete functionality
   }
 
   /**
@@ -202,7 +202,7 @@ export default function App(){
    * @param {file id for editing} fileId 
    */
   const handleEdit = (folderId, fileId) => {
-    console.log('handle edit folder/file name')
+    // TODO: Implement edit functionality
   }
 
   /**
@@ -258,8 +258,17 @@ export default function App(){
    * staring playing
    */
   const handlePlay = useCallback(() => {
+    console.log('▶️ Play button clicked', {
+      activeTab,
+      activeCVItem,
+      selectedCount: selected?.length || 0,
+      cvCondition: activeTab === 'cv-items' && activeCVItem,
+      regularCondition: selected && selected.length > 0
+    })
+
     // If on CV tab AND CV item is active → start CV-AUTO
     if (activeTab === 'cv-items' && activeCVItem) {
+      console.log('▶️ Starting CV-AUTO mode with item:', activeCVItem)
       executeAction('play',
         () => startCVAuto({
           loop: playSettings.loop,
@@ -275,6 +284,7 @@ export default function App(){
 
     // Play selected rotations normally
     if (selected && selected.length > 0) {
+      console.log('▶️ Starting regular playback with rotations:', selected)
       // Get selected skills for injection during playback
       const selectedSkills = cdSkills.filter(skill => skill.isSelected)
 
@@ -285,6 +295,8 @@ export default function App(){
         }),
         refresh
       );
+    } else {
+      console.warn('⚠️ Play button clicked but no action taken (no CV item or rotations selected)')
     }
   }, [executeAction, activeTab, activeCVItem, selected, playSettings, refresh, cdSkills])
 
@@ -304,7 +316,6 @@ export default function App(){
   const handlePlaySetting = useCallback(() => {
       setIsDebugWindowOpen(false)
       setIsSettingsModalOpen(!isSettingsModalOpen)
-      console.log('play setting open')
   }, [isSettingsModalOpen])
 
   const handleDebug = useCallback(() => {

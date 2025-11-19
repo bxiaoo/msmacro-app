@@ -874,10 +874,18 @@ class MacroDaemon:
         Raises:
             All exceptions are caught and returned as {"error": str(e)}
         """
+        cmd = msg.get("cmd", "unknown")
+
+        # Log CV-AUTO commands for debugging
+        if cmd.startswith("cv_auto"):
+            log.info(f"📨 IPC: Received command '{cmd}'")
+
         try:
-            return await self._dispatcher.dispatch(msg)
+            result = await self._dispatcher.dispatch(msg)
+            if cmd.startswith("cv_auto"):
+                log.info(f"📨 IPC: Command '{cmd}' completed successfully")
+            return result
         except Exception as e:
-            cmd = msg.get("cmd", "unknown")
             log.exception("IPC error on cmd=%s", cmd)
             return {"error": str(e)}
 

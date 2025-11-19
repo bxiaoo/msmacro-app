@@ -1897,16 +1897,25 @@ async def api_cv_auto_start(request: web.Request):
         "jump_key": "SPACE"        # Jump key alias (default: "SPACE")
     }
     """
+    log.info("=" * 60)
+    log.info("🎮 Backend: CV-AUTO start request received")
+
     try:
         body = await request.json()
     except Exception:
         body = {}
 
+    log.info(f"Request params: {body}")
+
     try:
+        log.info("Sending IPC command 'cv_auto_start' to daemon...")
         resp = await _daemon("cv_auto_start", **body)
+        log.info(f"✅ Daemon response: {resp}")
+        log.info("=" * 60)
         return _json(resp)
     except Exception as e:
-        log.error(f"Failed to start CV-AUTO mode: {e}", exc_info=True)
+        log.error(f"❌ Failed to start CV-AUTO mode: {e}", exc_info=True)
+        log.error("=" * 60)
         return _json({"error": str(e)}, 500)
 
 

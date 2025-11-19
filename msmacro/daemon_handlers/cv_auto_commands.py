@@ -81,45 +81,85 @@ class CVAutoCommandHandler:
         Returns:
             {"ok": true} on success, {"error": "..."} on failure
         """
+        log.info("=" * 70)
+        log.info("🚀 DAEMON: CV-AUTO START REQUEST RECEIVED")
+        log.info(f"Request params: {msg}")
+        log.info("=" * 70)
+
         # Check if already running
         if self._cv_auto_task and not self._cv_auto_task.done():
-            return {"error": "CV-AUTO mode already running"}
+            error_msg = "CV-AUTO mode already running"
+            log.warning(f"❌ {error_msg}")
+            log.info("=" * 70)
+            return {"error": error_msg}
+
+        log.info("✓ CV-AUTO not currently running")
 
         # Try to get active CV Item first (new system)
         cv_item_manager = get_cv_item_manager()
         active_cv_item = cv_item_manager.get_active_item()
 
+        log.info(f"Active CV Item: {active_cv_item.name if active_cv_item else 'None'}")
+
         # Get map config and departure points
         if active_cv_item:
             # Use CV Item system (new)
-            log.info(f"Using active CV Item: {active_cv_item.name}")
+            log.info(f"✅ Using active CV Item: {active_cv_item.name}")
             map_manager = get_map_manager()
             map_config = map_manager.get_active_config()
 
             if not map_config:
-                return {"error": "CV Item is active but map config is not loaded"}
+                error_msg = "CV Item is active but map config is not loaded"
+                log.error(f"❌ {error_msg}")
+                log.error(f"   CV Item: {active_cv_item.name}")
+                log.error(f"   Expected map: {active_cv_item.map_config_name}")
+                log.info("=" * 70)
+                return {"error": error_msg}
 
+            log.info(f"✓ Map config loaded: {map_config.name}")
             departure_points = active_cv_item.departure_points
             pathfinding_config = active_cv_item.pathfinding_config
         else:
             # Fallback to direct map config (legacy)
-            log.info("No active CV Item, falling back to direct map config")
+            log.warning("⚠️  No active CV Item, falling back to direct map config")
             map_manager = get_map_manager()
             map_config = map_manager.get_active_config()
 
             if not map_config:
-                return {"error": "No active map config or CV Item selected"}
+                error_msg = "No active map config or CV Item selected"
+                log.error(f"❌ {error_msg}")
+                log.error("   Please activate a CV Item in the web UI")
+                log.info("=" * 70)
+                return {"error": error_msg}
 
+            log.info(f"✓ Using map config: {map_config.name}")
             departure_points = map_config.departure_points
             pathfinding_config = {}
 
         if not departure_points:
-            return {"error": "No departure points configured"}
+            error_msg = "No departure points configured"
+            log.error(f"❌ {error_msg}")
+            log.error(f"   Map: {map_config.name if map_config else 'None'}")
+            log.error(f"   CV Item: {active_cv_item.name if active_cv_item else 'None'}")
+            log.error("   Please add departure points in the web UI")
+            log.info("=" * 70)
+            return {"error": error_msg}
+
+        log.info(f"✓ Departure points configured: {len(departure_points)} points")
 
         # Check if object detection is running
         detector = get_detector()
         if not detector or not detector.enabled:
-            return {"error": "Object detection must be enabled first"}
+            error_msg = "Object detection must be enabled first"
+            log.error(f"❌ {error_msg}")
+            log.error(f"   Detector exists: {detector is not None}")
+            if detector:
+                log.error(f"   Detector enabled: {detector.enabled}")
+            log.error("   Please ensure CV capture and object detection are started")
+            log.info("=" * 70)
+            return {"error": error_msg}
+
+        log.info("✓ Object detection is enabled")
 
         # Extract settings
         self._loop = msg.get("loop", 1)  # Loop count (int)
@@ -432,7 +472,7 @@ class CVAutoCommandHandler:
 
         # Navigate based on point type
         if target_point.is_teleport_point:
-            log.info(f"Using Port flow to reach '{target_point.name}'")
+            log.debug(f"Using Port flow to reach '{target_point.name}'")
             success = await self._port_handler.execute_port_flow(current_pos, target_point)
 
             if not success:

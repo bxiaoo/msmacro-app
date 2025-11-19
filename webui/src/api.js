@@ -1,10 +1,15 @@
 // API helper with error handling
 async function API(path, opts = {}) {
+    // Log CV-AUTO requests for debugging
+    if (path.includes('cv-auto')) {
+      console.log('🌐 API fetch:', path, opts.method || 'GET')
+    }
+
     const res = await fetch(path, {
       headers: { "Content-Type": "application/json" },
       ...opts,
     });
-  
+
     const text = await res.text();
     let data;
     try {
@@ -12,13 +17,20 @@ async function API(path, opts = {}) {
     } catch {
       data = { error: text || "non-json response" };
     }
-  
+
     if (!res.ok) {
+      if (path.includes('cv-auto')) {
+        console.error('🌐 API error:', path, `HTTP ${res.status}`, data)
+      }
       const msg = (data && (data.error || data.message)) || `HTTP ${res.status}`;
       const err = new Error(msg);
       err.status = res.status;
       err.body = data;
       throw err;
+    }
+
+    if (path.includes('cv-auto')) {
+      console.log('🌐 API success:', path, data)
     }
     return data;
   }
@@ -302,7 +314,6 @@ async function API(path, opts = {}) {
     connect() {
       // Don't reconnect if explicitly closed
       if (this.closed) {
-        console.log("EventStream: Not connecting because stream was closed");
         return;
       }
 
@@ -317,7 +328,6 @@ async function API(path, opts = {}) {
       }
 
       try {
-        console.log("EventStream: Connecting to /api/events...");
         this.source = new EventSource("/api/events");
 
         this.source.onmessage = (e) => {
@@ -364,15 +374,12 @@ async function API(path, opts = {}) {
           const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 16000);
           this.reconnectAttempts++;
 
-          console.log(`EventStream: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-
           // Reconnect with exponential backoff
           if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
           this.reconnectTimer = setTimeout(() => this.connect(), delay);
         };
 
         this.source.onopen = () => {
-          console.log("EventStream: Connected successfully");
           this.reconnectAttempts = 0;
           if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -392,7 +399,6 @@ async function API(path, opts = {}) {
         this.reconnectAttempts++;
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
-          console.log(`EventStream: Retrying connection in ${delay}ms...`);
           if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
           this.reconnectTimer = setTimeout(() => this.connect(), delay);
         } else {
@@ -402,7 +408,6 @@ async function API(path, opts = {}) {
     }
 
     close() {
-      console.log("EventStream: Closing connection");
       this.closed = true;
       this.reconnectAttempts = 0;
 
@@ -531,9 +536,16 @@ async function API(path, opts = {}) {
   }
 
   export function startCVAuto(options = {}) {
+    console.log('📡 API: startCVAuto called with options:', options)
     return API("/api/cv-auto/start", {
       method: "POST",
       body: JSON.stringify(options),
+    }).then(response => {
+      console.log('📡 API: startCVAuto response:', response)
+      return response
+    }).catch(error => {
+      console.error('📡 API: startCVAuto error:', error)
+      throw error
     });
   }
 
