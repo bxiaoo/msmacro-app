@@ -346,7 +346,7 @@ class CVAutoCommandHandler:
             while not self._cv_auto_stop_event.is_set():
                 # Get current player position
                 detector = get_detector()
-                if not detector or not detector.enabled:
+                if not detector:
                     log.warning("Object detection disabled during CV-AUTO, stopping...")
                     await self._stop_cv_auto("Object detection was disabled")
                     break
