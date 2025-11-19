@@ -191,11 +191,19 @@ class CVAutoCommandHandler:
                                    else "/dev/hidg0")
 
             async def get_position():
-                detector = get_detector()
-                if detector and detector.enabled:
-                    result = await detector.detect()
-                    if result and result.player.detected:
-                        return (result.player.x, result.player.y)
+                """Get current player position from cached detection results."""
+                from ..cv.capture import get_capture_instance
+
+                capture = get_capture_instance()
+                if not capture:
+                    return None
+
+                result_dict = capture.get_last_detection_result()
+                if result_dict:
+                    player_data = result_dict.get("player", {})
+                    if player_data.get("detected"):
+                        return (player_data.get("x"), player_data.get("y"))
+
                 return None
 
             self._pathfinder = PathfindingController(
@@ -344,20 +352,28 @@ class CVAutoCommandHandler:
 
         try:
             while not self._cv_auto_stop_event.is_set():
-                # Get current player position
-                detector = get_detector()
-                if not detector:
-                    log.warning("Object detection disabled during CV-AUTO, stopping...")
-                    await self._stop_cv_auto("Object detection was disabled")
+                # Get current player position from cached detection results
+                from ..cv.capture import get_capture_instance
+
+                capture = get_capture_instance()
+                if not capture:
+                    log.warning("CV capture not available during CV-AUTO, stopping...")
+                    await self._stop_cv_auto("CV capture was stopped")
                     break
 
-                result = await detector.detect()
-                if not result or not result.player.detected:
+                result_dict = capture.get_last_detection_result()
+                if not result_dict:
+                    # No detection result yet, wait and retry
+                    await asyncio.sleep(0.5)
+                    continue
+
+                player_data = result_dict.get("player", {})
+                if not player_data.get("detected"):
                     # No player detection, wait and retry
                     await asyncio.sleep(0.5)
                     continue
 
-                player_pos = (result.player.x, result.player.y)
+                player_pos = (player_data.get("x"), player_data.get("y"))
                 current_time = asyncio.get_event_loop().time()
 
                 # Check for port/teleport
