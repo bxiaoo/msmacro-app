@@ -2416,13 +2416,33 @@ async def api_cv_items_activate(request: web.Request):
 
         log.info(f"✓ Activated CV Item: {name}")
 
-        # Auto-start object detection
+        # Auto-start CV system (capture + object detection)
         try:
+            log.info("Ensuring CV capture is running...")
+
+            # Step 1: Check if CV capture is running
+            cv_status = await _daemon("cv_status", timeout=5.0)
+
+            if not cv_status.get("capturing", False):
+                log.info("CV not capturing, starting CV capture...")
+                await _daemon("cv_start", device_index=0, timeout=10.0)
+
+                # Wait for first frame
+                import asyncio
+                await asyncio.sleep(0.5)
+                log.info("✓ CV capture started")
+            else:
+                log.info("✓ CV already capturing")
+
+            # Step 2: Start object detection
+            log.info("Starting object detection...")
             await _daemon("object_detection_start", timeout=10.0)
-            log.info(f"Started object detection for CV Item '{name}'")
-        except Exception as od_err:
-            log.warning(f"Failed to auto-start object detection: {od_err}")
-            # Don't fail activation if OD start fails
+            log.info(f"✓ Object detection started for CV Item '{name}'")
+
+        except Exception as init_err:
+            log.error(f"Failed to initialize CV system: {init_err}", exc_info=True)
+            # Don't fail activation, but warn user
+            log.warning(f"CV Item '{name}' is activated, but CV system may not be ready")
 
         return _json({
             "ok": True,
