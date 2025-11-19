@@ -118,6 +118,8 @@ class CVAutoCommandHandler:
 
             log.info(f"✓ Map config loaded: {map_config.name}")
             departure_points = active_cv_item.departure_points
+            # Attach CV item's departure points to map_config for PointNavigator
+            map_config.departure_points = departure_points
             pathfinding_config = active_cv_item.pathfinding_config
         else:
             # Fallback to direct map config (legacy)
