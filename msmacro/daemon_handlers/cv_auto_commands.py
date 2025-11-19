@@ -471,16 +471,22 @@ class CVAutoCommandHandler:
 
         Uses Port flow if is_teleport_point=True, otherwise uses pathfinding.
         """
-        # Get current position
-        detector = get_detector()
-        if not detector or not detector.enabled:
+        # Get current position from cached detection results
+        from ..cv.capture import get_capture_instance
+
+        capture = get_capture_instance()
+        if not capture:
             return
 
-        result = await detector.detect()
-        if not result or not result.player.detected:
+        result_dict = capture.get_last_detection_result()
+        if not result_dict:
             return
 
-        current_pos = (result.player.x, result.player.y)
+        player_data = result_dict.get("player", {})
+        if not player_data.get("detected"):
+            return
+
+        current_pos = (player_data.get("x"), player_data.get("y"))
 
         # Check if already at target
         if target_point.check_hit(current_pos[0], current_pos[1]):
