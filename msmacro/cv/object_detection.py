@@ -1021,6 +1021,6 @@ def set_detector(detector: Optional[MinimapObjectDetector]) -> None:
     with _detector_lock:
         _detector = detector
         if detector:
-            logger.info(f"Object detector instance set (enabled={detector.enabled})")
+            logger.info("Object detector instance set")
         else:
             logger.info("Object detector instance cleared")

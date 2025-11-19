@@ -921,6 +921,10 @@ class CVCapture:
                 self._object_detector = MinimapObjectDetector(detector_config)
                 self._object_detection_enabled = True
 
+                # Update global singleton so get_detector() works
+                from .object_detection import set_detector
+                set_detector(self._object_detector)
+
             logger.info(
                 f"✓ Object detection enabled (source={config_source}) | "
                 f"target_fps=2 (runs every 0.5s with capture loop)"
@@ -943,6 +947,10 @@ class CVCapture:
             self._object_detection_enabled = False
             self._object_detector = None
             self._last_detection_result = None
+
+            # Clear global singleton
+            from .object_detection import set_detector
+            set_detector(None)
 
         # Log stats if available
         if stats and stats.get('count', 0) > 0:
