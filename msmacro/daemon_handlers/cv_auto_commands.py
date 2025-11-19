@@ -517,12 +517,21 @@ class CVAutoCommandHandler:
         try:
             # Create Player instance and play the rotation
             from ..core.player import Player
+            from ..utils.config import SETTINGS
+            from pathlib import Path
+
+            # Construct full path to rotation file
+            if Path(rotation_path).is_absolute():
+                full_path = rotation_path
+            else:
+                # Relative path - resolve from records directory
+                full_path = SETTINGS.record_dir / rotation_path
 
             hid_path = self.daemon.hid_path if hasattr(self.daemon, 'hid_path') else "/dev/hidg0"
             player = Player(hid_path)
 
             success = await player.play(
-                path=rotation_path,
+                path=full_path,
                 speed=self._speed,
                 jitter_time=self._jitter_time,
                 jitter_hold=self._jitter_hold,
