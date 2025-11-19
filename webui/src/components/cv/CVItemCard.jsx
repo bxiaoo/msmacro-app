@@ -15,7 +15,7 @@ export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showD
       try {
         const status = await getDeparturePointsStatus()
         setPlayerPosition(status.player_position)
-        setLivePreviewUrl(`/api/cv/frame-lossless?t=${Date.now()}`)
+        setLivePreviewUrl(`/api/cv/detection-preview?t=${Date.now()}`)
       } catch (error) {
         console.error('Failed to get status:', error)
       }

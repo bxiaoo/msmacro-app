@@ -129,7 +129,7 @@ export function CVItemDepartureStep({
 
         // Update live preview URL with cache busting
         if (mapConfigName) {
-          setLivePreviewUrl(`/api/cv/frame-lossless?t=${Date.now()}`)
+          setLivePreviewUrl(`/api/cv/detection-preview?t=${Date.now()}`)
         }
       } catch (error) {
         console.error('Failed to get departure points status:', error)

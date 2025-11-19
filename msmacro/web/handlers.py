@@ -2406,6 +2406,15 @@ async def api_cv_items_activate(request: web.Request):
             return _json({"error": "Failed to activate CV Item. Map configuration may not exist."}, 400)
 
         log.info(f"✓ Activated CV Item: {name}")
+
+        # Auto-start object detection
+        try:
+            await _daemon("object_detection_start", timeout=10.0)
+            log.info(f"Started object detection for CV Item '{name}'")
+        except Exception as od_err:
+            log.warning(f"Failed to auto-start object detection: {od_err}")
+            # Don't fail activation if OD start fails
+
         return _json({
             "ok": True,
             "item": item.to_dict(),

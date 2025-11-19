@@ -124,7 +124,7 @@ export default function App(){
 
         // Get CV-AUTO playing status
         const cvAutoStatus = await getCVAutoStatus()
-        setIsCVAutoPlaying(cvAutoStatus.is_running || false)
+        setIsCVAutoPlaying(cvAutoStatus.enabled || false)
       } catch (err) {
         // Silently fail - CV might not be initialized
       }
