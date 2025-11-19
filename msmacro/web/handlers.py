@@ -399,6 +399,22 @@ async def api_events(request: web.Request):
             except Exception:
                 pass
 
+            # Check for CV-AUTO status updates
+            try:
+                cv_auto = await _daemon("cv_auto_status")
+                if cv_auto.get("enabled"):
+                    await send_event({
+                        "type": "cv_auto_status",
+                        "current_index": cv_auto.get("current_point_index"),
+                        "current_point": cv_auto.get("current_point_name"),
+                        "total_points": cv_auto.get("total_points"),
+                        "player_position": cv_auto.get("player_position"),
+                        "state": cv_auto.get("state"),
+                        "is_at_point": cv_auto.get("is_at_point")
+                    })
+            except Exception:
+                pass
+
             # Send heartbeat
             with contextlib.suppress(Exception):
                 await resp.write(b": hb\n\n")

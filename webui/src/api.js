@@ -300,9 +300,10 @@ async function API(path, opts = {}) {
   
   // ---------- Real-time Events (SSE) ----------
   export class EventStream {
-    constructor(onMode, onFiles) {
+    constructor(onMode, onFiles, onCVAutoStatus) {
       this.onMode = onMode;
       this.onFiles = onFiles;
+      this.onCVAutoStatus = onCVAutoStatus;
       this.source = null;
       this.reconnectTimer = null;
       this.closed = false;
@@ -337,6 +338,15 @@ async function API(path, opts = {}) {
               this.onMode(data.mode);
             } else if (data.type === "files" && this.onFiles) {
               this.onFiles(data.files);
+            } else if (data.type === "cv_auto_status" && this.onCVAutoStatus) {
+              this.onCVAutoStatus({
+                currentIndex: data.current_index,
+                currentPoint: data.current_point,
+                totalPoints: data.total_points,
+                playerPosition: data.player_position,
+                state: data.state,
+                isAtPoint: data.is_at_point
+              });
             }
 
             // Reset reconnect counter on successful message

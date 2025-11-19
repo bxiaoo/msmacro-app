@@ -9,6 +9,8 @@ export function StateMessage({
     startTime,
     macroName,
     cvItemName,
+    cvAutoState = 'idle',
+    cvAutoCurrentPoint = '',
     estimatedDuration = 60000
 }) {
   const [playingTime, setPlayingTime] = useState('00:00:00')
@@ -67,7 +69,13 @@ export function StateMessage({
               </p>
             </div>
             <div className="font-['Roboto:Medium',_sans-serif] font-medium relative shrink-0 text-[14px] text-emerald-700" style={{ fontVariationSettings: "'wdth' 100" }}>
-              <p className="leading-[normal] text-nowrap whitespace-pre">Auto-navigating departure points</p>
+              <p className="leading-[normal] text-nowrap whitespace-pre">
+                {cvAutoState === 'rotating' && `Playing rotation at ${cvAutoCurrentPoint}`}
+                {cvAutoState === 'pathfinding' && `Pathfinding to ${cvAutoCurrentPoint}`}
+                {cvAutoState === 'hit_departure_point' && `Hitting departure point: ${cvAutoCurrentPoint}`}
+                {cvAutoState === 'navigating' && `Navigating to ${cvAutoCurrentPoint}`}
+                {(!cvAutoState || cvAutoState === 'idle') && 'Auto-navigating departure points'}
+              </p>
             </div>
           </div>
         </div>}

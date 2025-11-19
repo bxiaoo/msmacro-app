@@ -3,7 +3,7 @@ import { Pencil, Trash2, Menu } from 'lucide-react'
 import { Checkbox } from '../ui/checkbox'
 import { getDeparturePointsStatus } from '../../api'
 
-export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showDeparturePoints, mapConfig }) {
+export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showDeparturePoints, mapConfig, cvAutoCurrentIndex = 0, cvAutoIsAtPoint = false }) {
   const [playerPosition, setPlayerPosition] = useState(null)
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
 
@@ -98,11 +98,19 @@ export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showD
 
           {/* Departure Points List */}
           <div className="space-y-2">
-            {departurePoints.map((point, index) => (
+            {departurePoints.map((point, index) => {
+              const isCurrentPoint = index === cvAutoCurrentIndex
+              const isHit = isCurrentPoint && cvAutoIsAtPoint
+              return (
               <div
                 key={point.id || index}
-                className="bg-white border-2 border-gray-300 rounded p-2.5 flex items-center gap-2"
+                className={`${
+                  isHit
+                    ? 'bg-emerald-100 border-emerald-300'
+                    : 'bg-white border-gray-300'
+                } border-2 rounded p-2.5 flex items-center gap-2`}
               >
+
                 <div className="bg-gray-100 rounded-full w-6 h-6 flex items-center justify-center font-bold text-sm text-gray-900 shrink-0">
                   {index + 1}
                 </div>
@@ -115,7 +123,8 @@ export function CVItemCard({ item, isActive, onActivate, onEdit, onDelete, showD
                   </p>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Live Map Preview */}

@@ -28,6 +28,10 @@ export default function App(){
   // CV-AUTO states
   const [activeCVItem, setActiveCVItem] = useState(null)
   const [isCVAutoPlaying, setIsCVAutoPlaying] = useState(false)
+  const [cvAutoState, setCvAutoState] = useState('idle')
+  const [cvAutoCurrentPoint, setCvAutoCurrentPoint] = useState('')
+  const [cvAutoCurrentIndex, setCvAutoCurrentIndex] = useState(0)
+  const [cvAutoIsAtPoint, setCvAutoIsAtPoint] = useState(false)
 
   // Use refs for start times to avoid timer resets
   const recordingStartTimeRef = useRef(undefined)
@@ -146,6 +150,13 @@ export default function App(){
       (files) => {
         // Dispatch event to trigger MacroList refresh
         document.dispatchEvent(new CustomEvent('files:refresh'))
+      },
+      // onCVAutoStatus callback
+      (cvStatus) => {
+        setCvAutoState(cvStatus.state || 'idle')
+        setCvAutoCurrentPoint(cvStatus.currentPoint || '')
+        setCvAutoCurrentIndex(cvStatus.currentIndex || 0)
+        setCvAutoIsAtPoint(cvStatus.isAtPoint || false)
       }
     )
 
@@ -518,7 +529,12 @@ export default function App(){
             onReorderSkills={handleReorderSkills}
           />
         )}
-        {activeTab === 'cv-items' && <CVItemList />}
+        {activeTab === 'cv-items' && (
+          <CVItemList
+            cvAutoCurrentIndex={cvAutoCurrentIndex}
+            cvAutoIsAtPoint={cvAutoIsAtPoint}
+          />
+        )}
       </div>
 
       {/* Bottom section - Sticky at bottom, always visible */}
@@ -574,6 +590,8 @@ export default function App(){
           startTime={isPlaying ? playingStartTime : recordingStartTime}
           macroName={playingMacroName}
           cvItemName={activeCVItem}
+          cvAutoState={cvAutoState}
+          cvAutoCurrentPoint={cvAutoCurrentPoint}
         />
 
         {/* Action buttons */}

@@ -5,7 +5,7 @@ import { CVItemCard } from './CVItemCard'
 import { CVItemDrawer } from './CVItemDrawer'
 import {AddButton} from "../ui/add-button.jsx";
 
-export function CVItemList() {
+export function CVItemList({ cvAutoCurrentIndex = 0, cvAutoIsAtPoint = false }) {
   const [items, setItems] = useState([])
   const [activeItemName, setActiveItemName] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -134,6 +134,8 @@ export function CVItemList() {
             onDelete={handleDelete}
             showDeparturePoints={item.name === activeItemName}
             mapConfig={mapConfig}
+            cvAutoCurrentIndex={cvAutoCurrentIndex}
+            cvAutoIsAtPoint={cvAutoIsAtPoint}
           />
         )
       })}

@@ -78,6 +78,7 @@ class CVAutoCommandHandler:
         self._jitter_hold = 0.02
         self._jump_key = "SPACE"  # Jump key alias for pathfinding
         self._loop_counter = 0  # Track completed loop cycles
+        self._cv_auto_state = "idle"  # Current CV-AUTO state for UI debugging
 
     async def cv_auto_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -345,7 +346,9 @@ class CVAutoCommandHandler:
                 "last_rotation_played": None,
                 "rotations_played_count": 0,
                 "cycles_completed": 0,
-                "player_position": None
+                "player_position": None,
+                "state": "idle",
+                "is_at_point": False
             }
 
         # Get navigator state
@@ -353,12 +356,16 @@ class CVAutoCommandHandler:
 
         # Get current player position
         player_pos = None
+        is_at_point = False
         try:
             detector = get_detector()
             if detector and detector.enabled:
                 result = await detector.detect()
                 if result and result.player.detected:
                     player_pos = {"x": result.player.x, "y": result.player.y}
+                    # Check if player is at current departure point
+                    current_point = self._navigator.get_current_point()
+                    is_at_point = current_point.check_hit(result.player.x, result.player.y)
         except Exception as e:
             log.warning(f"Failed to get player position for status: {e}")
 
@@ -370,7 +377,9 @@ class CVAutoCommandHandler:
             "last_rotation_played": state.last_rotation_played,
             "rotations_played_count": state.rotations_played_count,
             "cycles_completed": state.cycles_completed,
-            "player_position": player_pos
+            "player_position": player_pos,
+            "state": self._cv_auto_state,
+            "is_at_point": is_at_point
         }
 
     async def _cv_auto_loop(self):
@@ -425,6 +434,7 @@ class CVAutoCommandHandler:
                 # Check if player hit current point
                 if current_point.check_hit(player_pos[0], player_pos[1]):
                     log.info(f"Player hit departure point '{current_point.name}'!")
+                    self._cv_auto_state = "hit_departure_point"
 
                     # Select rotation to play
                     rotation_path = self._navigator.select_rotation(current_point)
@@ -432,6 +442,7 @@ class CVAutoCommandHandler:
                     if rotation_path and current_point.auto_play:
                         # Play rotation
                         log.info(f"Playing rotation: {rotation_path}")
+                        self._cv_auto_state = "rotating"
                         emit("CV_AUTO_ROTATION_START",
                              point=current_point.name,
                              rotation=rotation_path)
@@ -469,21 +480,52 @@ class CVAutoCommandHandler:
                     next_point = self._navigator.get_current_point()
                     log.info(f"Advanced to next point: '{next_point.name}'")
 
-                    # Navigate to next point
+                    # Navigate to next point and wait until player hits it
                     await asyncio.sleep(0.5)  # Brief pause after rotation
-                    await self._navigate_to_point(next_point)
+
+                    # Keep navigating until player hits the departure point
+                    from ..cv.capture import get_capture_instance
+                    max_navigation_attempts = 20  # Prevent infinite loops
+                    navigation_attempt = 0
+
+                    while navigation_attempt < max_navigation_attempts:
+                        # Get current player position
+                        capture = get_capture_instance()
+                        current_result = capture.get_last_detection_result()
+                        player_data = current_result.get("player", {})
+                        current_pos = (player_data.get("x"), player_data.get("y"))
+
+                        # Check if player has hit the next departure point
+                        if next_point.check_hit(current_pos[0], current_pos[1]):
+                            log.info(f"Player reached next departure point '{next_point.name}'")
+                            break
+
+                        # Player hasn't hit the point yet, continue navigating
+                        navigation_attempt += 1
+                        log.debug(f"Player not at '{next_point.name}' yet (attempt {navigation_attempt}/{max_navigation_attempts}), navigating...")
+                        self._cv_auto_state = "pathfinding"
+
+                        await self._navigate_to_point(next_point)
+                        await asyncio.sleep(0.5)
+
+                    if navigation_attempt >= max_navigation_attempts:
+                        log.warning(f"Failed to reach '{next_point.name}' after {max_navigation_attempts} attempts, continuing...")
 
                 else:
                     # Not at current point, try to navigate there
+                    self._cv_auto_state = "navigating"
                     await self._navigate_to_point(current_point)
 
                 # Emit status update
                 state = self._navigator.get_state()
+                is_at_point = current_point.check_hit(player_pos[0], player_pos[1])
                 emit("CV_AUTO_STATUS",
                      current_index=state.current_point_index,
                      current_point=state.current_point_name,
                      total_points=state.total_points,
-                     player_position={"x": player_pos[0], "y": player_pos[1]})
+                     player_position={"x": player_pos[0], "y": player_pos[1]},
+                     state=self._cv_auto_state,
+                     is_at_point=is_at_point)
 
                 # Wait before next iteration
                 await asyncio.sleep(0.5)
