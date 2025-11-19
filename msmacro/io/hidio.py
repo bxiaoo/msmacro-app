@@ -179,6 +179,73 @@ class LinuxHIDWriter:
             pass
 
 
+class AsyncHIDWriter:
+    """
+    Async wrapper around HIDWriter that provides stateful press/release API.
+
+    This class is used by pathfinding code that needs to press and release
+    individual keys asynchronously. It maintains the state of currently pressed
+    keys and calls the underlying HIDWriter.send() method.
+    """
+
+    def __init__(self, hid_writer):
+        """
+        Initialize async HID writer.
+
+        Args:
+            hid_writer: LinuxHIDWriter or MockHIDWriter instance
+        """
+        self._writer = hid_writer
+        self._pressed_keys = set()  # Set of currently pressed key usage IDs
+        self._modmask = 0  # Current modifier mask
+
+    async def press(self, usage_id: int):
+        """
+        Press a key (add to pressed keys set and send updated state).
+
+        Args:
+            usage_id: HID usage ID of the key to press (4-231)
+        """
+        # Add to pressed keys
+        self._pressed_keys.add(usage_id)
+
+        # Update modifier mask if this is a modifier key (224-231)
+        if 224 <= usage_id <= 231:
+            mod_bit = usage_id - 224
+            self._modmask |= (1 << mod_bit)
+
+        # Send updated state
+        self._writer.send(self._modmask, self._pressed_keys)
+
+    async def release(self, usage_id: int):
+        """
+        Release a key (remove from pressed keys set and send updated state).
+
+        Args:
+            usage_id: HID usage ID of the key to release
+        """
+        # Remove from pressed keys
+        self._pressed_keys.discard(usage_id)
+
+        # Update modifier mask if this is a modifier key
+        if 224 <= usage_id <= 231:
+            mod_bit = usage_id - 224
+            self._modmask &= ~(1 << mod_bit)
+
+        # Send updated state
+        self._writer.send(self._modmask, self._pressed_keys)
+
+    def all_up(self):
+        """Release all keys (synchronous for compatibility)."""
+        self._pressed_keys.clear()
+        self._modmask = 0
+        self._writer.all_up()
+
+    async def async_all_up(self):
+        """Release all keys (async version)."""
+        self.all_up()
+
+
 # Platform-aware HIDWriter export
 # On macOS or when HID gadget is not available, use mock implementation
 # On Linux with HID gadget, use real implementation

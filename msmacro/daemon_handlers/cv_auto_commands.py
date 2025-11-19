@@ -18,7 +18,7 @@ from msmacro.daemon.point_navigator import PointNavigator
 from msmacro.cv.pathfinding import PathfindingController
 from msmacro.cv.port_flow import PortFlowHandler, PortDetector
 from msmacro.core.player import Player
-from msmacro.io.hidio import HIDWriter
+from msmacro.io.hidio import HIDWriter, AsyncHIDWriter
 from msmacro.utils.keymap import name_to_usage
 
 try:
@@ -187,8 +187,10 @@ class CVAutoCommandHandler:
             self._navigator = PointNavigator(map_config, loop=True)
             self._loop_counter = 0  # Reset loop counter
 
-            hid_writer = HIDWriter(self.daemon.hid_path if hasattr(self.daemon, 'hid_path')
-                                   else "/dev/hidg0")
+            # Create HID writer and wrap in async interface for pathfinding
+            base_hid_writer = HIDWriter(self.daemon.hid_path if hasattr(self.daemon, 'hid_path')
+                                        else "/dev/hidg0")
+            hid_writer = AsyncHIDWriter(base_hid_writer)
 
             async def get_position():
                 """Get current player position from cached detection results."""
