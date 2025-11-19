@@ -515,13 +515,18 @@ class CVAutoCommandHandler:
             True if playback completed successfully, False otherwise
         """
         try:
-            # Use the Player class to play the rotation
-            success = await Player.play(
+            # Create Player instance and play the rotation
+            from ..core.player import Player
+
+            hid_path = self.daemon.hid_path if hasattr(self.daemon, 'hid_path') else "/dev/hidg0"
+            player = Player(hid_path)
+
+            success = await player.play(
                 path=rotation_path,
                 speed=self._speed,
                 jitter_time=self._jitter_time,
                 jitter_hold=self._jitter_hold,
-                loop=False,
+                loop=1,  # Play once (not False)
                 stop_event=self._cv_auto_stop_event,
                 ignore_keys=[],
                 ignore_tolerance=0,
