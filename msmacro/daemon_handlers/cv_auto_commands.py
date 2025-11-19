@@ -149,12 +149,10 @@ class CVAutoCommandHandler:
 
         # Check if object detection is running
         detector = get_detector()
-        if not detector or not detector.enabled:
+        if not detector:
             error_msg = "Object detection must be enabled first"
             log.error(f"❌ {error_msg}")
             log.error(f"   Detector exists: {detector is not None}")
-            if detector:
-                log.error(f"   Detector enabled: {detector.enabled}")
             log.error("   Please ensure CV capture and object detection are started")
             log.info("=" * 70)
             return {"error": error_msg}
