@@ -522,7 +522,7 @@ class CVAutoCommandHandler:
                         self._cv_auto_state = "pathfinding"
 
                         await self._navigate_to_point(next_point)
-                        await asyncio.sleep(0.7)  # Wait increased for detection lag
+                        await asyncio.sleep(1.0)  # Wait increased for detection lag
 
                     if navigation_attempt >= max_navigation_attempts:
                         log.warning(f"Failed to reach '{next_point.name}' after {max_navigation_attempts} attempts, continuing...")

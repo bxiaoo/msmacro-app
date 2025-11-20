@@ -158,6 +158,27 @@ class PlaybackCommandHandler:
             await asyncio.sleep(0.1)
             return {"stopping": "playback", "mode": self.daemon.mode}
 
+        # Stop CV-AUTO if in CV_AUTO mode
+        if self.daemon.mode == "CV_AUTO":
+            from .cv_auto_commands import CVAutoCommandHandler
+            cv_auto_handler = self.daemon._dispatcher.handlers.get('cv_auto')
+
+            if cv_auto_handler and cv_auto_handler._cv_auto_stop_event:
+                log.info("🛑 STOP COMMAND: Setting cv_auto_stop_event (id=%s, is_set_before=%s)",
+                         id(cv_auto_handler._cv_auto_stop_event), cv_auto_handler._cv_auto_stop_event.is_set())
+                cv_auto_handler._cv_auto_stop_event.set()
+                log.info("🛑 STOP COMMAND: cv_auto_stop_event.set() called (is_set_after=%s)",
+                         cv_auto_handler._cv_auto_stop_event.is_set())
+
+            # Cancel CV-AUTO task if it exists
+            if cv_auto_handler and cv_auto_handler._cv_auto_task and not cv_auto_handler._cv_auto_task.done():
+                log.info("Cancelling CV-AUTO task")
+                cv_auto_handler._cv_auto_task.cancel()
+
+            # Wait a moment for the mode to change
+            await asyncio.sleep(0.1)
+            return {"stopping": "cv_auto", "mode": self.daemon.mode}
+
         # Stop recording if in RECORDING mode
         if self.daemon.mode == "RECORDING" and self.daemon._record_task and not self.daemon._record_task.done():
             log.info("Cancelling recording task")
