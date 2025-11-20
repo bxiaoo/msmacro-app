@@ -603,7 +603,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
             # Diagonal: do larger axis first, then smaller
             if abs(dx) > abs(dy):
                 await self._move_horizontal_magician(dx, hid_writer)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 # Re-check position
                 new_pos = await position_getter()
                 if new_pos:
@@ -612,7 +612,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
                         await self._move_vertical_magician(dy_new, hid_writer)
             else:
                 await self._move_vertical_magician(dy, hid_writer)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 # Re-check position
                 new_pos = await position_getter()
                 if new_pos:
@@ -624,8 +624,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
         elif not y_ok:
             await self._move_vertical_magician(dy, hid_writer)
 
-        # Final position check
-        await asyncio.sleep(0.5)
+        # Final position check (wait increased for detection lag)
+        await asyncio.sleep(0.7)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             logger.info("Magician pathfinding: Target reached")
@@ -657,8 +657,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.debug(f"Small horizontal movement: {distance}px, duration={duration:.2f}s")
             await self._press_key_timed(arrow_key, duration, hid_writer)
 
-        # Check if reached
-        await asyncio.sleep(0.3)
+        # Check if reached (wait increased for detection lag)
+        await asyncio.sleep(0.5)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
@@ -698,8 +698,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.debug(f"Vertical DOWN movement: {abs(dy)}px")
             await self._jump_down(hid_writer)
 
-        # Check if reached
-        await asyncio.sleep(0.5)
+        # Check if reached (wait increased for detection lag)
+        await asyncio.sleep(0.7)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
@@ -723,7 +723,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
         elif dy > 0:
             # Player is higher than target - do X first, then Y
             await self._move_horizontal_other(dx, target_point, hid_writer, position_getter)
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
             new_pos = await position_getter()
             if new_pos:
                 dy_new = target_point.y - new_pos[1]
@@ -733,7 +733,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
             # No diagonal skill - do larger axis first
             if abs(dx) > abs(dy):
                 await self._move_horizontal_other(dx, target_point, hid_writer, position_getter)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 new_pos = await position_getter()
                 if new_pos:
                     dy_new = target_point.y - new_pos[1]
@@ -741,15 +741,15 @@ class ClassBasedPathfinder(PathfindingStrategy):
                         await self._move_vertical_other(dy_new, target_point, hid_writer, position_getter)
             else:
                 await self._move_vertical_other(dy, target_point, hid_writer, position_getter)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 new_pos = await position_getter()
                 if new_pos:
                     dx_new = target_point.x - new_pos[0]
                     if abs(dx_new) > self.MAX_TOLERANCE:
                         await self._move_horizontal_other(dx_new, target_point, hid_writer, position_getter)
 
-        # Final check
-        await asyncio.sleep(0.5)
+        # Final check (wait increased for detection lag)
+        await asyncio.sleep(0.7)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
