@@ -117,6 +117,22 @@ class CVAutoCommandHandler:
 
         log.info(f"Active CV Item: {active_cv_item.name if active_cv_item else 'None'}")
 
+        # Log detailed CV item data for debugging rotation issues
+        if active_cv_item:
+            log.info("=" * 70)
+            log.info(f"📋 CV ITEM LOADED: {active_cv_item.name}")
+            log.info(f"   Created: {active_cv_item.created_at}")
+            log.info(f"   Last used: {active_cv_item.last_used_at}")
+            log.info(f"   Departure points: {len(active_cv_item.departure_points)}")
+            for i, point in enumerate(active_cv_item.departure_points):
+                log.info(
+                    f"   Point {i}: '{point.name}' at ({point.x}, {point.y}) - "
+                    f"{len(point.rotation_paths)} rotation(s), mode={point.rotation_mode}"
+                )
+                for j, rot_path in enumerate(point.rotation_paths):
+                    log.info(f"      Rotation {j}: {rot_path}")
+            log.info("=" * 70)
+
         # Get map config and departure points
         if active_cv_item:
             # Use CV Item system (new)
@@ -594,12 +610,30 @@ class CVAutoCommandHandler:
             from ..utils.config import SETTINGS
             from pathlib import Path
 
+            log.info("=" * 70)
+            log.info(f"🎮 ROTATION PLAYBACK START")
+            log.info(f"   Rotation path (from CV item): {rotation_path}")
+            log.info(f"   Records directory: {SETTINGS.record_dir}")
+
             # Construct full path to rotation file
             if Path(rotation_path).is_absolute():
                 full_path = rotation_path
+                log.info(f"   Path type: ABSOLUTE")
             else:
                 # Relative path - resolve from records directory
                 full_path = SETTINGS.record_dir / rotation_path
+                log.info(f"   Path type: RELATIVE (resolved from record_dir)")
+
+            log.info(f"   Full path resolved: {full_path}")
+            log.info(f"   File exists: {Path(full_path).exists()}")
+
+            if not Path(full_path).exists():
+                log.error(f"❌ ROTATION FILE NOT FOUND: {full_path}")
+                log.error(f"   Original path from CV item: {rotation_path}")
+                log.error(f"   Tried absolute path: {Path(rotation_path).is_absolute()}")
+                log.error(f"   Record directory: {SETTINGS.record_dir}")
+                log.info("=" * 70)
+                return False
 
             hid_path = self.daemon.hid_path if hasattr(self.daemon, 'hid_path') else "/dev/hidg0"
             player = Player(hid_path)
@@ -620,9 +654,18 @@ class CVAutoCommandHandler:
                 ignore_tolerance=0,
                 skill_injector=skill_injector  # Use SkillInjector for CD skill casting
             )
+
+            if success:
+                log.info(f"✅ ROTATION PLAYBACK COMPLETED: {rotation_path}")
+            else:
+                log.warning(f"⚠️  ROTATION PLAYBACK INCOMPLETE: {rotation_path}")
+            log.info("=" * 70)
+
             return success
         except Exception as e:
-            log.error(f"Rotation playback error: {e}", exc_info=True)
+            log.error(f"❌ ROTATION PLAYBACK ERROR: {rotation_path}")
+            log.error(f"   Exception: {e}", exc_info=True)
+            log.info("=" * 70)
             return False
 
     async def _stop_cv_auto(self, reason: str):

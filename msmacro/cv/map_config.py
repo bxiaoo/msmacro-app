@@ -108,9 +108,9 @@ class DeparturePoint:
             return current_x < self.x
 
         elif self.tolerance_mode == "both":
-            # Both X and Y must be within tolerance
+            # X-axis uses tolerance_value, Y-axis always uses 4px
             return (abs(current_x - self.x) <= self.tolerance_value and
-                    abs(current_y - self.y) <= self.tolerance_value)
+                    abs(current_y - self.y) <= 4)
 
         return False
 

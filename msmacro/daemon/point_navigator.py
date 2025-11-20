@@ -8,7 +8,7 @@ selecting rotations based on configured mode, and tracking progress.
 import logging
 import random
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional
 from msmacro.cv.map_config import MapConfig, DeparturePoint
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,6 @@ class PointNavigator:
 
         # Navigation state
         self.current_index = 0
-        self.rotation_counters: Dict[str, int] = {}  # Track sequential rotation index per point
         self.rotations_played_count = 0
         self.cycles_completed = 0
         self.last_rotation_played: Optional[str] = None
@@ -145,7 +144,6 @@ class PointNavigator:
         """
         logger.info("PointNavigator: Resetting to first point")
         self.current_index = 0
-        self.rotation_counters.clear()
         self.rotations_played_count = 0
         self.cycles_completed = 0
         self.last_rotation_played = None
@@ -156,8 +154,7 @@ class PointNavigator:
 
         Selection logic based on point.rotation_mode:
         - "single": Always return the first rotation
-        - "random": Randomly select from the list
-        - "sequential": Cycle through rotations in order
+        - "random": Randomly select from the list (default, enforced by CVItem)
 
         Args:
             point: DeparturePoint to select rotation for (default: current point)
@@ -180,26 +177,20 @@ class PointNavigator:
             logger.debug(f"Selected rotation (single mode): {rotation_path}")
 
         elif point.rotation_mode == "random":
-            # Randomly pick one
+            # Randomly pick one (this is the enforced default)
             rotation_path = random.choice(point.rotation_paths)
             logger.debug(
                 f"Selected rotation (random mode): {rotation_path} "
                 f"from {len(point.rotation_paths)} options"
             )
 
-        elif point.rotation_mode == "sequential":
-            # Cycle through in order
-            counter = self.rotation_counters.get(point.id, 0)
-            rotation_path = point.rotation_paths[counter % len(point.rotation_paths)]
-            self.rotation_counters[point.id] = counter + 1
-            logger.debug(
-                f"Selected rotation (sequential mode): {rotation_path} "
-                f"(index {counter % len(point.rotation_paths)}/{len(point.rotation_paths)})"
-            )
-
         else:
-            logger.error(f"Unknown rotation_mode: {point.rotation_mode}")
-            return None
+            # Should never happen due to CVItem enforcement, but handle gracefully
+            logger.error(
+                f"Unsupported rotation_mode '{point.rotation_mode}' for point '{point.name}'. "
+                f"Falling back to random selection."
+            )
+            rotation_path = random.choice(point.rotation_paths)
 
         # Update tracking
         self.last_rotation_played = rotation_path

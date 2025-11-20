@@ -63,7 +63,7 @@ class CVItem:
     tags: List[str] = field(default_factory=list)
 
     def __post_init__(self):
-        """Validate pathfinding_rotations structure."""
+        """Validate pathfinding_rotations structure and enforce rotation_mode."""
         required_keys = {"near", "medium", "far", "very_far"}
         if not isinstance(self.pathfinding_rotations, dict):
             raise ValueError("pathfinding_rotations must be a dict")
@@ -77,6 +77,16 @@ class CVItem:
         for key, value in self.pathfinding_rotations.items():
             if not isinstance(value, list):
                 raise ValueError(f"pathfinding_rotations['{key}'] must be a list")
+
+        # Enforce rotation_mode = "random" for all departure points
+        # This prevents memory leaks from sequential mode counters and simplifies logic
+        for point in self.departure_points:
+            if point.rotation_mode != "random":
+                logger.info(
+                    f"Forcing rotation_mode to 'random' for point '{point.name}' "
+                    f"(was '{point.rotation_mode}')"
+                )
+                point.rotation_mode = "random"
 
     def validate(self) -> Tuple[bool, str]:
         """

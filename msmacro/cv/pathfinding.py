@@ -172,7 +172,7 @@ class SimplePathfinder(PathfindingStrategy):
     """
     Simple directional pathfinding using arrow keys.
 
-    Best for short distances (<50 pixels) where direct movement works.
+    Best for short distances (<20 pixels) where direct movement works.
     Calculates direction based on delta X/Y and sends arrow key presses.
     """
 
@@ -435,7 +435,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
     """
 
     # Constants
-    LARGE_DISTANCE_THRESHOLD = 50  # pixels
+    LARGE_DISTANCE_THRESHOLD = 20  # pixels (threshold for using double jump on X-axis)
     JUMP_DURATION_BASE = 0.15  # Base duration for jump key press
     ARROW_DURATION_BASE = 0.15  # Base duration for arrow key press
     DOUBLE_JUMP_GAP_MIN = 0.3  # Minimum gap between double jump presses
@@ -578,8 +578,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
         Navigate using "magician class" movement logic.
 
         Strategy:
-        - Horizontal (>50px): Arrow + teleport
-        - Horizontal (<50px): Timed arrow press
+        - Horizontal (>20px): Arrow + teleport
+        - Horizontal (<20px): Timed arrow press
         - Vertical up: Up + teleport (or rope lift)
         - Vertical down: Down + teleport
         - Diagonal: Larger axis first, then smaller
@@ -674,17 +674,22 @@ class ClassBasedPathfinder(PathfindingStrategy):
         """Handle vertical movement for other class (X-axis already OK)."""
         if dy < 0:
             # Player is below target - move UP
-            logger.debug(f"Vertical UP movement: {abs(dy)}px")
+            distance_y = abs(dy)
+            logger.debug(f"Vertical UP movement: {distance_y}px")
 
-            if self.rope_lift_key:
+            # For small vertical distances (<14px), prioritize double jump if allowed
+            if distance_y < 14 and self.double_jump_up_allowed:
+                logger.debug(f"Small UP distance ({distance_y}px < 14px), using double jump")
+                await self._double_jump_up(distance_y, hid_writer)
+            elif self.rope_lift_key:
                 # Option 1: Rope lift
                 await self._execute_rope_lift(hid_writer)
-            elif self.double_jump_up_allowed:
-                # Option 2: Double jump UP
-                await self._double_jump_up(abs(dy), hid_writer)
             elif self.y_axis_jump_skill:
-                # Option 3: Y-axis jump skill
+                # Option 2: Y-axis jump skill
                 await self._y_axis_jump(hid_writer)
+            elif self.double_jump_up_allowed:
+                # Option 3: Double jump UP (fallback for larger distances)
+                await self._double_jump_up(distance_y, hid_writer)
             else:
                 logger.warning("No vertical UP movement configured")
                 return False
