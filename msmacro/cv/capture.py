@@ -381,11 +381,12 @@ class CVCapture:
                     # USB capture cards often need explicit resolution/format set before first read
                     logger.debug("Device opened, configuring format parameters...")
 
-                    # Set resolution - use 1280x720 to reduce memory usage on Raspberry Pi
-                    # Original 1920x1080 uses 6MB per frame, 1280x720 uses only 2.7MB (55% less)
-                    # Quality is still excellent for web preview, and saves critical RAM
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    # Set resolution - using 2560x1440 (2K) for maximum minimap detail
+                    # WARNING: 2K uses ~10.6MB per raw frame (4x more than 720p's 2.7MB)
+                    # This provides 4x minimap pixel count for improved detection accuracy
+                    # Monitor Pi memory usage - may need to reduce capture rate if OOM occurs
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 2560)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1440)
 
                     # Try YUYV format first (most USB capture cards support this)
                     fourcc_yuyv = cv2.VideoWriter_fourcc(*'YUYV')
@@ -604,7 +605,7 @@ class CVCapture:
                     ret, jpeg_data = cv2.imencode('.jpg', frame, encode_param)
 
                     # Explicitly delete frame to free memory immediately
-                    # Each frame is ~6MB for 1920x1080, critical on Raspberry Pi
+                    # Each frame is ~10.6MB for 2560x1440 (2K), critical on Raspberry Pi
                     del frame
 
                     if not ret or jpeg_data is None:

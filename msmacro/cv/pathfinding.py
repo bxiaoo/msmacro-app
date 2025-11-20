@@ -603,8 +603,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
             # Diagonal: do larger axis first, then smaller
             if abs(dx) > abs(dy):
                 await self._move_horizontal_magician(dx, hid_writer)
-                await asyncio.sleep(0.8)
-                # Re-check position
+                # Re-check position (wait already done inside movement method)
                 new_pos = await position_getter()
                 if new_pos:
                     dy_new = target_point.y - new_pos[1]
@@ -612,8 +611,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
                         await self._move_vertical_magician(dy_new, hid_writer)
             else:
                 await self._move_vertical_magician(dy, hid_writer)
-                await asyncio.sleep(0.8)
-                # Re-check position
+                # Re-check position (wait already done inside movement method)
                 new_pos = await position_getter()
                 if new_pos:
                     dx_new = target_point.x - new_pos[0]
@@ -624,8 +622,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
         elif not y_ok:
             await self._move_vertical_magician(dy, hid_writer)
 
-        # Final position check (wait increased for detection lag)
-        await asyncio.sleep(1.0)
+        # Final position check (wait already done inside last movement method)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             logger.info("Magician pathfinding: Target reached")
@@ -776,6 +773,9 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.debug(f"Magician horizontal (timed): {distance}px, duration={duration:.2f}s")
             await self._press_key_timed(arrow_key, duration, hid_writer)
 
+        # Wait for movement completion and detection update
+        await asyncio.sleep(0.8)
+
     async def _move_vertical_magician(self, dy: int, hid_writer):
         """Handle vertical movement for magician class."""
         if dy < 0:
@@ -798,6 +798,9 @@ class ClassBasedPathfinder(PathfindingStrategy):
                 await self._press_key(self.teleport_skill, hid_writer)
                 await asyncio.sleep(self.timer.jitter(0.2))
                 await hid_writer.release(self.ARROW_DOWN)
+
+        # Wait for movement completion and detection update
+        await asyncio.sleep(1.0)
 
     # ========== Atomic Movement Primitives ==========
 

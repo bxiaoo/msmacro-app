@@ -398,6 +398,29 @@ class CVAutoCommandHandler:
             "is_at_point": is_at_point
         }
 
+    async def _sleep_or_stop(self, delay: float) -> bool:
+        """
+        Sleep cooperatively for 'delay' seconds, checking stop event frequently.
+        Returns True if interrupted by stop event, False otherwise.
+        """
+        if delay <= 0:
+            return False
+
+        # Check stop event frequently (every 10ms) for responsive stopping
+        check_interval = 0.010  # 10ms
+        elapsed = 0.0
+
+        while elapsed < delay:
+            if self._cv_auto_stop_event.is_set():
+                log.info("Stop event detected during sleep")
+                return True
+
+            sleep_time = min(check_interval, delay - elapsed)
+            await asyncio.sleep(sleep_time)
+            elapsed += sleep_time
+
+        return False
+
     async def _cv_auto_loop(self):
         """
         Main CV-AUTO mode loop.
@@ -421,13 +444,13 @@ class CVAutoCommandHandler:
                 result_dict = capture.get_last_detection_result()
                 if not result_dict:
                     # No detection result yet, wait and retry
-                    await asyncio.sleep(0.5)
+                    await self._sleep_or_stop(0.5)
                     continue
 
                 player_data = result_dict.get("player", {})
                 if not player_data.get("detected"):
                     # No player detection, wait and retry
-                    await asyncio.sleep(0.5)
+                    await self._sleep_or_stop(0.5)
                     continue
 
                 player_pos = (player_data.get("x"), player_data.get("y"))
@@ -439,7 +462,7 @@ class CVAutoCommandHandler:
                     self._navigator.reset()
                     self._port_detector.reset()
                     emit("CV_AUTO_PORT_DETECTED")
-                    await asyncio.sleep(1.0)  # Wait for player to stabilize
+                    await self._sleep_or_stop(1.0)  # Wait for player to stabilize
                     continue
 
                 self._port_detector.update_position(player_pos, current_time)
@@ -464,6 +487,11 @@ class CVAutoCommandHandler:
                              rotation=rotation_path)
 
                         success = await self._play_rotation(rotation_path)
+
+                        # Check for stop event after rotation completes
+                        if self._cv_auto_stop_event.is_set():
+                            log.info("Stop event detected after rotation playback")
+                            break
 
                         if success:
                             emit("CV_AUTO_ROTATION_END",
@@ -496,8 +524,15 @@ class CVAutoCommandHandler:
                     next_point = self._navigator.get_current_point()
                     log.info(f"Advanced to next point: '{next_point.name}'")
 
+                    # Check for stop event before starting navigation
+                    if self._cv_auto_stop_event.is_set():
+                        log.info("Stop event detected before navigation")
+                        break
+
                     # Navigate to next point and wait until player hits it
-                    await asyncio.sleep(0.5)  # Brief pause after rotation
+                    if await self._sleep_or_stop(0.5):  # Brief pause after rotation
+                        log.info("Stop event detected during post-rotation pause")
+                        break
 
                     # Keep navigating until player hits the departure point
                     from ..cv.capture import get_capture_instance
@@ -505,6 +540,11 @@ class CVAutoCommandHandler:
                     navigation_attempt = 0
 
                     while navigation_attempt < max_navigation_attempts:
+                        # Check for stop event at start of each navigation attempt
+                        if self._cv_auto_stop_event.is_set():
+                            log.info("Stop event detected during navigation loop")
+                            break
+
                         # Get current player position
                         capture = get_capture_instance()
                         current_result = capture.get_last_detection_result()
@@ -522,7 +562,11 @@ class CVAutoCommandHandler:
                         self._cv_auto_state = "pathfinding"
 
                         await self._navigate_to_point(next_point)
-                        await asyncio.sleep(1.0)  # Wait increased for detection lag
+
+                        # Use responsive sleep that checks stop event frequently
+                        if await self._sleep_or_stop(1.0):
+                            log.info("Stop event detected after navigation")
+                            break
 
                     if navigation_attempt >= max_navigation_attempts:
                         log.warning(f"Failed to reach '{next_point.name}' after {max_navigation_attempts} attempts, continuing...")
@@ -543,8 +587,8 @@ class CVAutoCommandHandler:
                      state=self._cv_auto_state,
                      is_at_point=is_at_point)
 
-                # Wait before next iteration
-                await asyncio.sleep(0.5)
+                # Wait before next iteration (responsive sleep to check stop event)
+                await self._sleep_or_stop(0.5)
 
         except asyncio.CancelledError:
             log.info("CV-AUTO loop cancelled")
@@ -561,6 +605,11 @@ class CVAutoCommandHandler:
 
         Uses Port flow if is_teleport_point=True, otherwise uses pathfinding.
         """
+        # Check for stop event at start of navigation
+        if self._cv_auto_stop_event.is_set():
+            log.info("Stop event detected at start of navigation")
+            return
+
         # Get current position from cached detection results
         from ..cv.capture import get_capture_instance
 
@@ -580,6 +629,11 @@ class CVAutoCommandHandler:
 
         # Check if already at target
         if target_point.check_hit(current_pos[0], current_pos[1]):
+            return
+
+        # Check for stop event before navigation
+        if self._cv_auto_stop_event.is_set():
+            log.info("Stop event detected before executing navigation")
             return
 
         # Navigate based on point type
