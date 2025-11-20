@@ -853,7 +853,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
         if distance_y > 20:
             gap = self.timer.jitter(0.15)  # Minimum gap for large distance
         else:
-            gap = self.timer.jitter(0.4)   # Maximum gap for small distance
+            gap = self.timer.jitter(0.23)  # Shorter gap for small distance
         await asyncio.sleep(gap)
 
         # Press up arrow (directional input)
