@@ -178,7 +178,7 @@ class SimplePathfinder(PathfindingStrategy):
 
     MAX_ATTEMPTS = 10
     MOVE_DURATION = 0.15  # How long to hold arrow key
-    CHECK_INTERVAL = 0.8  # How long to wait before checking position
+    CHECK_INTERVAL = 1.5  # How long to wait before checking position
 
     async def navigate(
         self,
