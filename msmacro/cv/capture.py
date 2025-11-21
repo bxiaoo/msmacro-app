@@ -178,11 +178,9 @@ class CVCapture:
                 self._device_connected = False
 
         logger.info("Starting CV capture system...")
-        logger.debug(f"Current state: connected={self._device_connected}, has_frame={self.frame_buffer.has_frame()}")
         self._clear_last_error()
 
         # Wait for a device to appear
-        logger.debug("Searching for capture devices...")
         preferred_device = await find_capture_device_with_retry(max_retries=3)
         if not preferred_device:
             self._set_last_error("No capture device found after retries")
@@ -195,8 +193,6 @@ class CVCapture:
         if not all_devices:
             self._set_last_error("No capture devices detected on system")
             raise CVCaptureError("No capture devices detected on system")
-
-        logger.debug(f"Building candidate list from {len(all_devices)} available devices")
 
         def _priority(device: CaptureDevice) -> tuple:
             name_lower = (device.name or "").lower()
@@ -233,10 +229,7 @@ class CVCapture:
                 seen.add(dev.device_path)
 
         init_error: Optional[str] = None
-        logger.info(f"Trying {len(candidates)} candidate device(s) in priority order:")
         for idx, candidate in enumerate(candidates, 1):
-            logger.info(f"  Attempt {idx}/{len(candidates)}: {candidate}")
-
             if not validate_device_access(candidate):
                 init_error = f"Cannot access device: {candidate.device_path}"
                 logger.warning(f"    ✗ {init_error}")
@@ -263,11 +256,9 @@ class CVCapture:
         self._running = True
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True, name="CV-Capture")
         self._capture_thread.start()
-        logger.debug("Capture thread started")
 
         # Start monitoring task
         self._monitor_task = asyncio.create_task(self._monitor_device())
-        logger.debug("Monitor task started")
 
         # Load active map configuration
         self._load_map_config()
@@ -343,7 +334,6 @@ class CVCapture:
         # This prevents race condition where frontend polls status before
         # the capture loop updates region_detected (up to 0.5s delay)
         if self._running and self._capture and self._device_connected:
-            logger.info("Triggering immediate frame capture after config reload...")
             self._immediate_capture_requested.set()
 
     async def _init_capture(self) -> None:

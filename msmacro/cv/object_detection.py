@@ -145,8 +145,6 @@ class MinimapObjectDetector:
         self._max_time_ms = 0.0
         self._min_time_ms = float('inf')
 
-        logger.info("MinimapObjectDetector initialized with CORRECTED HSV ranges (Nov 9, 2025) - H=26-85 for yellow-green player dots")
-
     def _calculate_adaptive_blob_sizes(self, frame: np.ndarray, blob_type: str = 'player') -> Tuple[int, int]:
         """
         Return blob size range based on calibrated values.
