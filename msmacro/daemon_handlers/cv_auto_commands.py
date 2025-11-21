@@ -150,8 +150,6 @@ class CVAutoCommandHandler:
 
             log.info(f"✓ Map config loaded: {map_config.name}")
             departure_points = active_cv_item.departure_points
-            # Attach CV item's departure points to map_config for PointNavigator
-            map_config.departure_points = departure_points
             pathfinding_config = active_cv_item.pathfinding_config
         else:
             # Fallback to direct map config (legacy)
@@ -217,7 +215,11 @@ class CVAutoCommandHandler:
         # Initialize components
         try:
             # Always use loop=True for navigator (we handle loop count manually)
-            self._navigator = PointNavigator(map_config, loop=True)
+            self._navigator = PointNavigator(
+                departure_points=departure_points,
+                map_name=map_config.name,
+                loop=True
+            )
             self._loop_counter = 0  # Reset loop counter
 
             # Create HID writer and wrap in async interface for pathfinding
@@ -444,13 +446,13 @@ class CVAutoCommandHandler:
                 result_dict = capture.get_last_detection_result()
                 if not result_dict:
                     # No detection result yet, wait and retry
-                    await self._sleep_or_stop(0.5)
+                    await self._sleep_or_stop(0.1)
                     continue
 
                 player_data = result_dict.get("player", {})
                 if not player_data.get("detected"):
                     # No player detection, wait and retry
-                    await self._sleep_or_stop(0.5)
+                    await self._sleep_or_stop(0.1)
                     continue
 
                 player_pos = (player_data.get("x"), player_data.get("y"))
@@ -609,7 +611,7 @@ class CVAutoCommandHandler:
                      is_at_point=is_at_point)
 
                 # Wait before next iteration (responsive sleep to check stop event)
-                await self._sleep_or_stop(0.5)
+                await self._sleep_or_stop(0.1)
 
         except asyncio.CancelledError:
             log.info("CV-AUTO loop cancelled")

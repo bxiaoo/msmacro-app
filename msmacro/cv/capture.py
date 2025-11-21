@@ -665,14 +665,14 @@ class CVCapture:
                             f"{self._frames_failed} failed"
                         )
 
-                    # Capture at 2 FPS (web UI polls every 2 seconds, so 2 FPS is plenty)
+                    # Capture at 10 FPS for responsive object detection (CV-AUTO needs fast updates)
                     # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
                     # BUT: Skip sleep if immediate capture was requested (e.g., after config change)
                     if self._immediate_capture_requested.is_set():
                         logger.debug("Immediate capture requested - skipping sleep for immediate next frame")
                         self._immediate_capture_requested.clear()
                     else:
-                        time.sleep(0.5)  # 2 FPS capture rate
+                        time.sleep(0.1)  # 10 FPS capture rate
 
                 except Exception as e:
                     consecutive_errors += 1

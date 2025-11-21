@@ -46,20 +46,21 @@ class PointNavigator:
     - Maintain counters for sequential rotation mode
     """
 
-    def __init__(self, map_config: MapConfig, loop: bool = True):
+    def __init__(self, departure_points: List[DeparturePoint], map_name: str, loop: bool = True):
         """
         Initialize point navigator.
 
         Args:
-            map_config: MapConfig with departure points to navigate
+            departure_points: List of DeparturePoint objects to navigate through
+            map_name: Name of the map being navigated
             loop: Whether to loop back to first point after last (default: True)
         """
-        if not map_config.departure_points:
-            raise ValueError("MapConfig has no departure points")
+        if not departure_points:
+            raise ValueError("No departure points provided")
 
         # Sort points by order to ensure correct sequence
-        self.points = sorted(map_config.departure_points, key=lambda p: p.order)
-        self.map_name = map_config.name
+        self.points = sorted(departure_points, key=lambda p: p.order)
+        self.map_name = map_name
         self.loop = loop
 
         # Navigation state
