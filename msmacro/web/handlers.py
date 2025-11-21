@@ -2432,6 +2432,17 @@ async def api_cv_items_activate(request: web.Request):
 
         log.info(f"✓ Activated CV Item: {name}")
 
+        # Reload config in daemon/capture to sync changes
+        try:
+            log.info("Reloading config in daemon/capture...")
+            reload_result = await _daemon("cv_reload_config")
+            if not reload_result.get("reloaded"):
+                log.error(f"Daemon failed to reload config: {reload_result}")
+                # Continue anyway, user can manually reload if needed
+        except Exception as reload_err:
+            log.error(f"Failed to reload config in daemon: {reload_err}", exc_info=True)
+            # Continue anyway, don't fail the activation
+
         # Auto-start CV system (capture + object detection)
         try:
             log.info("Ensuring CV capture is running...")

@@ -372,6 +372,14 @@ class CVCommandHandler:
         capture = get_capture_instance()
         logger.info("🔄 CV_RELOAD_CONFIG IPC called - triggering config reload...")
         capture.reload_config()
+
+        # Also reload CV items from disk to sync any changes
+        from ..cv.cv_item import get_cv_item_manager
+        cv_item_manager = get_cv_item_manager()
+        if cv_item_manager:
+            cv_item_manager.reload()
+            logger.info("✓ CV items reloaded from disk")
+
         emit("CV_CONFIG_RELOADED")
 
         # Get current config for response

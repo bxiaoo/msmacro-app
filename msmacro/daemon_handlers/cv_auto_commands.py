@@ -228,6 +228,9 @@ class CVAutoCommandHandler:
         self._jump_key = msg.get("jump_key", "SPACE")  # Jump key alias
         self._active_skills = msg.get("active_skills", [])  # CD skills for injection
 
+        # DEBUG: Log loop setting
+        log.info(f"🔢 LOOP SETTING: {self._loop} cycles requested (loop counter starts at 0)")
+
         # Convert jump_key to HID usage ID
         jump_key_usage = name_to_usage(self._jump_key)
         if jump_key_usage == 0:
@@ -485,6 +488,7 @@ class CVAutoCommandHandler:
         when departure points are hit. Handles navigation between points.
         """
         log.info("CV-AUTO loop starting...")
+        log.info(f"🔢 INITIAL STATE: _loop_counter={self._loop_counter}, target _loop={self._loop}")
 
         try:
             while not self._cv_auto_stop_event.is_set():
@@ -593,20 +597,28 @@ class CVAutoCommandHandler:
                     total_points = self._navigator.get_state().total_points
                     if next_index == 0 and (current_index > 0 or total_points == 1):
                         self._loop_counter += 1
+
+                        # DEBUG: Detailed loop counter diagnostics
                         log.info("=" * 70)
                         log.info(f"🔄 CYCLE COMPLETED")
                         log.info(f"   Cycle: {self._loop_counter}/{self._loop}")
+                        log.info(f"   DEBUG: next_index={next_index}, current_index={current_index}, total_points={total_points}")
+                        log.info(f"   DEBUG: Increment condition: next_index==0 ({next_index == 0}) AND (current_index>0 ({current_index > 0}) OR total_points==1 ({total_points == 1}))")
                         log.info(f"   Total points: {total_points}")
                         log.info(f"   Total rotations played: {self._navigator.rotations_played_count}")
                         log.info(f"   Returning to: Point 0 ('{self._navigator.points[0].name}')")
                         log.info("=" * 70)
 
                         # Check if we've completed all desired loops
+                        # DEBUG: Log the exit condition check
+                        log.info(f"🔍 CHECKING EXIT: _loop_counter ({self._loop_counter}) >= _loop ({self._loop}) = {self._loop_counter >= self._loop}")
+
                         if self._loop_counter >= self._loop:
                             log.info("=" * 70)
                             log.info(f"✅ ALL LOOPS COMPLETED")
                             log.info(f"   Total cycles: {self._loop_counter}")
                             log.info(f"   Total rotations: {self._navigator.rotations_played_count}")
+                            log.info(f"   DEBUG: Exit triggered because {self._loop_counter} >= {self._loop}")
                             log.info(f"   Stopping CV-AUTO...")
                             log.info("=" * 70)
                             await self._stop_cv_auto(f"Completed {self._loop} loop cycles")
