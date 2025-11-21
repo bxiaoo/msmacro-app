@@ -2396,6 +2396,11 @@ async def api_cv_items_activate(request: web.Request):
     3. Load departure points
     4. Mark CV Item as active
     """
+    # DIAGNOSTIC: Confirm function is being called
+    log.info("=" * 70)
+    log.info("🔍 API_CV_ITEMS_ACTIVATE CALLED")
+    log.info("=" * 70)
+
     # Validate URL parameter
     name = request.match_info.get('name')
     if not name:
@@ -2416,6 +2421,9 @@ async def api_cv_items_activate(request: web.Request):
         if not item_check.map_config_name:
             log.warning(f"CV Item '{name}' has no map config assigned")
             return _json({"error": "CV Item has no map config assigned. Please edit the item and select a map configuration."}, 400)
+
+        # DIAGNOSTIC: About to activate item
+        log.info(f"🔍 CHECKPOINT: About to activate item '{name}'")
 
         # Attempt activation
         try:

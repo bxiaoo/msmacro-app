@@ -844,6 +844,12 @@ class CVCapture:
             if config:
                 logger.info(f"🔍 Enabling object detection with runtime config ({len(config)} params)")
 
+                # DIAGNOSTIC: Track where this is being called from
+                import traceback
+                stack = traceback.format_stack()
+                caller_info = stack[-2] if len(stack) >= 2 else "unknown"
+                logger.info(f"   Called from: {caller_info.strip()}")
+
                 # Filter config to only include valid DetectorConfig fields
                 valid_fields = {
                     'player_hsv_lower', 'player_hsv_upper', 'other_player_hsv_ranges',
@@ -866,6 +872,13 @@ class CVCapture:
                 detector_config = DetectorConfig(**filtered_config)
             else:
                 logger.info("🔍 Enabling object detection with default config loader")
+
+                # DIAGNOSTIC: Track where this is being called from
+                import traceback
+                stack = traceback.format_stack()
+                caller_info = stack[-2] if len(stack) >= 2 else "unknown"
+                logger.info(f"   Called from: {caller_info.strip()}")
+
                 # Load from config file/env/defaults
                 detector_config = load_config()
 
