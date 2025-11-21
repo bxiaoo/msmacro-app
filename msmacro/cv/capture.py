@@ -497,13 +497,6 @@ class CVCapture:
                         active_config = self._active_map_config
 
                     if active_config:
-                        logger.debug(
-                            f"🎥 FRAME CAPTURE: Using config '{active_config.name}' | "
-                            f"coords=({active_config.tl_x},{active_config.tl_y}) "
-                            f"size={active_config.width}x{active_config.height}"
-                        )
-
-                    if active_config:
                         # Use map config coordinates directly (no auto-detection)
                         region_x = active_config.tl_x
                         region_y = active_config.tl_y
@@ -514,11 +507,6 @@ class CVCapture:
                         if (region_x + region_width <= frame_width and
                             region_y + region_height <= frame_height):
                             region_detected = True
-
-                            logger.debug(
-                                f"✓ Region detected: '{active_config.name}' at ({region_x},{region_y}) "
-                                f"size {region_width}x{region_height} (frame: {frame_width}x{frame_height})"
-                            )
 
                             # Draw visual indicator ONLY when object detection is active
                             # This shows which area CV2 is processing for object detection
@@ -558,11 +546,6 @@ class CVCapture:
                             region_x:region_x + region_width
                         ].copy()  # Copy to prevent reference to full frame
 
-                        logger.debug(
-                            f"📐 MINIMAP EXTRACTED: region=({region_x},{region_y}) "
-                            f"size={region_width}x{region_height} | crop_shape={raw_minimap_crop.shape}"
-                        )
-
                     # Run object detection if enabled (only detects objects within the minimap region)
                     if self._object_detection_enabled and region_detected:
                         try:
@@ -574,12 +557,6 @@ class CVCapture:
                                     # Run detection
                                     detection_result = self._object_detector.detect(raw_minimap_crop)
                                     self._last_detection_result = detection_result
-
-                                    logger.debug(
-                                        f"🔍 DETECTION: player={detection_result.player.detected} "
-                                        f"at ({detection_result.player.x},{detection_result.player.y}) | "
-                                        f"others={detection_result.other_players.count}"
-                                    )
 
                                     # Emit SSE event (if needed)
                                     try:

@@ -876,14 +876,8 @@ class MacroDaemon:
         """
         cmd = msg.get("cmd", "unknown")
 
-        # Log CV-AUTO commands for debugging
-        if cmd.startswith("cv_auto"):
-            log.info(f"📨 IPC: Received command '{cmd}'")
-
         try:
             result = await self._dispatcher.dispatch(msg)
-            if cmd.startswith("cv_auto"):
-                log.info(f"📨 IPC: Command '{cmd}' completed successfully")
             return result
         except Exception as e:
             log.exception("IPC error on cmd=%s", cmd)

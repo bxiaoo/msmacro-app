@@ -174,12 +174,6 @@ class MinimapObjectDetector:
             adaptive_min = self.config.min_blob_size  # = 2px (includes small yellow dots)
             adaptive_max = self.config.max_blob_size  # = 100px
 
-        logger.debug(
-            f"Blob size filter ENABLED ({blob_type}) | region={width}x{height} | "
-            f"diameter range {adaptive_min}-{adaptive_max}px | "
-            f"using HSV+size+circularity+aspect+contrast filters"
-        )
-
         return adaptive_min, adaptive_max
 
     def _calculate_size_score(
@@ -674,13 +668,6 @@ class MinimapObjectDetector:
         best_blob = max(blobs, key=combined_score)
         cx, cy = best_blob['center']
 
-        logger.debug(
-            f"Player selection | blobs={len(blobs)} | "
-            f"best: pos=({cx},{cy}) diameter={best_blob['diameter']:.1f}px "
-            f"S={best_blob['saturation']} V={best_blob['value']} "
-            f"circ={best_blob['circularity']:.3f} score={combined_score(best_blob):.1f}"
-        )
-
         # Validate and clamp position to ensure it's within bounds
         cx, cy, is_valid = self._validate_and_clamp_position(
             cx, cy, frame.shape[:2], margin=2
@@ -704,8 +691,6 @@ class MinimapObjectDetector:
         # RING VALIDATION DISABLED: Use circularity score only
         # Detection relies on HSV color matching + circularity filtering
         confidence = best_blob['circularity']
-
-        logger.debug(f"Player confidence | circularity={confidence:.3f}")
 
         return PlayerPosition(
             detected=True,
