@@ -245,6 +245,7 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
 
             {currentStep === 2 && (
               <CVItemDepartureStep
+                cvItemName={editingItem?.name}
                 mapConfigName={mapConfigName}
                 departurePoints={departurePoints}
                 onDeparturePointsChange={setDeparturePoints}

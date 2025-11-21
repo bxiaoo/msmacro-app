@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Target, Pencil, Trash2 } from 'lucide-react'
-import { getDeparturePointsStatus, getCVStatus, startCVCapture, activateMapConfig, getObjectDetectionStatus, startObjectDetection, listMapConfigs } from '../../api'
+import { getDeparturePointsStatus, getCVStatus, startCVCapture, activateMapConfig, activateCVItem, getObjectDetectionStatus, startObjectDetection, listMapConfigs } from '../../api'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { RotationSelector } from '../shared/RotationSelector'
@@ -16,6 +16,7 @@ const TOLERANCE_MODES = [
 ]
 
 export function CVItemDepartureStep({
+  cvItemName,
   mapConfigName,
   departurePoints,
   onDeparturePointsChange
@@ -49,67 +50,50 @@ export function CVItemDepartureStep({
     loadMapConfig()
   }, [mapConfigName])
 
-  // Initialize CV capture, map config, and object detection on mount
+  // Initialize by activating the full CV item
   useEffect(() => {
     const initializeStep = async () => {
       try {
-        console.log('📹 [CVItemDepartureStep] Starting initialization...')
+        console.log('📹 [CVItemDepartureStep] Initializing with CV item:', cvItemName)
         setInitStatus(prev => ({ ...prev, initializing: true, error: null }))
 
-        // Step 1: Ensure CV capture is running
-        console.log('📹 [CVItemDepartureStep] Checking CV status...')
-        const cvStatus = await getCVStatus()
+        // Activate the full CV item
+        // This handles: CV capture start, map config activation, reload, OD start
+        if (cvItemName) {
+          await activateCVItem(cvItemName)
+          console.log('✅ [CVItemDepartureStep] CV item activated:', cvItemName)
 
-        if (!cvStatus.capturing) {
-          console.log('📹 [CVItemDepartureStep] CV not capturing, auto-starting...')
-          await startCVCapture({ device_index: 0 })
-          console.log('✅ [CVItemDepartureStep] CV started successfully')
+          // Mark all systems as ready since activateCVItem handles everything
+          setInitStatus({
+            cvReady: true,
+            mapActive: true,
+            odReady: true,
+            error: null,
+            initializing: false
+          })
 
-          // Wait for first frame
-          await new Promise(resolve => setTimeout(resolve, 500))
+          console.log('✅ [CVItemDepartureStep] Initialization complete')
         } else {
-          console.log('✅ [CVItemDepartureStep] CV already capturing')
+          console.warn('⚠️ [CVItemDepartureStep] No CV item name provided')
+          setInitStatus(prev => ({
+            ...prev,
+            initializing: false,
+            error: 'No CV item name provided'
+          }))
         }
-
-        setInitStatus(prev => ({ ...prev, cvReady: true }))
-
-        // Step 2: Activate the map config
-        if (mapConfigName) {
-          console.log('🗺️ [CVItemDepartureStep] Activating map config:', mapConfigName)
-          await activateMapConfig(mapConfigName)
-          console.log('✅ [CVItemDepartureStep] Map config activated')
-          setInitStatus(prev => ({ ...prev, mapActive: true }))
-        } else {
-          console.warn('⚠️ [CVItemDepartureStep] No map config name provided')
-        }
-
-        // Step 3: Start object detection if not running
-        console.log('🎯 [CVItemDepartureStep] Checking object detection status...')
-        const odStatus = await getObjectDetectionStatus()
-
-        if (!odStatus.running) {
-          console.log('🎯 [CVItemDepartureStep] Object detection not running, starting...')
-          await startObjectDetection()
-          console.log('✅ [CVItemDepartureStep] Object detection started')
-        } else {
-          console.log('✅ [CVItemDepartureStep] Object detection already running')
-        }
-
-        setInitStatus(prev => ({ ...prev, odReady: true, initializing: false }))
-        console.log('✅ [CVItemDepartureStep] Initialization complete')
 
       } catch (error) {
-        console.error('❌ [CVItemDepartureStep] Initialization failed:', error)
+        console.error('❌ [CVItemDepartureStep] Activation failed:', error)
         setInitStatus(prev => ({
           ...prev,
           initializing: false,
-          error: error.message || 'Initialization failed'
+          error: error.message || 'Activation failed'
         }))
       }
     }
 
     initializeStep()
-  }, [mapConfigName])
+  }, [cvItemName])
 
   // Poll player position and update preview (only when initialized)
   useEffect(() => {
