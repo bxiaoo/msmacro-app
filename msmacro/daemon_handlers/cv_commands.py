@@ -549,15 +549,11 @@ class CVCommandHandler:
             confidence=player_data.get("confidence", 0.0)
         )
 
-        # Reconstruct other players positions
-        other_positions = []
-        for pos_data in other_players_data.get("positions", []):
-            other_positions.append(PlayerPosition(
-                detected=True,
-                x=pos_data.get("x", 0),
-                y=pos_data.get("y", 0),
-                confidence=pos_data.get("confidence", 0.0)
-            ))
+        # Reconstruct other players positions as tuples (for visualization)
+        other_positions = [
+            (pos_data.get("x", 0), pos_data.get("y", 0))
+            for pos_data in other_players_data.get("positions", [])
+        ]
 
         other_players = OtherPlayersStatus(
             detected=other_players_data.get("detected", False),
