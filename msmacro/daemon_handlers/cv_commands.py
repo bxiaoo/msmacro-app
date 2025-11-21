@@ -408,7 +408,30 @@ class CVCommandHandler:
             "reloaded": True,
             "active_config": active_config.to_dict() if active_config else None
         }
-    
+
+    async def cv_force_frame_capture(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Force immediate frame capture to refresh map config detection region.
+
+        This is useful as a fallback when cv_reload_config fails or times out.
+        Triggers the capture loop to immediately grab a new frame with updated
+        map config coordinates.
+
+        Args:
+            msg: IPC message (unused)
+
+        Returns:
+            Dictionary with "success" key indicating if immediate capture was triggered
+        """
+        capture = get_capture_instance()
+        if capture and capture._running:
+            capture._immediate_capture_requested.set()
+            logger.info("✓ Immediate frame capture triggered")
+            return {"success": True}
+        else:
+            logger.warning("Cannot trigger immediate capture - capture not running")
+            return {"success": False, "error": "Capture not running"}
+
     async def object_detection_status(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
         Get object detection status and latest result.

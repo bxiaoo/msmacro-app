@@ -2433,15 +2433,33 @@ async def api_cv_items_activate(request: web.Request):
         log.info(f"✓ Activated CV Item: {name}")
 
         # Reload config in daemon/capture to sync changes
+        log.info(f"🔄 RELOAD STARTING for CV Item '{name}'")
+        log.info(f"   Checking CV capture status...")
+
         try:
-            log.info("Reloading config in daemon/capture...")
-            reload_result = await _daemon("cv_reload_config")
-            if not reload_result.get("reloaded"):
-                log.error(f"Daemon failed to reload config: {reload_result}")
-                # Continue anyway, user can manually reload if needed
+            # Check if CV is running first
+            import asyncio
+            cv_status = await _daemon("cv_status", timeout=5.0)
+            log.info(f"   CV status: capturing={cv_status.get('capturing', False)}")
+
+            if not cv_status.get("capturing"):
+                log.warning("   ⚠️  CV not capturing yet - config will load on first frame")
+            else:
+                log.info("   CV is capturing - proceeding with reload...")
+                log.info("   Calling cv_reload_config IPC...")
+
+                reload_result = await _daemon("cv_reload_config", timeout=10.0)
+
+                if reload_result.get("reloaded"):
+                    active_name = reload_result.get('active_config', {}).get('name', 'unknown')
+                    log.info(f"   ✅ Config reloaded successfully: {active_name}")
+                else:
+                    log.error(f"   ❌ Reload failed: {reload_result}")
+
+        except asyncio.TimeoutError:
+            log.error("   ❌ RELOAD TIMEOUT: cv_reload_config took >10s", exc_info=True)
         except Exception as reload_err:
-            log.error(f"Failed to reload config in daemon: {reload_err}", exc_info=True)
-            # Continue anyway, don't fail the activation
+            log.error(f"   ❌ RELOAD EXCEPTION: {reload_err}", exc_info=True)
 
         # Auto-start CV system (capture + object detection)
         try:
