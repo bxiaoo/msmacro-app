@@ -511,7 +511,10 @@ class CVAutoCommandHandler:
                     next_index = self._navigator.get_state().current_point_index
 
                     # Check if we completed a cycle (looped back to first point)
-                    if next_index == 0 and current_index > 0:
+                    # For single point: every rotation is a cycle
+                    # For multiple points: only when wrapping back to index 0
+                    total_points = self._navigator.get_state().total_points
+                    if next_index == 0 and (current_index > 0 or total_points == 1):
                         self._loop_counter += 1
                         log.info(f"Completed cycle {self._loop_counter}/{self._loop}")
 
@@ -545,10 +548,28 @@ class CVAutoCommandHandler:
                             log.info("Stop event detected during navigation loop")
                             break
 
-                        # Get current player position
+                        # Get current player position (with null checks)
                         capture = get_capture_instance()
+                        if not capture:
+                            log.warning("CV capture not available during navigation, retrying...")
+                            navigation_attempt += 1
+                            await self._sleep_or_stop(0.5)
+                            continue
+
                         current_result = capture.get_last_detection_result()
+                        if not current_result:
+                            log.debug("No detection result during navigation, retrying...")
+                            navigation_attempt += 1
+                            await self._sleep_or_stop(0.5)
+                            continue
+
                         player_data = current_result.get("player", {})
+                        if not player_data.get("detected"):
+                            log.debug("Player not detected during navigation, retrying...")
+                            navigation_attempt += 1
+                            await self._sleep_or_stop(0.5)
+                            continue
+
                         current_pos = (player_data.get("x"), player_data.get("y"))
 
                         # Check if player has hit the next departure point
