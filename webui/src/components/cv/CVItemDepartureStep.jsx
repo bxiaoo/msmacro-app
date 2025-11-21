@@ -52,6 +52,14 @@ export function CVItemDepartureStep({
 
   // Initialize by activating the full CV item
   useEffect(() => {
+    // ALWAYS log, even if cvItemName is undefined
+    console.log('='.repeat(70))
+    console.log('[CVItemDepartureStep] useEffect TRIGGERED')
+    console.log('[CVItemDepartureStep] cvItemName:', cvItemName)
+    console.log('[CVItemDepartureStep] cvItemName type:', typeof cvItemName)
+    console.log('[CVItemDepartureStep] cvItemName is truthy:', !!cvItemName)
+    console.log('='.repeat(70))
+
     const initializeStep = async () => {
       try {
         console.log('📹 [CVItemDepartureStep] Initializing with CV item:', cvItemName)

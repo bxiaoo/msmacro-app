@@ -243,14 +243,20 @@ export function CVItemDrawer({ isOpen, onClose, onSave, editingItem }) {
               />
             )}
 
-            {currentStep === 2 && (
-              <CVItemDepartureStep
-                cvItemName={editingItem?.name}
-                mapConfigName={mapConfigName}
-                departurePoints={departurePoints}
-                onDeparturePointsChange={setDeparturePoints}
-              />
-            )}
+            {currentStep === 2 && (() => {
+              console.log('[CVItemDrawer] Rendering CVItemDepartureStep')
+              console.log('[CVItemDrawer] editingItem:', editingItem)
+              console.log('[CVItemDrawer] editingItem?.name:', editingItem?.name)
+              console.log('[CVItemDrawer] mapConfigName:', mapConfigName)
+              return (
+                <CVItemDepartureStep
+                  cvItemName={editingItem?.name}
+                  mapConfigName={mapConfigName}
+                  departurePoints={departurePoints}
+                  onDeparturePointsChange={setDeparturePoints}
+                />
+              )
+            })()}
           </div>
 
           {/* Action buttons */}
