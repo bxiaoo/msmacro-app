@@ -322,44 +322,68 @@ class CVAutoCommandHandler:
         if not self._cv_auto_task or self._cv_auto_task.done():
             return {"ok": True, "message": "CV-AUTO mode not running"}
 
-        log.info("Stopping CV-AUTO mode...")
+        log.info("=" * 70)
+        log.info("🛑 CV-AUTO STOP INITIATED")
+        log.info(f"   Current mode: {self.daemon.mode}")
+        log.info(f"   Task running: {self._cv_auto_task and not self._cv_auto_task.done()}")
+        log.info(f"   Loop counter: {self._loop_counter}/{self._loop}")
+        log.info(f"   Rotations played: {self._navigator.rotations_played_count if self._navigator else 0}")
+        log.info("=" * 70)
 
         # Signal stop
         if self._cv_auto_stop_event:
             self._cv_auto_stop_event.set()
+            log.info("✓ Stop event signaled")
 
         # Wait for task to complete
         try:
             await asyncio.wait_for(self._cv_auto_task, timeout=3.0)
+            log.info("✓ CV-AUTO task completed gracefully")
         except asyncio.TimeoutError:
             log.warning("CV-AUTO task did not stop gracefully, cancelling...")
             self._cv_auto_task.cancel()
             try:
                 await self._cv_auto_task
+                log.info("✓ CV-AUTO task cancelled")
             except asyncio.CancelledError:
                 pass
 
         # Stop hotkey watcher
         await self._stop_cv_auto_hotkeys()
+        log.info("✓ Hotkey watcher stopped")
 
-        # Cleanup
+        # Cleanup components
         self._cv_auto_task = None
         self._cv_auto_stop_event = None
         self._navigator = None
         self._pathfinder = None
         self._port_handler = None
         self._port_detector = None
+        log.info("✓ Components cleaned up")
 
-        # Restart bridge runner to enable physical keyboard again
-        log.info("Restarting bridge runner to enable physical keyboard...")
-        await self.daemon._ensure_runner_started()
+        # Reset state variables (CRITICAL: prevents state pollution between sessions)
+        self._loop_counter = 0
+        self._last_triggered_point = None
+        self._cv_auto_state = "idle"
+        log.info("✓ State variables reset")
 
-        # Return to BRIDGE mode
+        # Return to BRIDGE mode (BEFORE restarting bridge runner)
+        log.info("🔄 MODE TRANSITION: CV_AUTO → BRIDGE")
         self.daemon.mode = "BRIDGE"
         emit("MODE", mode="BRIDGE")
+        log.info(f"✓ Mode set to: {self.daemon.mode}")
+
+        # Restart bridge runner to enable physical keyboard again
+        log.info("🔄 Restarting bridge runner to enable physical keyboard...")
+        await self.daemon._ensure_runner_started()
+        log.info("✓ Bridge runner restarted")
+
+        # Emit stopped event
         emit("CV_AUTO_STOPPED")
 
-        log.info("CV-AUTO mode stopped")
+        log.info("=" * 70)
+        log.info("✅ CV-AUTO STOPPED SUCCESSFULLY")
+        log.info("=" * 70)
         return {"ok": True}
 
     async def cv_auto_status(self, msg: Dict[str, Any]) -> Dict[str, Any]:
@@ -507,10 +531,22 @@ class CVAutoCommandHandler:
                 if current_point.check_hit(player_pos[0], player_pos[1]):
                     if self._last_triggered_point == current_point.name:
                         # Already triggered this point, skip to avoid double-counting
+                        log.debug(f"⏭️  Point '{current_point.name}' already triggered, skipping")
                         await self._sleep_or_stop(0.1)
                         continue
 
-                    log.info(f"Player hit departure point '{current_point.name}'!")
+                    # Calculate distance for logging
+                    import math
+                    distance = math.sqrt((player_pos[0] - current_point.x)**2 + (player_pos[1] - current_point.y)**2)
+
+                    log.info("=" * 70)
+                    log.info(f"🎯 HIT DEPARTURE POINT: '{current_point.name}'")
+                    log.info(f"   Player position: ({player_pos[0]}, {player_pos[1]})")
+                    log.info(f"   Point position: ({current_point.x}, {current_point.y})")
+                    log.info(f"   Distance: {distance:.1f}px")
+                    log.info(f"   Tolerance: {current_point.tolerance_mode}={current_point.tolerance_value}")
+                    log.info(f"   Auto-play: {current_point.auto_play}")
+                    log.info("=" * 70)
                     self._cv_auto_state = "hit_departure_point"
 
                     # Select rotation to play
@@ -557,11 +593,22 @@ class CVAutoCommandHandler:
                     total_points = self._navigator.get_state().total_points
                     if next_index == 0 and (current_index > 0 or total_points == 1):
                         self._loop_counter += 1
-                        log.info(f"Completed cycle {self._loop_counter}/{self._loop}")
+                        log.info("=" * 70)
+                        log.info(f"🔄 CYCLE COMPLETED")
+                        log.info(f"   Cycle: {self._loop_counter}/{self._loop}")
+                        log.info(f"   Total points: {total_points}")
+                        log.info(f"   Total rotations played: {self._navigator.rotations_played_count}")
+                        log.info(f"   Returning to: Point 0 ('{self._navigator.points[0].name}')")
+                        log.info("=" * 70)
 
                         # Check if we've completed all desired loops
                         if self._loop_counter >= self._loop:
-                            log.info(f"Completed {self._loop} loop(s), stopping CV-AUTO")
+                            log.info("=" * 70)
+                            log.info(f"✅ ALL LOOPS COMPLETED")
+                            log.info(f"   Total cycles: {self._loop_counter}")
+                            log.info(f"   Total rotations: {self._navigator.rotations_played_count}")
+                            log.info(f"   Stopping CV-AUTO...")
+                            log.info("=" * 70)
                             await self._stop_cv_auto(f"Completed {self._loop} loop cycles")
                             break
 
@@ -746,6 +793,12 @@ class CVAutoCommandHandler:
 
             log.info(f"   Full path resolved: {full_path}")
             log.info(f"   File exists: {Path(full_path).exists()}")
+            log.info(f"   Playback settings:")
+            log.info(f"      Speed: {self._speed}x")
+            log.info(f"      Jitter time: {self._jitter_time}s")
+            log.info(f"      Jitter hold: {self._jitter_hold}s")
+            log.info(f"      Active skills: {len(getattr(self, '_active_skills', []))}")
+            log.info(f"   Cycle progress: {self._loop_counter + 1}/{self._loop}")
 
             if not Path(full_path).exists():
                 log.error(f"❌ ROTATION FILE NOT FOUND: {full_path}")
@@ -808,8 +861,8 @@ class CVAutoCommandHandler:
         Similar to daemon._play_hotkeys() but for CV-AUTO mode.
         """
         stop_spec = getattr(SETTINGS, "stop_hotkey", "LCTRL+Q")
-        log.debug("CV-AUTO hotkeys watcher starting (mode=%s, stop_event=%s)",
-                  self.daemon.mode, self._cv_auto_stop_event is not None)
+        log.info("🎹 CV-AUTO HOTKEY WATCHER STARTED")
+        log.info(f"   Stop hotkey: {stop_spec}")
 
         try:
             if parse_hotkey is None:
@@ -831,12 +884,9 @@ class CVAutoCommandHandler:
 
         try:
             dev = InputDevice(evdev_path)
-            log.debug("CV-AUTO hotkeys: Successfully opened device %s", evdev_path)
         except Exception as e:
             log.warning("CV-AUTO hotkeys: cannot open %s: %s", evdev_path, e)
             return
-
-        log.debug("CV-AUTO hotkeys watcher running (stop=%s)", stop_spec)
 
         mod_dn = key_dn = armed = False
         try:
@@ -850,11 +900,6 @@ class CVAutoCommandHandler:
                 code, val = ev.code, ev.value
                 if val == 2:  # repeat
                     continue
-
-                if val == 1:
-                    log.debug("CV-AUTO watcher: key DOWN code=%d", code)
-                elif val == 0:
-                    log.debug("CV-AUTO watcher: key UP code=%d", code)
 
                 if mod_ec is not None and key_ec is not None:
                     if code == mod_ec:
