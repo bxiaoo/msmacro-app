@@ -625,13 +625,6 @@ class CVCapture:
                     # Reset error counter on successful frame capture
                     consecutive_errors = 0
 
-                    # Health logging: Log every 100 frames to confirm loop is alive
-                    if self._frames_captured % 100 == 0:
-                        logger.info(
-                            f"📊 Capture health: {self._frames_captured} frames captured, "
-                            f"{self._frames_failed} failed"
-                        )
-
                     # Capture at 10 FPS for responsive object detection (CV-AUTO needs fast updates)
                     # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
                     # BUT: Skip sleep if immediate capture was requested (e.g., after config change)

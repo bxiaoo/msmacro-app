@@ -380,6 +380,19 @@ class CVCommandHandler:
             cv_item_manager.reload()
             logger.info("✓ CV items reloaded from disk")
 
+        # Restart object detection to apply any config changes
+        # This ensures the detection preview updates when switching CV items
+        if capture._object_detection_enabled:
+            try:
+                from ..cv.detection_config import load_config
+                new_config = load_config()
+                capture.disable_object_detection()
+                capture.enable_object_detection(new_config.__dict__)
+                logger.info("✓ Detection restarted with reloaded config")
+            except Exception as det_err:
+                logger.error(f"Failed to restart detection: {det_err}", exc_info=True)
+                # Continue anyway, don't fail the reload
+
         emit("CV_CONFIG_RELOADED")
 
         # Get current config for response
@@ -558,17 +571,9 @@ class CVCommandHandler:
             timestamp=last_result_dict.get("timestamp", 0.0)
         )
 
-        logger.debug(
-            f"Rendering detection preview | "
-            f"player.detected={result.player.detected} | "
-            f"player.pos=({result.player.x},{result.player.y}) | "
-            f"other_players.count={result.other_players.count}"
-        )
-
         # Visualize detection on minimap
         try:
             visualized = capture._object_detector.visualize(raw_crop, result)
-            logger.debug(f"Visualization complete | frame_shape={visualized.shape}")
         except Exception as viz_err:
             logger.error(f"Visualization failed: {viz_err}", exc_info=True)
             return {
@@ -590,8 +595,6 @@ class CVCommandHandler:
 
             png_bytes = png_data.tobytes()
             preview_b64 = base64.b64encode(png_bytes).decode('ascii')
-
-            logger.debug(f"Detection preview generated | size={len(png_bytes)} bytes")
 
             return {
                 "success": True,
