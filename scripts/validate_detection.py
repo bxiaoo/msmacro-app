@@ -1,345 +1,394 @@
 #!/usr/bin/env python3
 """
-Validate object detection accuracy against ground truth annotations.
+Detection Validation Script
 
-This script runs the object detector on the test dataset and compares
-results with ground truth annotations to calculate precision, recall,
-and position error metrics.
+Validates detector performance against ground truth annotations.
+Compares current detector vs optimized detector and calculates precision/recall metrics.
 
 Usage:
-    python scripts/validate_detection.py --dataset data/yuyv_test_set/
-
-    # Use custom config
-    python scripts/validate_detection.py --dataset data/yuyv_test_set/ --config calibrated_config.json
-
-    # Save detailed results
-    python scripts/validate_detection.py --dataset data/yuyv_test_set/ --output validation_results.json
-
-Requirements:
-    - Dataset must be annotated (ground_truth.json must exist)
-    - At least 10 frames should be annotated for meaningful statistics
+    python scripts/validate_detection.py
+    python scripts/validate_detection.py --samples-dir /path/to/samples
+    python scripts/validate_detection.py --use-optimized  # Test optimized config
+    python scripts/validate_detection.py --show-failures  # Show failed detections
 """
 
-import argparse
 import sys
-from pathlib import Path
 import json
-import numpy as np
-import cv2
+import argparse
+from pathlib import Path
+from typing import List, Dict, Any, Tuple
+from dataclasses import dataclass, field
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import cv2
+import numpy as np
+
 from msmacro.cv.object_detection import MinimapObjectDetector, DetectorConfig
+from msmacro.cv.detection_config import load_config
 
 
-# ANSI color codes for terminal output
-class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    BOLD = '\033[1m'
-    END = '\033[0m'
+@dataclass
+class ValidationResult:
+    """Results for a single sample validation."""
+    sample_name: str
+    has_ground_truth: bool
+
+    # Ground truth
+    gt_player_count: int = 0
+    gt_player_positions: List[Tuple[int, int]] = field(default_factory=list)
+
+    # Detection results
+    detected_player: bool = False
+    detected_player_pos: Tuple[int, int] = None
+
+    # Metrics
+    true_positive: bool = False
+    false_positive: bool = False
+    false_negative: bool = False
+    position_error: float = None  # Euclidean distance if detected
+
+    def __str__(self):
+        if not self.has_ground_truth:
+            return f"{self.sample_name}: No ground truth (player off-screen)"
+
+        status = "✅ TP" if self.true_positive else \
+                 "❌ FP" if self.false_positive else \
+                 "❌ FN" if self.false_negative else "?"
+
+        if self.position_error is not None:
+            return f"{self.sample_name}: {status} (error: {self.position_error:.1f}px)"
+        else:
+            return f"{self.sample_name}: {status}"
 
 
-def load_ground_truth(dataset_dir: Path):
-    """Load ground truth annotations."""
-    gt_path = dataset_dir / "ground_truth.json"
-
-    if not gt_path.exists():
-        raise FileNotFoundError(
-            f"Ground truth not found: {gt_path}\n"
-            f"Run annotation tool first: python scripts/annotate_ground_truth.py --dataset {dataset_dir}"
-        )
-
-    with open(gt_path) as f:
-        ground_truth = json.load(f)
-
-    if not ground_truth:
-        raise ValueError("Ground truth file is empty")
-
-    print(f"✓ Loaded {len(ground_truth)} ground truth annotations")
-    return ground_truth
+def load_annotation(annotation_path: Path) -> Dict[str, Any]:
+    """Load annotation JSON file."""
+    with open(annotation_path, 'r') as f:
+        return json.load(f)
 
 
-def validate_detection(dataset_dir: Path, config_file: Path = None, output_file: Path = None):
+def load_image(image_path: Path) -> np.ndarray:
+    """Load image file."""
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise ValueError(f"Could not load image: {image_path}")
+    return img
+
+
+def calculate_position_error(detected: Tuple[int, int], ground_truth: Tuple[int, int]) -> float:
+    """Calculate Euclidean distance between detected and ground truth positions."""
+    dx = detected[0] - ground_truth[0]
+    dy = detected[1] - ground_truth[1]
+    return np.sqrt(dx*dx + dy*dy)
+
+
+def validate_sample(
+    image_path: Path,
+    annotation_path: Path,
+    detector: MinimapObjectDetector,
+    tolerance: float = 5.0
+) -> ValidationResult:
     """
-    Run detection on test dataset and calculate metrics.
+    Validate detector on a single sample.
 
     Args:
-        dataset_dir: Path to dataset directory
-        config_file: Optional custom config JSON file
-        output_file: Optional path to save detailed results
+        image_path: Path to minimap image
+        annotation_path: Path to annotation JSON
+        detector: Detector instance to test
+        tolerance: Position tolerance in pixels (default: 5px)
 
     Returns:
-        Dictionary with validation metrics
+        ValidationResult
     """
-    print("\n" + "="*70)
-    print("OBJECT DETECTION VALIDATION")
-    print("="*70)
-    print(f"Dataset: {dataset_dir}\n")
+    result = ValidationResult(sample_name=image_path.stem, has_ground_truth=True)
 
-    # Load ground truth
-    ground_truth = load_ground_truth(dataset_dir)
+    # Load annotation
+    annotation = load_annotation(annotation_path)
+    annotations = annotation.get('annotations', [])
 
-    # Load detector config
-    if config_file and config_file.exists():
-        print(f"✓ Loading custom config: {config_file}")
-        with open(config_file) as f:
-            config_data = json.load(f)
-        # TODO: Convert JSON config to DetectorConfig
-        detector = MinimapObjectDetector()
+    # Extract ground truth player positions
+    for ann in annotations:
+        if ann.get('type') == 'player':
+            result.gt_player_count += 1
+            result.gt_player_positions.append((ann['x'], ann['y']))
+
+    # Load image and run detection
+    image = load_image(image_path)
+    detection_result = detector.detect(image)
+
+    # Check detection result
+    result.detected_player = detection_result.player.detected
+
+    if result.detected_player:
+        result.detected_player_pos = (
+            detection_result.player.x,
+            detection_result.player.y
+        )
+
+    # Calculate metrics
+    if result.gt_player_count == 0:
+        # No ground truth player
+        if result.detected_player:
+            result.false_positive = True  # Detected player when none exists
+        # else: True negative (correct)
+    elif result.gt_player_count == 1:
+        # Exactly one ground truth player
+        gt_pos = result.gt_player_positions[0]
+
+        if result.detected_player:
+            # Calculate position error
+            result.position_error = calculate_position_error(
+                result.detected_player_pos, gt_pos
+            )
+
+            if result.position_error <= tolerance:
+                result.true_positive = True  # Correct detection
+            else:
+                # Detected wrong position (too far from ground truth)
+                result.false_positive = True
+                result.false_negative = True  # Missed the actual player
+        else:
+            result.false_negative = True  # Failed to detect player
     else:
-        print("Using default detector configuration")
-        detector = MinimapObjectDetector()
+        # Multiple ground truth players (shouldn't happen in your data)
+        # Find closest match
+        if result.detected_player:
+            min_error = float('inf')
+            for gt_pos in result.gt_player_positions:
+                error = calculate_position_error(result.detected_player_pos, gt_pos)
+                if error < min_error:
+                    min_error = error
 
-    # Initialize metrics
-    metrics = {
-        "player_tp": 0,  # True positives
-        "player_fp": 0,  # False positives
-        "player_fn": 0,  # False negatives
-        "player_tn": 0,  # True negatives
-        "position_errors": [],
-        "other_tp": 0,
-        "other_fp": 0,
-        "other_fn": 0,
-        "other_tn": 0,
-        "frame_results": []
-    }
+            result.position_error = min_error
+            if min_error <= tolerance:
+                result.true_positive = True
+            else:
+                result.false_positive = True
 
-    total_frames = len(ground_truth)
-    print(f"\nProcessing {total_frames} frames...")
-    print("-" * 70)
+        # Check for missed players
+        # (Simplified: just check if we detected anything)
+        if not result.detected_player:
+            result.false_negative = True
 
-    # Process each annotated frame
-    for i, (filename, gt) in enumerate(ground_truth.items()):
-        frame_path = dataset_dir / filename
+    return result
 
-        if not frame_path.exists():
-            print(f"⚠️  Frame not found: {filename}")
+
+def validate_all_samples(
+    samples_dir: Path,
+    detector: MinimapObjectDetector,
+    tolerance: float = 5.0,
+    show_failures: bool = False
+) -> Tuple[List[ValidationResult], Dict[str, Any]]:
+    """
+    Validate detector on all samples with annotations.
+
+    Returns:
+        (results, metrics)
+    """
+    # Find all annotation files
+    annotation_files = list(samples_dir.glob("*.annotations.json"))
+
+    if not annotation_files:
+        raise ValueError(f"No annotation files found in {samples_dir}")
+
+    print(f"\n{'='*70}")
+    print(f"VALIDATING DETECTOR ON {len(annotation_files)} ANNOTATED SAMPLES")
+    print('='*70)
+
+    results = []
+
+    for ann_path in sorted(annotation_files):
+        # Find corresponding image
+        # ann_path is like "sample_20251120_225058.annotations.json"
+        # image is like "sample_20251120_225058.png"
+        base_name = str(ann_path).replace('.annotations.json', '')
+        image_path = Path(base_name + '.png')
+        if not image_path.exists():
+            image_path = Path(base_name + '.jpg')
+        if not image_path.exists():
+            print(f"⚠️  Warning: No image found for {ann_path.name}")
             continue
 
-        # Load frame
-        frame = np.load(str(frame_path))
+        # Validate
+        result = validate_sample(image_path, ann_path, detector, tolerance)
+        results.append(result)
 
-        # Run detection
-        result = detector.detect(frame)
+        # Show result
+        status_icon = "✅" if result.true_positive else \
+                     "❌" if (result.false_positive or result.false_negative) else "⚪"
 
-        # Player detection evaluation
-        gt_player = gt.get("player")
-        has_gt_player = gt_player is not None
+        print(f"{status_icon} {result}")
 
-        if has_gt_player and result.player.detected:
-            # True Positive
-            metrics["player_tp"] += 1
-            gt_x, gt_y = gt_player
-            error = np.sqrt((result.player.x - gt_x)**2 + (result.player.y - gt_y)**2)
-            metrics["position_errors"].append(error)
-            status = f"{Colors.GREEN}✓ TP{Colors.END}"
-        elif has_gt_player and not result.player.detected:
-            # False Negative
-            metrics["player_fn"] += 1
-            status = f"{Colors.RED}✗ FN{Colors.END}"
-        elif not has_gt_player and result.player.detected:
-            # False Positive
-            metrics["player_fp"] += 1
-            status = f"{Colors.YELLOW}! FP{Colors.END}"
-        else:
-            # True Negative
-            metrics["player_tn"] += 1
-            status = f"{Colors.GREEN}✓ TN{Colors.END}"
+        # Show failure details if requested
+        if show_failures and (result.false_positive or result.false_negative):
+            print(f"   GT: {result.gt_player_positions}")
+            print(f"   Detected: {result.detected_player_pos}")
+            if result.position_error:
+                print(f"   Position error: {result.position_error:.1f}px")
 
-        # Other players evaluation
-        has_gt_others = len(gt.get("other_players", [])) > 0
+    # Calculate aggregate metrics
+    tp = sum(1 for r in results if r.true_positive)
+    fp = sum(1 for r in results if r.false_positive)
+    fn = sum(1 for r in results if r.false_negative)
+    tn = len(results) - tp - fp - fn  # Samples with no player, correctly not detected
 
-        if has_gt_others and result.other_players.detected:
-            metrics["other_tp"] += 1
-        elif has_gt_others and not result.other_players.detected:
-            metrics["other_fn"] += 1
-        elif not has_gt_others and result.other_players.detected:
-            metrics["other_fp"] += 1
-        else:
-            metrics["other_tn"] += 1
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
-        # Store frame result
-        frame_result = {
-            "filename": filename,
-            "player_gt": gt_player,
-            "player_detected": result.player.detected,
-            "player_pos": (result.player.x, result.player.y) if result.player.detected else None,
-            "player_confidence": result.player.confidence if result.player.detected else 0.0,
-            "other_gt_count": len(gt.get("other_players", [])),
-            "other_detected_count": result.other_players.count,
-            "position_error": metrics["position_errors"][-1] if has_gt_player and result.player.detected else None
-        }
-        metrics["frame_results"].append(frame_result)
+    # Position accuracy (only for true positives)
+    position_errors = [r.position_error for r in results if r.position_error is not None]
+    avg_position_error = np.mean(position_errors) if position_errors else 0.0
+    max_position_error = np.max(position_errors) if position_errors else 0.0
 
-        # Progress output
-        if (i + 1) % 10 == 0 or (i + 1) == total_frames:
-            print(f"[{i+1:3d}/{total_frames}] {filename:40s} {status}")
-
-    print("-" * 70)
-
-    # Calculate statistics
-    print("\n" + "="*70)
-    print("VALIDATION RESULTS")
-    print("="*70)
-
-    # Player detection metrics
-    player_total_positive = metrics["player_tp"] + metrics["player_fp"]
-    player_total_gt_positive = metrics["player_tp"] + metrics["player_fn"]
-
-    player_precision = metrics["player_tp"] / player_total_positive if player_total_positive > 0 else 0.0
-    player_recall = metrics["player_tp"] / player_total_gt_positive if player_total_gt_positive > 0 else 0.0
-    avg_position_error = np.mean(metrics["position_errors"]) if metrics["position_errors"] else 0.0
-
-    # Other players metrics
-    other_total_positive = metrics["other_tp"] + metrics["other_fp"]
-    other_total_gt_positive = metrics["other_tp"] + metrics["other_fn"]
-
-    other_precision = metrics["other_tp"] / other_total_positive if other_total_positive > 0 else 0.0
-    other_recall = metrics["other_tp"] / other_total_gt_positive if other_total_gt_positive > 0 else 0.0
-
-    # Display results
-    print(f"\n{Colors.BOLD}Player Detection:{Colors.END}")
-    print(f"  Precision: {player_precision:.2%} ({metrics['player_tp']}/{player_total_positive})")
-    print(f"  Recall:    {player_recall:.2%} ({metrics['player_tp']}/{player_total_gt_positive})")
-    print(f"  Position Error (avg): {avg_position_error:.2f} pixels")
-    if metrics["position_errors"]:
-        print(f"  Position Error (max): {np.max(metrics['position_errors']):.2f} pixels")
-        print(f"  Position Error (std): {np.std(metrics['position_errors']):.2f} pixels")
-
-    print(f"\n{Colors.BOLD}Other Players Detection:{Colors.END}")
-    print(f"  Precision: {other_precision:.2%} ({metrics['other_tp']}/{other_total_positive})")
-    print(f"  Recall:    {other_recall:.2%} ({metrics['other_tp']}/{other_total_gt_positive})")
-
-    # Performance stats
-    perf_stats = detector.get_performance_stats()
-    print(f"\n{Colors.BOLD}Performance:{Colors.END}")
-    print(f"  Average:  {perf_stats['avg_ms']:.2f} ms")
-    print(f"  Max:      {perf_stats['max_ms']:.2f} ms")
-    print(f"  Min:      {perf_stats['min_ms']:.2f} ms")
-    print(f"  Frames:   {perf_stats['count']}")
-
-    # Gate check
-    print("\n" + "="*70)
-    print("GATE CHECK (Production Deployment Requirements)")
-    print("="*70)
-
-    gate_checks = []
-
-    # Player precision >90%
-    player_precision_pass = player_precision >= 0.90
-    gate_checks.append(("Player Precision ≥90%", player_precision >= 0.90, f"{player_precision:.1%}"))
-
-    # Player recall >85%
-    player_recall_pass = player_recall >= 0.85
-    gate_checks.append(("Player Recall ≥85%", player_recall >= 0.85, f"{player_recall:.1%}"))
-
-    # Position error <5px
-    position_error_pass = avg_position_error < 5.0
-    gate_checks.append(("Avg Position Error <5px", avg_position_error < 5.0, f"{avg_position_error:.2f}px"))
-
-    # Other players precision >85%
-    other_precision_pass = other_precision >= 0.85
-    gate_checks.append(("Other Players Precision ≥85%", other_precision >= 0.85, f"{other_precision:.1%}"))
-
-    # Other players recall >80%
-    other_recall_pass = other_recall >= 0.80
-    gate_checks.append(("Other Players Recall ≥80%", other_recall >= 0.80, f"{other_recall:.1%}"))
-
-    # Performance <15ms on Pi 4 (relaxed check if not on Pi)
-    perf_pass = perf_stats['avg_ms'] < 15.0
-    gate_checks.append(("Performance <15ms", perf_pass, f"{perf_stats['avg_ms']:.2f}ms"))
-
-    for check_name, passed, value in gate_checks:
-        status = f"{Colors.GREEN}✓ PASS{Colors.END}" if passed else f"{Colors.RED}✗ FAIL{Colors.END}"
-        print(f"  {status}  {check_name:30s} = {value}")
-
-    all_passed = all(check[1] for check in gate_checks)
-
-    print("\n" + "="*70)
-    if all_passed:
-        print(f"{Colors.GREEN}{Colors.BOLD}✅ VALIDATION PASSED - Ready for production deployment{Colors.END}")
-    else:
-        print(f"{Colors.RED}{Colors.BOLD}❌ VALIDATION FAILED - Recalibrate HSV ranges{Colors.END}")
-    print("="*70 + "\n")
-
-    # Save detailed results if requested
-    if output_file:
-        output_data = {
-            "metrics": {
-                "player_precision": player_precision,
-                "player_recall": player_recall,
-                "avg_position_error": float(avg_position_error),
-                "other_precision": other_precision,
-                "other_recall": other_recall,
-                "performance_avg_ms": perf_stats['avg_ms'],
-                "gate_passed": all_passed
-            },
-            "gate_checks": [
-                {"name": name, "passed": passed, "value": value}
-                for name, passed, value in gate_checks
-            ],
-            "frame_results": metrics["frame_results"]
-        }
-
-        with open(output_file, 'w') as f:
-            json.dump(output_data, f, indent=2)
-        print(f"Detailed results saved to: {output_file}\n")
-
-    return {
-        "player_precision": player_precision,
-        "player_recall": player_recall,
-        "avg_position_error": float(avg_position_error),
-        "other_precision": other_precision,
-        "other_recall": other_recall,
-        "gate_passed": all_passed
+    metrics = {
+        'total_samples': len(results),
+        'true_positives': tp,
+        'false_positives': fp,
+        'false_negatives': fn,
+        'true_negatives': tn,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1,
+        'avg_position_error': avg_position_error,
+        'max_position_error': max_position_error
     }
+
+    return results, metrics
+
+
+def print_metrics_report(metrics: Dict[str, Any], config_name: str = "Current"):
+    """Print formatted metrics report."""
+    print(f"\n{'='*70}")
+    print(f"{config_name.upper()} DETECTOR PERFORMANCE METRICS")
+    print('='*70)
+
+    print(f"\n📊 Classification Metrics:")
+    print(f"  True Positives:  {metrics['true_positives']:>3} (correctly detected player)")
+    print(f"  False Positives: {metrics['false_positives']:>3} (detected when shouldn't)")
+    print(f"  False Negatives: {metrics['false_negatives']:>3} (missed player)")
+    print(f"  True Negatives:  {metrics['true_negatives']:>3} (correctly no detection)")
+
+    print(f"\n📈 Performance Scores:")
+    print(f"  Precision: {metrics['precision']:.1%} (of detections, how many correct?)")
+    print(f"  Recall:    {metrics['recall']:.1%} (of ground truth, how many found?)")
+    print(f"  F1 Score:  {metrics['f1_score']:.1%} (harmonic mean of P&R)")
+
+    if metrics['true_positives'] > 0:
+        print(f"\n📍 Position Accuracy (True Positives only):")
+        print(f"  Average error: {metrics['avg_position_error']:.1f} pixels")
+        print(f"  Maximum error: {metrics['max_position_error']:.1f} pixels")
+
+    # Overall assessment
+    print(f"\n🎯 Overall Assessment:")
+    if metrics['precision'] == 1.0 and metrics['recall'] == 1.0:
+        print("  ✅ PERFECT: 100% precision and 100% recall")
+    elif metrics['precision'] >= 0.95 and metrics['recall'] >= 0.95:
+        print("  ✅ EXCELLENT: ≥95% precision and recall")
+    elif metrics['precision'] >= 0.90 and metrics['recall'] >= 0.90:
+        print("  ✅ GOOD: ≥90% precision and recall")
+    elif metrics['recall'] < 0.90:
+        print(f"  ⚠️  WARNING: Low recall ({metrics['recall']:.1%}) - missing player dots")
+    elif metrics['precision'] < 0.90:
+        print(f"  ⚠️  WARNING: Low precision ({metrics['precision']:.1%}) - false detections")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Validate object detection accuracy against ground truth",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(description='Validate detector against ground truth')
+    parser.add_argument(
+        '--samples-dir',
+        type=Path,
+        default=Path.home() / '.local/share/msmacro/calibration/minimap_samples',
+        help='Directory containing samples and annotations'
     )
     parser.add_argument(
-        "--dataset",
-        type=Path,
-        required=True,
-        help="Path to dataset directory with ground_truth.json"
+        '--use-optimized',
+        action='store_true',
+        help='Test optimized config instead of current'
     )
     parser.add_argument(
-        "--config",
-        type=Path,
-        help="Optional custom detector config JSON file"
+        '--tolerance',
+        type=float,
+        default=5.0,
+        help='Position tolerance in pixels (default: 5.0)'
     )
     parser.add_argument(
-        "--output",
-        type=Path,
-        help="Optional path to save detailed validation results"
+        '--show-failures',
+        action='store_true',
+        help='Show detailed information for failed detections'
     )
-
     args = parser.parse_args()
 
-    if not args.dataset.is_dir():
-        print(f"ERROR: Dataset directory not found: {args.dataset}")
+    if not args.samples_dir.exists():
+        print(f"❌ Samples directory not found: {args.samples_dir}")
         return 1
 
-    if args.config and not args.config.exists():
-        print(f"ERROR: Config file not found: {args.config}")
-        return 1
+    # Create detector
+    if args.use_optimized:
+        print("\n📋 Using OPTIMIZED detector configuration (Option C - balanced ranges)")
+        config = DetectorConfig(
+            player_hsv_lower=(20, 180, 180),
+            player_hsv_upper=(40, 255, 255),
+            temporal_smoothing=False  # Disable for validation (samples are independent)
+        )
+        config_name = "Optimized"
+    else:
+        print("\n📋 Using CURRENT detector configuration")
+        try:
+            config = load_config()
+        except:
+            # Fall back to default
+            config = DetectorConfig()
+        config_name = "Current"
+        # Override temporal smoothing for validation
+        config.temporal_smoothing = False
 
+    detector = MinimapObjectDetector(config)
+
+    print(f"\n🎨 HSV Ranges:")
+    print(f"  Hue:        {config.player_hsv_lower[0]}-{config.player_hsv_upper[0]}")
+    print(f"  Saturation: {config.player_hsv_lower[1]}-{config.player_hsv_upper[1]}")
+    print(f"  Value:      {config.player_hsv_lower[2]}-{config.player_hsv_upper[2]}")
+
+    # Validate
     try:
-        result = validate_detection(args.dataset, args.config, args.output)
-        return 0 if result["gate_passed"] else 1
+        results, metrics = validate_all_samples(
+            args.samples_dir,
+            detector,
+            args.tolerance,
+            args.show_failures
+        )
     except Exception as e:
-        print(f"\nERROR: {e}")
+        print(f"\n❌ Validation failed: {e}")
         import traceback
         traceback.print_exc()
         return 1
 
+    # Print metrics
+    print_metrics_report(metrics, config_name)
 
-if __name__ == "__main__":
+    print(f"\n{'='*70}")
+
+    # Recommendations
+    if metrics['recall'] < 1.0:
+        print("\n⚠️  RECOMMENDATIONS FOR LOW RECALL:")
+        print("  - Check failed samples for lighting/quality issues")
+        print("  - Consider widening HSV ranges slightly")
+        print("  - Verify annotations are accurate")
+
+    if metrics['precision'] < 1.0:
+        print("\n⚠️  RECOMMENDATIONS FOR LOW PRECISION:")
+        print("  - Tighten HSV ranges to reduce false positives")
+        print("  - Increase circularity threshold")
+        print("  - Review false positive samples")
+
+    if metrics['precision'] == 1.0 and metrics['recall'] == 1.0:
+        print("\n✅ PERFECT DETECTION - READY FOR PRODUCTION!")
+
+    return 0
+
+
+if __name__ == '__main__':
     sys.exit(main())

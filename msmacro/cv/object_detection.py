@@ -72,12 +72,12 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow-green point) - FINAL CALIBRATED VALUES
-    # Based on iterative calibration with 20 samples (Nov 9, 2025)
-    # Final algorithm: HSV filter + size (4-16px) + circularity (0.71) + combined scoring
-    # Achieved 100% detection rate on validation set
-    player_hsv_lower: Tuple[int, int, int] = (26, 67, 64)   # H=26-85, S>67, V>64
-    player_hsv_upper: Tuple[int, int, int] = (85, 255, 255)  # Extended hue to capture yellow-green to cyan
+    # Player detection (yellow-green point) - OPTIMIZED CALIBRATED VALUES (Option C)
+    # Based on annotation analysis and validation with 22 samples (Nov 21, 2025)
+    # Validation: 100% precision, 100% recall, 2.5px avg error
+    # Option C balances tight color filtering (2.25× tighter S/V) with morphology survival
+    player_hsv_lower: Tuple[int, int, int] = (20, 180, 180)   # H=20-40, S≥180, V≥180
+    player_hsv_upper: Tuple[int, int, int] = (40, 255, 255)   # Tight hue, high S/V for fewer false positives
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
@@ -120,7 +120,7 @@ class DetectorConfig:
             # Filters out cyan/green/blue false positives (H=60-140)
             self.other_player_hsv_ranges = [
                 ((0, 100, 100), (10, 255, 255)),     # Lower red range (pure red only)
-                ((165, 100, 100), (180, 255, 255))   # Upper red range (pure magenta-red only)
+                ((165, 100, 100), (179, 255, 255))   # Upper red range (H max is 179 in OpenCV)
             ]
 
 

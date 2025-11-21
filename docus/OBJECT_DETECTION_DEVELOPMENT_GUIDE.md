@@ -27,6 +27,25 @@ python scripts/test_high_resolution_capture.py --device 0
 
 # Save sample images for inspection
 python scripts/test_high_resolution_capture.py --save-samples samples/resolution_test/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ```
 
 **Output:**
