@@ -79,6 +79,7 @@ class CVAutoCommandHandler:
         self._jump_key = "SPACE"  # Jump key alias for pathfinding
         self._loop_counter = 0  # Track completed loop cycles
         self._cv_auto_state = "idle"  # Current CV-AUTO state for UI debugging
+        self._last_triggered_point = None  # Track last triggered point to prevent re-triggering
 
     async def cv_auto_start(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -139,6 +140,34 @@ class CVAutoCommandHandler:
             log.info(f"✅ Using active CV Item: {active_cv_item.name}")
             map_manager = get_map_manager()
             map_config = map_manager.get_active_config()
+
+            # Enhanced logging: compare CV Item departure points with map config
+            if map_config and map_config.departure_points:
+                log.info("=" * 70)
+                log.info(f"📍 MAP CONFIG COMPARISON")
+                log.info(f"   Map config name: {map_config.name}")
+                log.info(f"   Map config departure points: {len(map_config.departure_points)}")
+                log.info(f"   CV Item departure points: {len(active_cv_item.departure_points)}")
+
+                if len(map_config.departure_points) != len(active_cv_item.departure_points):
+                    log.warning(
+                        f"⚠️  MISMATCH: CV Item has {len(active_cv_item.departure_points)} points, "
+                        f"but map config has {len(map_config.departure_points)} points"
+                    )
+                else:
+                    # Compare each point
+                    mismatches = []
+                    for i, (cv_pt, map_pt) in enumerate(zip(active_cv_item.departure_points, map_config.departure_points)):
+                        if cv_pt.rotation_paths != map_pt.rotation_paths:
+                            mismatches.append(f"Point {i} ('{cv_pt.name}'): rotations differ")
+
+                    if mismatches:
+                        log.warning(f"⚠️  Departure point mismatches found:")
+                        for mismatch in mismatches:
+                            log.warning(f"      {mismatch}")
+                    else:
+                        log.info("   ✓ CV Item departure points match map config")
+                log.info("=" * 70)
 
             if not map_config:
                 error_msg = "CV Item is active but map config is not loaded"
@@ -221,6 +250,7 @@ class CVAutoCommandHandler:
                 loop=True
             )
             self._loop_counter = 0  # Reset loop counter
+            self._last_triggered_point = None  # Reset trigger tracking
 
             # Create HID writer and wrap in async interface for pathfinding
             base_hid_writer = HIDWriter(self.daemon.hid_path if hasattr(self.daemon, 'hid_path')
@@ -472,8 +502,14 @@ class CVAutoCommandHandler:
                 # Get current target point
                 current_point = self._navigator.get_current_point()
 
-                # Check if player hit current point
+                # Check if player hit current point AND it's not the same point we just triggered
+                # This prevents re-triggering the same point multiple times (important for single-point loops)
                 if current_point.check_hit(player_pos[0], player_pos[1]):
+                    if self._last_triggered_point == current_point.name:
+                        # Already triggered this point, skip to avoid double-counting
+                        await self._sleep_or_stop(0.1)
+                        continue
+
                     log.info(f"Player hit departure point '{current_point.name}'!")
                     self._cv_auto_state = "hit_departure_point"
 
@@ -507,6 +543,9 @@ class CVAutoCommandHandler:
                         if not current_point.auto_play:
                             log.info(f"Auto-play disabled for point '{current_point.name}', skipping")
 
+                    # Mark this point as triggered to prevent re-triggering
+                    self._last_triggered_point = current_point.name
+
                     # Advance to next point
                     current_index = self._navigator.get_state().current_point_index
                     has_next = self._navigator.advance()
@@ -535,7 +574,7 @@ class CVAutoCommandHandler:
                         break
 
                     # Navigate to next point and wait until player hits it
-                    if await self._sleep_or_stop(0.5):  # Brief pause after rotation
+                    if await self._sleep_or_stop(0.3):  # Brief pause after rotation
                         log.info("Stop event detected during post-rotation pause")
                         break
 
@@ -555,21 +594,21 @@ class CVAutoCommandHandler:
                         if not capture:
                             log.warning("CV capture not available during navigation, retrying...")
                             navigation_attempt += 1
-                            await self._sleep_or_stop(0.5)
+                            await self._sleep_or_stop(0.3)
                             continue
 
                         current_result = capture.get_last_detection_result()
                         if not current_result:
                             log.debug("No detection result during navigation, retrying...")
                             navigation_attempt += 1
-                            await self._sleep_or_stop(0.5)
+                            await self._sleep_or_stop(0.3)
                             continue
 
                         player_data = current_result.get("player", {})
                         if not player_data.get("detected"):
                             log.debug("Player not detected during navigation, retrying...")
                             navigation_attempt += 1
-                            await self._sleep_or_stop(0.5)
+                            await self._sleep_or_stop(0.3)
                             continue
 
                         current_pos = (player_data.get("x"), player_data.get("y"))
@@ -587,12 +626,16 @@ class CVAutoCommandHandler:
                         await self._navigate_to_point(next_point)
 
                         # Use responsive sleep that checks stop event frequently
-                        if await self._sleep_or_stop(1.0):
+                        if await self._sleep_or_stop(0.6):
                             log.info("Stop event detected after navigation")
                             break
 
                     if navigation_attempt >= max_navigation_attempts:
                         log.warning(f"Failed to reach '{next_point.name}' after {max_navigation_attempts} attempts, continuing...")
+
+                    # Reset trigger tracking to allow next point detection
+                    # For single-point scenarios, this allows re-triggering the same point
+                    self._last_triggered_point = None
 
                 else:
                     # Not at current point, try to navigate there

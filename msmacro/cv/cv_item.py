@@ -448,6 +448,41 @@ class CVItemManager:
                 )
                 return None
 
+            # Sync departure points from map config to ensure CV Item has latest data
+            if activated_config.departure_points:
+                points_changed = False
+
+                # Check if departure points need syncing
+                if len(item.departure_points) != len(activated_config.departure_points):
+                    points_changed = True
+                    logger.warning(
+                        f"CV Item '{name}' has {len(item.departure_points)} departure points, "
+                        f"but map config has {len(activated_config.departure_points)}. Syncing..."
+                    )
+                else:
+                    # Compare each departure point for changes
+                    for cv_point, map_point in zip(item.departure_points, activated_config.departure_points):
+                        if (cv_point.x != map_point.x or cv_point.y != map_point.y or
+                            cv_point.rotation_paths != map_point.rotation_paths or
+                            cv_point.name != map_point.name):
+                            points_changed = True
+                            logger.warning(
+                                f"CV Item '{name}' departure point '{cv_point.name}' differs from "
+                                f"map config. Syncing..."
+                            )
+                            break
+
+                # Sync if changes detected
+                if points_changed:
+                    logger.info(
+                        f"🔄 SYNCING departure points from map config '{item.map_config_name}' "
+                        f"to CV Item '{name}'"
+                    )
+                    item.departure_points = activated_config.departure_points
+                    logger.info(
+                        f"✓ Synced {len(item.departure_points)} departure points to CV Item '{name}'"
+                    )
+
             # Mark item as active
             item.is_active = True
             item.last_used_at = time.time()
@@ -476,6 +511,80 @@ class CVItemManager:
 
         logger.info("Deactivated CV Item")
         self._save()
+
+    def sync_departure_points(self, name: str) -> Dict[str, Any]:
+        """
+        Manually sync a CV Item's departure points from its map config.
+
+        Useful for refreshing CV Item data after map config modifications.
+
+        Args:
+            name: CV Item name to sync
+
+        Returns:
+            Dict with sync results: {
+                "synced": bool,
+                "changes": str,
+                "departure_points_count": int
+            }
+        """
+        with self._lock:
+            if name not in self._items:
+                return {"synced": False, "error": f"CV Item '{name}' not found"}
+
+            item = self._items[name]
+
+            if not item.map_config_name:
+                return {"synced": False, "error": f"CV Item '{name}' has no map config assigned"}
+
+            # Get map config
+            map_manager = get_map_manager()
+            map_config = map_manager.get_config(item.map_config_name)
+
+            if not map_config:
+                return {
+                    "synced": False,
+                    "error": f"Map config '{item.map_config_name}' not found"
+                }
+
+            if not map_config.departure_points:
+                return {
+                    "synced": False,
+                    "error": f"Map config '{item.map_config_name}' has no departure points"
+                }
+
+            # Check for changes
+            old_count = len(item.departure_points)
+            new_count = len(map_config.departure_points)
+
+            changes = []
+            if old_count != new_count:
+                changes.append(f"Point count: {old_count} → {new_count}")
+
+            # Compare points
+            for i, (old_point, new_point) in enumerate(zip(item.departure_points, map_config.departure_points)):
+                if old_point.name != new_point.name:
+                    changes.append(f"Point {i} name: {old_point.name} → {new_point.name}")
+                if (old_point.x, old_point.y) != (new_point.x, new_point.y):
+                    changes.append(f"Point {i} position: ({old_point.x},{old_point.y}) → ({new_point.x},{new_point.y})")
+                if old_point.rotation_paths != new_point.rotation_paths:
+                    changes.append(f"Point {i} rotations changed")
+
+            # Sync
+            item.departure_points = map_config.departure_points
+
+            logger.info(
+                f"🔄 Manually synced departure points for CV Item '{name}' from "
+                f"map config '{item.map_config_name}' ({len(changes)} changes)"
+            )
+
+        self._save()
+
+        return {
+            "synced": True,
+            "changes": "; ".join(changes) if changes else "No changes",
+            "departure_points_count": len(item.departure_points)
+        }
 
     def handle_map_config_deleted(self, map_config_name: str) -> None:
         """

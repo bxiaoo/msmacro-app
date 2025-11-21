@@ -30,7 +30,7 @@ class PortFlowHandler:
     MAX_LEFT_ATTEMPTS = 3
     UP_PRESS_DURATION = 0.1  # How long to hold UP key
     ADJUST_PRESS_DURATION = 0.1  # How long to hold LEFT/RIGHT
-    CHECK_DELAY = 0.5  # Wait time after UP press before checking position
+    CHECK_DELAY = 0.3  # Wait time after UP press before checking position
 
     def __init__(self, hid_writer, position_getter):
         """
