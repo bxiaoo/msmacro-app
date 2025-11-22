@@ -65,9 +65,9 @@ export function CVItemDepartureStep({
         console.log('📹 [CVItemDepartureStep] Initializing with CV item:', cvItemName)
         setInitStatus(prev => ({ ...prev, initializing: true, error: null }))
 
-        // Activate the full CV item
-        // This handles: CV capture start, map config activation, reload, OD start
         if (cvItemName) {
+          // Existing CV item - use simplified activation API
+          // This handles: CV capture start, map config activation, reload, OD start
           await activateCVItem(cvItemName)
           console.log('✅ [CVItemDepartureStep] CV item activated:', cvItemName)
 
@@ -81,12 +81,47 @@ export function CVItemDepartureStep({
           })
 
           console.log('✅ [CVItemDepartureStep] Initialization complete')
+        } else if (mapConfigName) {
+          // New CV item - use manual 3-step initialization
+          console.log('📹 [CVItemDepartureStep] No CV item name, using manual initialization')
+          console.log('📹 [CVItemDepartureStep] Map config:', mapConfigName)
+
+          // Step 1: Start CV capture
+          const cvStatus = await getCVStatus()
+          if (!cvStatus.capturing) {
+            console.log('📹 [CVItemDepartureStep] Starting CV capture...')
+            await startCVCapture({ device_index: 0 })
+          }
+          setInitStatus(prev => ({ ...prev, cvReady: true }))
+          console.log('✅ [CVItemDepartureStep] CV capture ready')
+
+          // Step 2: Activate map config
+          console.log('📹 [CVItemDepartureStep] Activating map config:', mapConfigName)
+          await activateMapConfig(mapConfigName)
+          setInitStatus(prev => ({ ...prev, mapActive: true }))
+          console.log('✅ [CVItemDepartureStep] Map config activated')
+
+          // Step 3: Start object detection
+          const odStatus = await getObjectDetectionStatus()
+          if (!odStatus.active) {
+            console.log('📹 [CVItemDepartureStep] Starting object detection...')
+            await startObjectDetection()
+          }
+          setInitStatus(prev => ({ ...prev, odReady: true }))
+          console.log('✅ [CVItemDepartureStep] Object detection ready')
+
+          // Mark initialization complete
+          setInitStatus(prev => ({
+            ...prev,
+            initializing: false
+          }))
+          console.log('✅ [CVItemDepartureStep] Manual initialization complete')
         } else {
-          console.warn('⚠️ [CVItemDepartureStep] No CV item name provided')
+          console.warn('⚠️ [CVItemDepartureStep] No CV item name or map config provided')
           setInitStatus(prev => ({
             ...prev,
             initializing: false,
-            error: 'No CV item name provided'
+            error: 'No CV item name or map config provided'
           }))
         }
 
@@ -101,7 +136,7 @@ export function CVItemDepartureStep({
     }
 
     initializeStep()
-  }, [cvItemName])
+  }, [cvItemName, mapConfigName])
 
   // Poll player position and update preview (only when initialized)
   useEffect(() => {
