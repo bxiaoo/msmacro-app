@@ -10,6 +10,7 @@ Handles IPC commands for CV-based automatic rotation playback:
 import asyncio
 import contextlib
 import logging
+import random
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -633,7 +634,8 @@ class CVAutoCommandHandler:
                         break
 
                     # Navigate to next point and wait until player hits it
-                    if await self._sleep_or_stop(0.3):  # Brief pause after rotation
+                    post_rotation_wait = random.uniform(0.5, 1.2)  # Randomized pause after rotation
+                    if await self._sleep_or_stop(post_rotation_wait):
                         log.info("Stop event detected during post-rotation pause")
                         break
 
@@ -641,6 +643,9 @@ class CVAutoCommandHandler:
                     from ..cv.capture import get_capture_instance
                     max_navigation_attempts = 20  # Prevent infinite loops
                     navigation_attempt = 0
+                    stuck_check_interval = 5  # Check for stuck player every N attempts
+                    last_stuck_check_pos = None  # Track position for stuck detection
+                    stuck_threshold = 2  # Player must move >2px to not be considered stuck
 
                     while navigation_attempt < max_navigation_attempts:
                         # Check for stop event at start of each navigation attempt
@@ -676,6 +681,20 @@ class CVAutoCommandHandler:
                         if next_point.check_hit(current_pos[0], current_pos[1]):
                             log.info(f"Player reached next departure point '{next_point.name}'")
                             break
+
+                        # Stuck detection: Check if player has moved since last stuck check
+                        if navigation_attempt > 0 and navigation_attempt % stuck_check_interval == 0:
+                            if last_stuck_check_pos:
+                                distance_moved = ((current_pos[0] - last_stuck_check_pos[0])**2 +
+                                                (current_pos[1] - last_stuck_check_pos[1])**2)**0.5
+                                if distance_moved <= stuck_threshold:
+                                    log.warning(
+                                        f"Player stuck at ({current_pos[0]}, {current_pos[1]}) - "
+                                        f"moved only {distance_moved:.1f}px in {stuck_check_interval} attempts. "
+                                        f"Skipping to next point."
+                                    )
+                                    break
+                            last_stuck_check_pos = current_pos
 
                         # Player hasn't hit the point yet, continue navigating
                         navigation_attempt += 1

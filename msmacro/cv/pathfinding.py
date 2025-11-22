@@ -435,7 +435,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
     """
 
     # Constants
-    LARGE_DISTANCE_THRESHOLD = 20  # pixels (threshold for using double jump on X-axis)
+    LARGE_DISTANCE_THRESHOLD_X = 45  # pixels (threshold for using double jump on X-axis)
+    LARGE_DISTANCE_THRESHOLD_Y = 40  # pixels (threshold for using double jump on Y-axis)
     JUMP_DURATION_BASE = 0.15  # Base duration for jump key press
     ARROW_DURATION_BASE = 0.15  # Base duration for arrow key press
     DOUBLE_JUMP_GAP_MIN = 0.3  # Minimum gap between double jump presses
@@ -525,14 +526,15 @@ class ClassBasedPathfinder(PathfindingStrategy):
         position_getter
     ) -> bool:
         """
-        Navigate using "other class" movement logic.
+        Navigate using "other class" movement logic with X-first, Y-second priority.
 
-        Strategy:
-        - Large horizontal distance: Arrow + double jump
-        - Small horizontal distance: Timed arrow press
-        - Vertical up: Rope lift / double jump / Y-axis skill
-        - Vertical down: Down + jump
-        - Diagonal: Smart movement based on config and position
+        Strategy (ALWAYS align X-axis first, then Y-axis):
+        - X diff > 45px: Double jump + arrow key
+        - X diff <= 45px: Regular arrow key movement
+        - After X aligned:
+          - Y diff > 40px: Use double jump (if allowed) or Y-axis jump skill
+          - Player Y < target Y: Down arrow + jump (need to go down)
+          - Y diff <= 40px: Use simple pathfinding
         """
         dx = target_point.x - current_pos[0]
         dy = target_point.y - current_pos[1]
@@ -545,22 +547,18 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.info("Already at target position")
             return True
 
-        # Determine movement type
+        # STEP 1: Align X-axis FIRST (priority)
         x_ok = abs(dx) <= self.MAX_TOLERANCE
-        y_ok = abs(dy) <= self.MAX_TOLERANCE
-
-        if not x_ok and not y_ok:
-            # Diagonal movement
-            return await self._move_diagonal_other(
-                dx, dy, target_point, hid_writer, position_getter
-            )
-        elif not x_ok:
-            # Horizontal only
+        if not x_ok:
+            logger.debug("X-axis not aligned, moving horizontally first")
             return await self._move_horizontal_other(
                 dx, target_point, hid_writer, position_getter
             )
-        elif not y_ok:
-            # Vertical only (X-axis meets hit condition)
+
+        # STEP 2: X-axis aligned, now align Y-axis
+        y_ok = abs(dy) <= self.MAX_TOLERANCE
+        if not y_ok:
+            logger.debug("X-axis aligned, now moving vertically")
             return await self._move_vertical_other(
                 dy, target_point, hid_writer, position_getter
             )
@@ -575,14 +573,16 @@ class ClassBasedPathfinder(PathfindingStrategy):
         position_getter
     ) -> bool:
         """
-        Navigate using "magician class" movement logic.
+        Navigate using "magician class" movement logic with X-first, Y-second priority.
 
-        Strategy:
-        - Horizontal (>20px): Arrow + teleport
-        - Horizontal (<20px): Timed arrow press
-        - Vertical up: Up + teleport (or rope lift)
-        - Vertical down: Down + teleport
-        - Diagonal: Larger axis first, then smaller
+        Strategy (ALWAYS align X-axis first, then Y-axis):
+        - X diff > 45px: Arrow key + Teleport skill + Release arrow
+        - X diff <= 45px: Use simple pathfinding
+        - After X aligned:
+          - Y diff > 40px:
+            * Player under target: Jump + Up + Teleport + Release Up
+            * Player above target: Down + Wait(0.2-0.4s) + Teleport + Release Down
+          - Y diff <= 40px: Use simple pathfinding
         """
         dx = target_point.x - current_pos[0]
         dy = target_point.y - current_pos[1]
@@ -595,34 +595,25 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.info("Already at target position")
             return True
 
-        # Determine movement type
+        # STEP 1: Align X-axis FIRST (priority)
         x_ok = abs(dx) <= self.MAX_TOLERANCE
-        y_ok = abs(dy) <= self.MAX_TOLERANCE
-
-        if not x_ok and not y_ok:
-            # Diagonal: do larger axis first, then smaller
-            if abs(dx) > abs(dy):
-                await self._move_horizontal_magician(dx, hid_writer)
-                # Re-check position (wait already done inside movement method)
-                new_pos = await position_getter()
-                if new_pos:
-                    dy_new = target_point.y - new_pos[1]
-                    if abs(dy_new) > self.MAX_TOLERANCE:
-                        await self._move_vertical_magician(dy_new, hid_writer)
-            else:
-                await self._move_vertical_magician(dy, hid_writer)
-                # Re-check position (wait already done inside movement method)
-                new_pos = await position_getter()
-                if new_pos:
-                    dx_new = target_point.x - new_pos[0]
-                    if abs(dx_new) > self.MAX_TOLERANCE:
-                        await self._move_horizontal_magician(dx_new, hid_writer)
-        elif not x_ok:
+        if not x_ok:
+            logger.debug("X-axis not aligned, moving horizontally first")
             await self._move_horizontal_magician(dx, hid_writer)
-        elif not y_ok:
+            # Re-check position after movement
+            final_pos = await position_getter()
+            if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
+                logger.info("Magician pathfinding: Target reached after horizontal movement")
+                return True
+            return False
+
+        # STEP 2: X-axis aligned, now align Y-axis
+        y_ok = abs(dy) <= self.MAX_TOLERANCE
+        if not y_ok:
+            logger.debug("X-axis aligned, now moving vertically")
             await self._move_vertical_magician(dy, hid_writer)
 
-        # Final position check (wait already done inside last movement method)
+        # Final position check (wait already done inside movement method)
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             logger.info("Magician pathfinding: Target reached")
@@ -640,22 +631,22 @@ class ClassBasedPathfinder(PathfindingStrategy):
         hid_writer,
         position_getter
     ) -> bool:
-        """Handle horizontal movement for other class."""
+        """Handle horizontal movement for other class (X-axis alignment)."""
         distance = abs(dx)
         arrow_key = self.ARROW_RIGHT if dx > 0 else self.ARROW_LEFT
 
-        if distance > self.LARGE_DISTANCE_THRESHOLD:
-            # Large distance: Arrow + double jump
-            logger.debug(f"Large horizontal movement: {distance}px")
+        if distance > self.LARGE_DISTANCE_THRESHOLD_X:
+            # Large distance (> 45px): Arrow + double jump
+            logger.debug(f"Large horizontal movement: {distance}px, using double jump")
             await self._double_jump_horizontal(arrow_key, hid_writer)
         else:
-            # Small distance: Timed arrow press
+            # Small distance (<= 45px): Regular arrow key press
             duration = self._calculate_timed_duration(distance)
             logger.debug(f"Small horizontal movement: {distance}px, duration={duration:.2f}s")
             await self._press_key_timed(arrow_key, duration, hid_writer)
 
         # Check if reached (wait optimized for improved detection rate)
-        await asyncio.sleep(1.3)
+        await asyncio.sleep(random.uniform(0.9, 1.3))
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
@@ -668,35 +659,43 @@ class ClassBasedPathfinder(PathfindingStrategy):
         hid_writer,
         position_getter
     ) -> bool:
-        """Handle vertical movement for other class (X-axis already OK)."""
+        """Handle vertical movement for other class (X-axis already aligned)."""
+        distance_y = abs(dy)
+
         if dy < 0:
-            # Player is below target - move UP
-            distance_y = abs(dy)
+            # Player is below target (player Y > target Y) - move UP
             logger.debug(f"Vertical UP movement: {distance_y}px")
 
-            # For small vertical distances (<14px), prioritize double jump if allowed
-            if distance_y < 14 and self.double_jump_up_allowed:
-                logger.debug(f"Small UP distance ({distance_y}px < 14px), using double jump")
-                await self._double_jump_up(distance_y, hid_writer)
-            elif self.rope_lift_key:
-                # Option 1: Rope lift
-                await self._execute_rope_lift(hid_writer)
-            elif self.y_axis_jump_skill:
-                # Option 2: Y-axis jump skill
-                await self._y_axis_jump(hid_writer)
-            elif self.double_jump_up_allowed:
-                # Option 3: Double jump UP (fallback for larger distances)
-                await self._double_jump_up(distance_y, hid_writer)
+            if distance_y > self.LARGE_DISTANCE_THRESHOLD_Y:
+                # Large distance (> 40px): Use double jump or Y-axis jump skill
+                if self.double_jump_up_allowed:
+                    logger.debug(f"Large UP distance ({distance_y}px > 40px), using double jump")
+                    await self._double_jump_up(distance_y, hid_writer)
+                elif self.y_axis_jump_skill:
+                    logger.debug(f"Large UP distance ({distance_y}px > 40px), using Y-axis jump skill")
+                    await self._y_axis_jump(hid_writer)
+                else:
+                    logger.warning("No vertical UP movement configured for large distances")
+                    return False
             else:
-                logger.warning("No vertical UP movement configured")
-                return False
+                # Small distance (<= 40px): Use simple pathfinding (timed movement)
+                logger.debug(f"Small UP distance ({distance_y}px <= 40px), using simple movement")
+                if self.rope_lift_key:
+                    await self._execute_rope_lift(hid_writer)
+                elif self.y_axis_jump_skill:
+                    await self._y_axis_jump(hid_writer)
+                elif self.double_jump_up_allowed:
+                    await self._double_jump_up(distance_y, hid_writer)
+                else:
+                    logger.warning("No vertical UP movement configured")
+                    return False
         else:
-            # Player is above target - move DOWN
-            logger.debug(f"Vertical DOWN movement: {abs(dy)}px")
+            # Player is above target (player Y < target Y) - move DOWN
+            logger.debug(f"Vertical DOWN movement: {distance_y}px, using down arrow + jump")
             await self._jump_down(hid_writer)
 
         # Check if reached (wait optimized for improved detection rate)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(random.uniform(1.1, 1.5))
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
@@ -738,7 +737,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
                         await self._move_vertical_other(dy_new, target_point, hid_writer, position_getter)
             else:
                 await self._move_vertical_other(dy, target_point, hid_writer, position_getter)
-                await asyncio.sleep(1.3)
+                await asyncio.sleep(random.uniform(0.9, 1.3))
                 new_pos = await position_getter()
                 if new_pos:
                     dx_new = target_point.x - new_pos[0]
@@ -746,7 +745,7 @@ class ClassBasedPathfinder(PathfindingStrategy):
                         await self._move_horizontal_other(dx_new, target_point, hid_writer, position_getter)
 
         # Final check (wait optimized for improved detection rate)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(random.uniform(1.1, 1.5))
         final_pos = await position_getter()
         if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
             return True
@@ -755,52 +754,107 @@ class ClassBasedPathfinder(PathfindingStrategy):
     # ========== Magician Class Movement Methods ==========
 
     async def _move_horizontal_magician(self, dx: int, hid_writer):
-        """Handle horizontal movement for magician class."""
+        """Handle horizontal movement for magician class (X-axis alignment)."""
         distance = abs(dx)
         arrow_key = self.ARROW_RIGHT if dx > 0 else self.ARROW_LEFT
 
-        if distance > self.LARGE_DISTANCE_THRESHOLD and self.teleport_skill:
-            # Large distance: Arrow + teleport
-            logger.debug(f"Magician horizontal (teleport): {distance}px")
-            await self._press_key(arrow_key, hid_writer)
-            await asyncio.sleep(0.05)
-            await self._press_key(self.teleport_skill, hid_writer)
-            await asyncio.sleep(0.05)
-            await hid_writer.release(arrow_key)
+        if distance > self.LARGE_DISTANCE_THRESHOLD_X:
+            # Large distance (> 45px): Arrow press + Teleport + Release arrow
+            if self.teleport_skill:
+                logger.debug(f"Magician horizontal (teleport): {distance}px > 45px")
+                # Step 1: Press arrow key
+                await hid_writer.press(arrow_key)
+                # Step 2: Press and release Teleport skill (humanlike duration)
+                await asyncio.sleep(random.uniform(0.05, 0.15))
+                await self._press_key(self.teleport_skill, hid_writer)
+                # Step 3: Release arrow key
+                await asyncio.sleep(random.uniform(0.05, 0.15))
+                await hid_writer.release(arrow_key)
+            else:
+                logger.warning("Teleport skill not configured for large horizontal movement")
+                # Fallback to timed movement
+                duration = self._calculate_timed_duration(distance)
+                await self._press_key_timed(arrow_key, duration, hid_writer)
         else:
-            # Small distance: Timed arrow press
+            # Small distance (<= 45px): Use simple pathfinding (timed arrow press)
             duration = self._calculate_timed_duration(distance)
-            logger.debug(f"Magician horizontal (timed): {distance}px, duration={duration:.2f}s")
+            logger.debug(f"Magician horizontal (timed): {distance}px <= 45px, duration={duration:.2f}s")
             await self._press_key_timed(arrow_key, duration, hid_writer)
 
         # Wait for movement completion and detection update
-        await asyncio.sleep(1.3)
+        await asyncio.sleep(random.uniform(0.9, 1.3))
 
     async def _move_vertical_magician(self, dy: int, hid_writer):
-        """Handle vertical movement for magician class."""
+        """Handle vertical movement for magician class (Y-axis alignment)."""
+        distance_y = abs(dy)
+
         if dy < 0:
-            # Move UP
-            logger.debug(f"Magician vertical UP: {abs(dy)}px")
-            if self.rope_lift_key:
-                await self._execute_rope_lift(hid_writer)
-            elif self.teleport_skill:
-                await self._press_key(self.ARROW_UP, hid_writer)
-                await asyncio.sleep(0.05)
-                await self._press_key(self.teleport_skill, hid_writer)
-                await asyncio.sleep(self.timer.jitter(0.2))
-                await hid_writer.release(self.ARROW_UP)
+            # Player below target (player Y > target Y) - move UP
+            logger.debug(f"Magician vertical UP: {distance_y}px")
+
+            if distance_y > self.LARGE_DISTANCE_THRESHOLD_Y:
+                # Large distance (> 40px): Jump + Up + Teleport + Release Up
+                if self.teleport_skill:
+                    logger.debug(f"Large UP distance ({distance_y}px > 40px), using Jump+Up+Teleport sequence")
+                    # Step 1: Jump key (humanlike press/release)
+                    await self._press_key(self.jump_key, hid_writer)
+                    # Step 2: Up key press
+                    await hid_writer.press(self.ARROW_UP)
+                    # Step 3: Teleport skill (humanlike press/release)
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await self._press_key(self.teleport_skill, hid_writer)
+                    # Step 4: Release up key
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await hid_writer.release(self.ARROW_UP)
+                else:
+                    logger.warning("Teleport skill not configured for large vertical UP movement")
+                    # Fallback to rope lift if available
+                    if self.rope_lift_key:
+                        await self._execute_rope_lift(hid_writer)
+            else:
+                # Small distance (<= 40px): Use simple pathfinding
+                logger.debug(f"Small UP distance ({distance_y}px <= 40px), using simple movement")
+                if self.rope_lift_key:
+                    await self._execute_rope_lift(hid_writer)
+                elif self.teleport_skill:
+                    # Simplified teleport for small distances
+                    await hid_writer.press(self.ARROW_UP)
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await self._press_key(self.teleport_skill, hid_writer)
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await hid_writer.release(self.ARROW_UP)
         else:
-            # Move DOWN
-            logger.debug(f"Magician vertical DOWN: {abs(dy)}px")
-            if self.teleport_skill:
-                await self._press_key(self.ARROW_DOWN, hid_writer)
-                await asyncio.sleep(0.05)
-                await self._press_key(self.teleport_skill, hid_writer)
-                await asyncio.sleep(self.timer.jitter(0.2))
-                await hid_writer.release(self.ARROW_DOWN)
+            # Player above target (player Y < target Y) - move DOWN
+            logger.debug(f"Magician vertical DOWN: {distance_y}px")
+
+            if distance_y > self.LARGE_DISTANCE_THRESHOLD_Y:
+                # Large distance (> 40px): Down + Wait(0.2-0.4s) + Teleport + Release Down
+                if self.teleport_skill:
+                    logger.debug(f"Large DOWN distance ({distance_y}px > 40px), using Down+Wait+Teleport sequence")
+                    # Step 1: Down key press
+                    await hid_writer.press(self.ARROW_DOWN)
+                    # Step 2: Wait 0.2-0.4s (randomized)
+                    await asyncio.sleep(random.uniform(0.2, 0.4))
+                    # Step 3: Teleport skill (humanlike press/release)
+                    await self._press_key(self.teleport_skill, hid_writer)
+                    # Step 4: Release down key
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await hid_writer.release(self.ARROW_DOWN)
+                else:
+                    logger.warning("Teleport skill not configured for large vertical DOWN movement")
+            else:
+                # Small distance (<= 40px): Use simple pathfinding
+                logger.debug(f"Small DOWN distance ({distance_y}px <= 40px), using simple movement")
+                if self.teleport_skill:
+                    # Simplified teleport for small distances
+                    await hid_writer.press(self.ARROW_DOWN)
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await self._press_key(self.teleport_skill, hid_writer)
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
+                    await hid_writer.release(self.ARROW_DOWN)
 
         # Wait for movement completion and detection update
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(random.uniform(1.1, 1.5))
 
     # ========== Atomic Movement Primitives ==========
 
