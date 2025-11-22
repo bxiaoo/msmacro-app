@@ -5,12 +5,15 @@ Handles skill cooldowns, trigger detection, and keystroke insertion.
 
 from __future__ import annotations
 
+import logging
 import random
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
 from ..utils.keymap import name_to_usage
 from .skills import SkillConfig
+
+logger = logging.getLogger(__name__)
 
 # HID usage IDs for arrow keys and special keys
 ARROW_LEFT = 80
