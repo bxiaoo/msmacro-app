@@ -229,6 +229,13 @@ class CVAutoCommandHandler:
         self._jump_key = msg.get("jump_key", "SPACE")  # Jump key alias
         self._active_skills = msg.get("active_skills", [])  # CD skills for injection
 
+        # Reset skill injector state for new CV auto session
+        if self._active_skills:
+            skill_injector = self.daemon._get_or_create_skill_injector(self._active_skills)
+            if skill_injector:
+                skill_injector.reset_state(preserve_cooldowns=False)
+                log.info("✓ Skill injector state reset for new CV auto session")
+
         # DEBUG: Log loop setting
         log.info(f"🔢 LOOP SETTING: {self._loop} cycles requested (loop counter starts at 0)")
 
@@ -701,6 +708,11 @@ class CVAutoCommandHandler:
                         log.debug(f"Player not at '{next_point.name}' yet (attempt {navigation_attempt}/{max_navigation_attempts}), navigating...")
                         self._cv_auto_state = "pathfinding"
 
+                        # Signal to skill injector that pathfinding is starting (freeze cooldowns)
+                        skill_injector = self.daemon._skill_injector
+                        if skill_injector:
+                            skill_injector.enter_pathfinding_mode(asyncio.get_event_loop().time())
+
                         await self._navigate_to_point(next_point)
 
                         # Use responsive sleep that checks stop event frequently
@@ -718,6 +730,12 @@ class CVAutoCommandHandler:
                 else:
                     # Not at current point, try to navigate there
                     self._cv_auto_state = "navigating"
+
+                    # Signal to skill injector that pathfinding is starting (freeze cooldowns)
+                    skill_injector = self.daemon._skill_injector
+                    if skill_injector:
+                        skill_injector.enter_pathfinding_mode(asyncio.get_event_loop().time())
+
                     await self._navigate_to_point(current_point)
 
                 # Emit status update
@@ -847,6 +865,21 @@ class CVAutoCommandHandler:
                 getattr(self, '_active_skills', [])
             )
 
+            # Read global playback settings (applies to both manual playback and CV auto)
+            global_ignore_keys = self.daemon.get_playback_ignore_keys()
+            global_ignore_tolerance = self.daemon.get_playback_ignore_tolerance()
+
+            # Log if ignore keys are configured
+            if global_ignore_keys:
+                log.info(
+                    f"🎲 Rotation playback with ignore_keys={global_ignore_keys}, "
+                    f"tolerance={global_ignore_tolerance:.2f}"
+                )
+
+            # Signal to skill injector that rotation is starting (exit pathfinding mode)
+            if skill_injector:
+                skill_injector.exit_pathfinding_mode(asyncio.get_event_loop().time())
+
             success = await player.play(
                 path=full_path,
                 speed=self._speed,
@@ -854,8 +887,8 @@ class CVAutoCommandHandler:
                 jitter_hold=self._jitter_hold,
                 loop=1,  # Play once (not False)
                 stop_event=self._cv_auto_stop_event,
-                ignore_keys=[],
-                ignore_tolerance=0,
+                ignore_keys=global_ignore_keys,           # ✅ From global settings
+                ignore_tolerance=global_ignore_tolerance, # ✅ From global settings
                 skill_injector=skill_injector  # Use SkillInjector for CD skill casting
             )
 

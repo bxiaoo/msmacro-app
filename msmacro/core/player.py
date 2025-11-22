@@ -336,6 +336,11 @@ class Player:
 
                     # Check if rotation is frozen
                     if skill_injector.should_freeze_rotation(current_time):
+                        # Check stop event even during frozen rotation (improves responsiveness)
+                        if stop_event and stop_event.is_set():
+                            logger.info("Stop event detected during frozen rotation")
+                            self.w.all_up()
+                            return False
                         # Skip this event if rotation is frozen
                         continue
 

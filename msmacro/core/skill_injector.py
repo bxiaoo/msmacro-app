@@ -73,6 +73,11 @@ class SkillInjector:
         self.last_arrow_direction: Optional[int] = None
         self.last_arrow_time: float = 0.0
 
+        # CV Auto pathfinding mode tracking (cooldown freeze during navigation)
+        self.is_pathfinding: bool = False  # True during pathfinding, False during rotation
+        self.cooldown_freeze_time: float = 0.0  # Accumulated freeze time during pathfinding
+        self.pathfinding_start_time: float = 0.0  # When current pathfinding session started
+
         # Group management (new for sequential group casting)
         self.skill_groups: Dict[str, List[str]] = {}  # group_id -> [skill_ids in order]
         self.group_casting_state: Dict[str, int] = {}  # group_id -> index of next skill to cast
@@ -150,6 +155,73 @@ class SkillInjector:
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
 
+    # ---------- CV Auto Pathfinding Mode Management ----------
+
+    def enter_pathfinding_mode(self, current_time: float):
+        """Called when CV auto enters pathfinding state (cooldowns freeze)."""
+        self.is_pathfinding = True
+        self.pathfinding_start_time = current_time
+        logger.debug("🚶 Skill injector: PATHFINDING mode (cooldowns frozen)")
+
+    def exit_pathfinding_mode(self, current_time: float):
+        """Called when CV auto exits pathfinding state (rotation starts, cooldowns resume)."""
+        if self.is_pathfinding:
+            freeze_duration = current_time - self.pathfinding_start_time
+            self.cooldown_freeze_time += freeze_duration
+            self.is_pathfinding = False
+            logger.debug(
+                f"🎮 Skill injector: ROTATION mode "
+                f"(frozen for {freeze_duration:.2f}s, total freeze: {self.cooldown_freeze_time:.2f}s)"
+            )
+
+    def get_adjusted_time(self, current_time: float) -> float:
+        """Get time adjusted for pathfinding freeze periods.
+
+        During rotation: current_time - total_freeze_time
+        During pathfinding: Same as current time (frozen)
+        """
+        return current_time - self.cooldown_freeze_time
+
+    def reset_state(self, preserve_cooldowns: bool = False):
+        """Reset skill injector state for new CV auto session.
+
+        Args:
+            preserve_cooldowns: If True, keep cooldown timers (for same-session restarts)
+                              If False, full reset (for new sessions)
+        """
+        # Reset pathfinding tracking
+        self.is_pathfinding = False
+        self.cooldown_freeze_time = 0.0
+        self.pathfinding_start_time = 0.0
+
+        # Reset arrow tracking
+        self.last_arrow_direction = None
+        self.last_arrow_time = 0.0
+
+        # Reset group state
+        for group_id in self.group_casting_state:
+            self.group_casting_state[group_id] = 0  # Reset to first skill
+
+        if not preserve_cooldowns:
+            # Full reset: clear all cooldown timers and state
+            for skill_state in self.skills.values():
+                skill_state.cooldown_ready_time = 0.0
+                skill_state.last_used_time = 0.0
+                skill_state.group_first_cast = True
+                skill_state.can_cast_after = skill_state.random_delay_duration
+                skill_state.opposite_arrow_timer = 0.0
+                skill_state.space_key_released_time = 0.0
+                skill_state.is_casting = False
+                skill_state.cast_end_time = 0.0
+                # Reset condition flags
+                skill_state.cooldown_passed = False
+                skill_state.arrow_ready = False
+                skill_state.replacement_ready = False
+
+        logger.info(f"🔄 Skill injector state reset (preserve_cooldowns={preserve_cooldowns})")
+
+    # ---------- Skill Condition Updates ----------
+
     def update_skill_conditions(self, skill_id: str, pressed_keys: List[int], current_time: float, ignore_keys: Optional[List[int]] = None) -> None:
         """
         Update skill condition states with PRIORITIZED CASCADE LOGIC.
@@ -168,12 +240,22 @@ class SkillInjector:
 
         # ===== CONDITION 1: Cooldown + Random Delay (PRIMARY) =====
         # This MUST pass before any other conditions are evaluated
+        # During pathfinding, cooldowns are frozen - never ready
+        if self.is_pathfinding:
+            skill_state.cooldown_passed = False
+            skill_state.arrow_ready = False
+            skill_state.replacement_ready = False
+            return
+
+        # Adjust time for pathfinding freeze periods (CV auto)
+        adjusted_time = self.get_adjusted_time(current_time)
+
         # NEW: Grouped skills bypass individual cooldown logic
         if config.group_id:
             # Grouped skills always pass cooldown condition (group-level timing handled separately)
             skill_state.cooldown_passed = True
-        elif current_time >= skill_state.can_cast_after and not skill_state.is_casting:
-            # Solo skills use normal cooldown logic
+        elif adjusted_time >= skill_state.can_cast_after and not skill_state.is_casting:
+            # Solo skills use normal cooldown logic with adjusted time
             skill_state.cooldown_passed = True
         else:
             # Cooldown not ready - don't process other conditions yet
@@ -188,8 +270,8 @@ class SkillInjector:
         if skill_state.cooldown_passed:
             # Check if opposite arrow timer started
             if skill_state.opposite_arrow_timer > 0:
-                # Check if delay elapsed
-                if current_time >= skill_state.opposite_arrow_timer + skill_state.opposite_arrow_delay:
+                # Check if delay elapsed (use adjusted time for CV auto)
+                if adjusted_time >= skill_state.opposite_arrow_timer + skill_state.opposite_arrow_delay:
                     skill_state.arrow_ready = True
                     skill_state.arrow_condition_met = True  # Keep for compatibility
 
@@ -228,11 +310,11 @@ class SkillInjector:
                 elif skill_state.space_key_released_time == 0:
                     # Space was released (first time detection)
                     # Check if space was pressed before (simple heuristic: assume it was)
-                    skill_state.space_key_released_time = current_time
+                    skill_state.space_key_released_time = adjusted_time
 
                 # Check if enough time passed after space release
                 if skill_state.space_key_released_time > 0:
-                    if current_time >= skill_state.space_key_released_time + skill_state.space_delay:
+                    if adjusted_time >= skill_state.space_key_released_time + skill_state.space_delay:
                         skill_state.replacement_ready = True
         else:
             # No key replacement - auto-pass this condition (original behavior)
@@ -489,6 +571,10 @@ class SkillInjector:
         Returns:
             Skill cast info dict or None
         """
+        # CRITICAL: Do not inject skills during pathfinding (CV auto navigation)
+        if self.is_pathfinding:
+            return None
+
         # Update arrow key tracking
         self.update_arrow_key_tracking(pressed_keys, current_time)
 
