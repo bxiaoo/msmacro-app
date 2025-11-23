@@ -292,7 +292,9 @@ export default function App(){
           jitter_time: playSettings.jitter_time,
           jitter_hold: playSettings.jitter_hold,
           jump_key: "SPACE",
-          active_skills: selectedSkills  // Include skills for injection
+          active_skills: selectedSkills,  // Include skills for injection
+          ignore_keys: playSettings.ignore_keys || [],
+          ignore_tolerance: playSettings.ignore_tolerance || 0.0
         }),
         refresh
       );

@@ -134,10 +134,6 @@ class MacroDaemon:
         # Initialize persistent skill injector (shared across all playbacks)
         self._skill_injector: Optional[Any] = None  # Will be created on first play with selected skills
 
-        # Global playback settings (used by both manual playback and CV auto mode)
-        self._playback_ignore_keys: List[str] = []
-        self._playback_ignore_tolerance: float = 0.0
-
         # Initialize command dispatcher for IPC command routing
         self._dispatcher = CommandDispatcher(self)
 
@@ -750,27 +746,6 @@ class MacroDaemon:
                 self._skill_injector = SkillInjector(active_skills)
 
         return self._skill_injector
-
-    # ---------- global playback settings ----------
-
-    def get_playback_ignore_keys(self) -> List[str]:
-        """Get global ignore_keys setting for playback (used by manual play and CV auto)."""
-        return self._playback_ignore_keys
-
-    def get_playback_ignore_tolerance(self) -> float:
-        """Get global ignore_tolerance setting for playback (used by manual play and CV auto)."""
-        return self._playback_ignore_tolerance
-
-    def set_playback_settings(self, ignore_keys: List[str], ignore_tolerance: float):
-        """Update global playback settings.
-
-        Args:
-            ignore_keys: List of key names to randomly skip (e.g., ["W", "A", "S", "D"])
-            ignore_tolerance: Probability (0.0-1.0) of skipping each ignored key
-        """
-        self._playback_ignore_keys = ignore_keys
-        self._playback_ignore_tolerance = ignore_tolerance
-        log.info(f"📝 Updated global playback settings: ignore_keys={ignore_keys}, tolerance={ignore_tolerance}")
 
     # ---------- playback ----------
 

@@ -93,7 +93,9 @@ class CVAutoCommandHandler:
             "speed": 1.0,              # Rotation playback speed
             "jitter_time": 0.05,       # Time jitter for human-like playback
             "jitter_hold": 0.02,       # Hold duration jitter
-            "jump_key": "SPACE"        # Jump key alias (default: "SPACE")
+            "jump_key": "SPACE",       # Jump key alias (default: "SPACE")
+            "ignore_keys": [],         # List of keys to randomly ignore (e.g., ["s", "w"])
+            "ignore_tolerance": 0.0    # Probability (0.0-1.0) to ignore each key
         }
 
         Returns:
@@ -228,6 +230,13 @@ class CVAutoCommandHandler:
         self._jitter_hold = msg.get("jitter_hold", 0.02)
         self._jump_key = msg.get("jump_key", "SPACE")  # Jump key alias
         self._active_skills = msg.get("active_skills", [])  # CD skills for injection
+        self._ignore_keys = msg.get("ignore_keys", [])  # Keys to randomly ignore during rotation playback
+        self._ignore_tolerance = float(msg.get("ignore_tolerance", 0.0))  # Ignore probability (0.0-1.0)
+
+        # Validate ignore_tolerance range
+        if self._ignore_tolerance < 0.0 or self._ignore_tolerance > 1.0:
+            log.warning(f"⚠️  Invalid ignore_tolerance {self._ignore_tolerance}, clamping to [0.0, 1.0]")
+            self._ignore_tolerance = max(0.0, min(1.0, self._ignore_tolerance))
 
         # Reset skill injector state for new CV auto session
         if self._active_skills:
@@ -715,6 +724,11 @@ class CVAutoCommandHandler:
 
                         await self._navigate_to_point(next_point)
 
+                        # Exit pathfinding mode after navigation completes (resume cooldowns)
+                        if skill_injector:
+                            skill_injector.exit_pathfinding_mode(asyncio.get_event_loop().time())
+                            log.debug(f"✓ Exited pathfinding mode after navigation to '{next_point.name}'")
+
                         # Use responsive sleep that checks stop event frequently
                         if await self._sleep_or_stop(0.6):
                             log.info("Stop event detected after navigation")
@@ -737,6 +751,11 @@ class CVAutoCommandHandler:
                         skill_injector.enter_pathfinding_mode(asyncio.get_event_loop().time())
 
                     await self._navigate_to_point(current_point)
+
+                    # Exit pathfinding mode after navigation completes (resume cooldowns)
+                    if skill_injector:
+                        skill_injector.exit_pathfinding_mode(asyncio.get_event_loop().time())
+                        log.debug(f"✓ Exited pathfinding mode after navigation to current point '{current_point.name}'")
 
                 # Emit status update
                 state = self._navigator.get_state()
@@ -865,15 +884,15 @@ class CVAutoCommandHandler:
                 getattr(self, '_active_skills', [])
             )
 
-            # Read global playback settings (applies to both manual playback and CV auto)
-            global_ignore_keys = self.daemon.get_playback_ignore_keys()
-            global_ignore_tolerance = self.daemon.get_playback_ignore_tolerance()
+            # Use instance variables for ignore keys (set during cv_auto_start)
+            ignore_keys = getattr(self, '_ignore_keys', [])
+            ignore_tolerance = getattr(self, '_ignore_tolerance', 0.0)
 
             # Log if ignore keys are configured
-            if global_ignore_keys:
+            if ignore_keys:
                 log.info(
-                    f"🎲 Rotation playback with ignore_keys={global_ignore_keys}, "
-                    f"tolerance={global_ignore_tolerance:.2f}"
+                    f"🎲 Rotation playback with ignore_keys={ignore_keys}, "
+                    f"tolerance={ignore_tolerance:.2f}"
                 )
 
             # Signal to skill injector that rotation is starting (exit pathfinding mode)
@@ -887,8 +906,8 @@ class CVAutoCommandHandler:
                 jitter_hold=self._jitter_hold,
                 loop=1,  # Play once (not False)
                 stop_event=self._cv_auto_stop_event,
-                ignore_keys=global_ignore_keys,           # ✅ From global settings
-                ignore_tolerance=global_ignore_tolerance, # ✅ From global settings
+                ignore_keys=ignore_keys,           # ✅ From CV auto session settings
+                ignore_tolerance=ignore_tolerance, # ✅ From CV auto session settings
                 skill_injector=skill_injector  # Use SkillInjector for CD skill casting
             )
 

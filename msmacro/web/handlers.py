@@ -1910,7 +1910,9 @@ async def api_cv_auto_start(request: web.Request):
         "speed": 1.0,              # Rotation playback speed
         "jitter_time": 0.05,       # Time jitter for human-like playback
         "jitter_hold": 0.02,       # Hold duration jitter
-        "jump_key": "SPACE"        # Jump key alias (default: "SPACE")
+        "jump_key": "SPACE",       # Jump key alias (default: "SPACE")
+        "ignore_keys": [],         # List of keys to randomly ignore (e.g., ["s", "w"])
+        "ignore_tolerance": 0.0    # Probability (0.0-1.0) to ignore each key
     }
     """
     log.info("=" * 60)
