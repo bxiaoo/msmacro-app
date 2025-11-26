@@ -90,9 +90,9 @@ class DetectorConfig:
     # - Yellow blobs: 4-16px diameter, circularity ≥0.71
     # - Red blobs: 4-80px diameter, circularity ≥0.65
     # Combined with HSV filter and adaptive scoring for robust detection
-    min_blob_size: int = 8      # Minimum player dot size (4px diameter)
+    min_blob_size: int = 12      # Minimum player dot size (4px diameter)
     max_blob_size: int = 24     # Maximum player dot size (16px diameter)
-    min_blob_size_other: int = 8   # Red dots minimum (>= 4px diameter)
+    min_blob_size_other: int = 12   # Red dots minimum (>= 4px diameter)
     max_blob_size_other: int = 24  # Red dots upper bound
     min_circularity: float = 0.71  # Strict circularity for round player dots
     min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
