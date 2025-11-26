@@ -489,7 +489,7 @@ class MinimapObjectDetector:
         # Morphological operations to clean noise
         # NOTE: 3x3 kernel may remove very small dots (<3px), but necessary for noise reduction
         # If detection fails on small dots, consider reducing kernel size to 2x2
-        kernel = np.ones((4, 4), np.uint8)
+        kernel = np.ones((6, 6), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)  # Remove noise
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # Fill holes
 
