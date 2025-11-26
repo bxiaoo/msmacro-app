@@ -72,32 +72,33 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow-green point) - OPTIMIZED CALIBRATED VALUES (Option C)
-    # Based on annotation analysis and validation with 22 samples (Nov 21, 2025)
-    # Validation: 100% precision, 100% recall, 2.5px avg error
-    # Option C balances tight color filtering (2.25× tighter S/V) with morphology survival
-    player_hsv_lower: Tuple[int, int, int] = (24, 240, 240)   # H=20-40, S≥180, V≥180
-    player_hsv_upper: Tuple[int, int, int] = (38, 255, 255)   # Tight hue, high S/V for fewer false positives
+    # Player detection (yellow-green point) - RECALIBRATED FOR LARGE YELLOW BLOBS
+    # Based on HSV analysis of calibration samples (Nov 26, 2025)
+    # Analysis of 10,252 yellow blob pixels across 3 samples:
+    # - H range: 10-30 (median=15, recommended=11-18)
+    # - S range: 50-255 (median=185, 10th percentile=166)
+    # - V range: 50-255 (median=223, 10th percentile=130)
+    # Settings capture ~81% of yellow blob pixels while maintaining tight filtering
+    player_hsv_lower: Tuple[int, int, int] = (11, 150, 150)   # H=11-18 for yellow, S/V≥150 for reasonably pure colors
+    player_hsv_upper: Tuple[int, int, int] = (18, 255, 255)   # Tight hue range to avoid false positives
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
     # Based on analysis of 20 calibration samples (Nov 9, 2025)
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
-    # Blob filtering - FINAL CALIBRATED VALUES
-    # Based on iterative testing with visual verification (Nov 9, 2025)
-    # Final algorithm uses strict filtering for high precision:
-    # - Yellow blobs: 4-16px diameter, circularity ≥0.71
-    # - Red blobs: 4-80px diameter, circularity ≥0.65
-    # Combined with HSV filter and adaptive scoring for robust detection
-    # Updated Nov 26, 2025: Reduced min size to 4px to account for tight HSV filtering
-    # that only captures blob cores, resulting in smaller post-filter blob sizes
-    min_blob_size: int = 4      # Minimum player dot size (4px diameter, reduced for tight HSV)
-    max_blob_size: int = 24     # Maximum player dot size (16px diameter)
-    min_blob_size_other: int = 4   # Red dots minimum (>= 4px diameter)
-    max_blob_size_other: int = 24  # Red dots upper bound
-    min_circularity: float = 0.71  # Strict circularity for round player dots
-    min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
+    # Blob filtering - RECALIBRATED FOR LARGE YELLOW BLOBS (Nov 26, 2025)
+    # After HSV recalibration (H=11-18, S≥150, V≥150), yellow blobs are properly detected
+    # Expected blob sizes after HSV filtering:
+    # - Yellow blobs: 12-30px diameter (large circular markers)
+    # - Red blobs: 12-30px diameter
+    # Combined with HSV filter, circularity, and aspect ratio for robust detection
+    min_blob_size: int = 12     # Minimum player dot size (reverted from incorrect 4px)
+    max_blob_size: int = 30     # Maximum player dot size (increased for large blobs)
+    min_blob_size_other: int = 12   # Red dots minimum
+    max_blob_size_other: int = 30  # Red dots upper bound (increased)
+    min_circularity: float = 0.50  # Relaxed to 0.50 for large yellow blobs (actual measured: 0.54-0.56)
+    min_circularity_other: float = 0.50  # Relaxed to match player threshold
 
     # Aspect ratio filtering (NEW)
     # Player dots should be roughly circular (width ≈ height)
@@ -489,12 +490,12 @@ class MinimapObjectDetector:
         mask = cv2.inRange(hsv, lower, upper)
 
         # Morphological operations to clean noise
-        # NOTE: 3x3 kernel may remove very small dots (<3px), but necessary for noise reduction
-        # If detection fails on small dots, consider reducing kernel size to 2x2
+        # NOTE: Using ONLY MORPH_OPEN (no CLOSE) to avoid merging separate yellow blobs
+        # MORPH_CLOSE was merging the 3 separate yellow markers into one giant elongated blob
+        # which failed circularity and aspect ratio filters
         # Using elliptical kernel to better preserve circular shapes
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # Fill holes FIRST
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # Then remove noise
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # Remove noise only
 
         return mask
     
