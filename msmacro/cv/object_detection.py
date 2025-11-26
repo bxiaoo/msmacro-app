@@ -76,7 +76,7 @@ class DetectorConfig:
     # Based on annotation analysis and validation with 22 samples (Nov 21, 2025)
     # Validation: 100% precision, 100% recall, 2.5px avg error
     # Option C balances tight color filtering (2.25× tighter S/V) with morphology survival
-    player_hsv_lower: Tuple[int, int, int] = (20, 180, 180)   # H=20-40, S≥180, V≥180
+    player_hsv_lower: Tuple[int, int, int] = (20, 200, 200)   # H=20-40, S≥180, V≥180
     player_hsv_upper: Tuple[int, int, int] = (40, 255, 255)   # Tight hue, high S/V for fewer false positives
 
     # Other players detection (red points) - CALIBRATED VALUES
@@ -90,10 +90,10 @@ class DetectorConfig:
     # - Yellow blobs: 4-16px diameter, circularity ≥0.71
     # - Red blobs: 4-80px diameter, circularity ≥0.65
     # Combined with HSV filter and adaptive scoring for robust detection
-    min_blob_size: int = 4      # Minimum player dot size (4px diameter)
-    max_blob_size: int = 16     # Maximum player dot size (16px diameter)
-    min_blob_size_other: int = 4   # Red dots minimum (>= 4px diameter)
-    max_blob_size_other: int = 80  # Red dots upper bound
+    min_blob_size: int = 8      # Minimum player dot size (4px diameter)
+    max_blob_size: int = 24     # Maximum player dot size (16px diameter)
+    min_blob_size_other: int = 8   # Red dots minimum (>= 4px diameter)
+    max_blob_size_other: int = 24  # Red dots upper bound
     min_circularity: float = 0.71  # Strict circularity for round player dots
     min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
 
