@@ -90,9 +90,11 @@ class DetectorConfig:
     # - Yellow blobs: 4-16px diameter, circularity ≥0.71
     # - Red blobs: 4-80px diameter, circularity ≥0.65
     # Combined with HSV filter and adaptive scoring for robust detection
-    min_blob_size: int = 12      # Minimum player dot size (4px diameter)
+    # Updated Nov 26, 2025: Reduced min size to 4px to account for tight HSV filtering
+    # that only captures blob cores, resulting in smaller post-filter blob sizes
+    min_blob_size: int = 4      # Minimum player dot size (4px diameter, reduced for tight HSV)
     max_blob_size: int = 24     # Maximum player dot size (16px diameter)
-    min_blob_size_other: int = 12   # Red dots minimum (>= 4px diameter)
+    min_blob_size_other: int = 4   # Red dots minimum (>= 4px diameter)
     max_blob_size_other: int = 24  # Red dots upper bound
     min_circularity: float = 0.71  # Strict circularity for round player dots
     min_circularity_other: float = 0.65  # Tightened to reduce small red false positives
@@ -489,9 +491,10 @@ class MinimapObjectDetector:
         # Morphological operations to clean noise
         # NOTE: 3x3 kernel may remove very small dots (<3px), but necessary for noise reduction
         # If detection fails on small dots, consider reducing kernel size to 2x2
-        kernel = np.ones((6, 6), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)  # Remove noise
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # Fill holes
+        # Using elliptical kernel to better preserve circular shapes
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # Fill holes FIRST
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # Then remove noise
 
         return mask
     
