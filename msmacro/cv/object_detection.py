@@ -72,31 +72,33 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (yellow-green point) - RECALIBRATED FOR LARGE YELLOW BLOBS
-    # Based on HSV analysis of calibration samples (Nov 26, 2025)
-    # Analysis of 10,252 yellow blob pixels across 3 samples:
-    # - H range: 10-30 (median=15, recommended=11-18)
-    # - S range: 50-255 (median=185, 10th percentile=166)
-    # - V range: 50-255 (median=223, 10th percentile=130)
-    # Settings capture ~81% of yellow blob pixels while maintaining tight filtering
-    player_hsv_lower: Tuple[int, int, int] = (11, 150, 150)   # H=11-18 for yellow, S/V≥150 for reasonably pure colors
-    player_hsv_upper: Tuple[int, int, int] = (18, 255, 255)   # Tight hue range to avoid false positives
+    # Player detection (small circular markers) - FINAL CALIBRATION (Nov 26, 2025)
+    # Based on analysis of actual player marker positions at (185,76), (58,76), (211,55)
+    # Actual player marker characteristics:
+    # - H range: 31-35 (greenish-yellow, distinct from bottom blobs at H=15-16)
+    # - S range: 56-233 (variable, requires low threshold)
+    # - V range: 118-232 (variable, requires low threshold)
+    # - Size: 6-8px diameter (small circular dots)
+    # - Location: y=55-79 (middle/upper minimap area)
+    player_hsv_lower: Tuple[int, int, int] = (25, 50, 100)   # H=25-42 for greenish-yellow markers
+    player_hsv_upper: Tuple[int, int, int] = (42, 255, 255)  # Excludes orange-yellow bottom blobs (H=15-16)
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
     # Based on analysis of 20 calibration samples (Nov 9, 2025)
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
-    # Blob filtering - RECALIBRATED FOR LARGE YELLOW BLOBS (Nov 26, 2025)
-    # After HSV recalibration (H=11-18, S≥150, V≥150), yellow blobs are properly detected
-    # Expected blob sizes after HSV filtering:
-    # - Yellow blobs: 12-30px diameter (large circular markers)
-    # - Red blobs: 12-30px diameter
-    # Combined with HSV filter, circularity, and aspect ratio for robust detection
-    min_blob_size: int = 12     # Minimum player dot size (reverted from incorrect 4px)
-    max_blob_size: int = 30     # Maximum player dot size (increased for large blobs)
-    min_blob_size_other: int = 12   # Red dots minimum
-    max_blob_size_other: int = 30  # Red dots upper bound (increased)
+    # Blob filtering - FINAL CALIBRATION FOR SMALL PLAYER MARKERS (Nov 26, 2025)
+    # After HSV recalibration (H=25-42, S≥50, V≥100), actual player markers detected
+    # Measured player marker sizes:
+    # - Sample 1 (185,76): 7.6px diameter
+    # - Sample 2 (58,76): 7.6px diameter
+    # - Sample 3 (211,55): 7.4px diameter
+    # Size range 4-12px captures 6-8px markers with tolerance
+    min_blob_size: int = 4      # Minimum player marker size
+    max_blob_size: int = 12     # Maximum player marker size (small circular dots)
+    min_blob_size_other: int = 4    # Red dots minimum
+    max_blob_size_other: int = 12   # Red dots maximum
     min_circularity: float = 0.50  # Relaxed to 0.50 for large yellow blobs (actual measured: 0.54-0.56)
     min_circularity_other: float = 0.50  # Relaxed to match player threshold
 
