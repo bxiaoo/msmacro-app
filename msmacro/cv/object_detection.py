@@ -76,8 +76,8 @@ class DetectorConfig:
     # Based on annotation analysis and validation with 22 samples (Nov 21, 2025)
     # Validation: 100% precision, 100% recall, 2.5px avg error
     # Option C balances tight color filtering (2.25× tighter S/V) with morphology survival
-    player_hsv_lower: Tuple[int, int, int] = (20, 240, 240)   # H=20-40, S≥180, V≥180
-    player_hsv_upper: Tuple[int, int, int] = (40, 255, 255)   # Tight hue, high S/V for fewer false positives
+    player_hsv_lower: Tuple[int, int, int] = (24, 240, 240)   # H=20-40, S≥180, V≥180
+    player_hsv_upper: Tuple[int, int, int] = (38, 255, 255)   # Tight hue, high S/V for fewer false positives
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
