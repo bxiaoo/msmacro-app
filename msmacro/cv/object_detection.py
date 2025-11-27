@@ -72,33 +72,34 @@ class DetectionResult:
 @dataclass
 class DetectorConfig:
     """Object detector configuration."""
-    # Player detection (small circular markers) - FINAL CALIBRATION (Nov 26, 2025)
-    # Based on analysis of actual player marker positions at (185,76), (58,76), (211,55)
-    # Actual player marker characteristics:
-    # - H range: 31-35 (greenish-yellow, distinct from bottom blobs at H=15-16)
-    # - S range: 56-233 (variable, requires low threshold)
-    # - V range: 118-232 (variable, requires low threshold)
-    # - Size: 6-8px diameter (small circular dots)
-    # - Location: y=55-79 (middle/upper minimap area)
-    player_hsv_lower: Tuple[int, int, int] = (25, 50, 100)   # H=25-42 for greenish-yellow markers
-    player_hsv_upper: Tuple[int, int, int] = (42, 255, 255)  # Excludes orange-yellow bottom blobs (H=15-16)
+    # Player detection - 3-STAGE PIPELINE (Nov 26, 2025)
+    # Stage 1: TIGHT color detection finds bright yellow cores (S≥200, V≥200)
+    # Stage 2: Morphological expansion captures full circular marker geometry
+    # Stage 3: Geometric fitting (fitEllipse) finds true center
+    #
+    # Core characteristics (bright yellow pixels):
+    # - H range: 25-42 (greenish-yellow, excludes orange bottom blobs at H=15-16)
+    # - S range: 200-255 (TIGHT - only bright saturated core)
+    # - V range: 200-255 (TIGHT - only bright core)
+    # Expansion then captures the full ~15-20px diameter marker including darker rings
+    player_hsv_lower: Tuple[int, int, int] = (25, 200, 200)  # TIGHT for Stage 1 core detection
+    player_hsv_upper: Tuple[int, int, int] = (42, 255, 255)  # Greenish-yellow hue range
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
     # Based on analysis of 20 calibration samples (Nov 9, 2025)
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
-    # Blob filtering - FINAL CALIBRATION FOR SMALL PLAYER MARKERS (Nov 26, 2025)
-    # After HSV recalibration (H=25-42, S≥50, V≥100), actual player markers detected
-    # Measured player marker sizes:
-    # - Sample 1 (185,76): 7.6px diameter
-    # - Sample 2 (58,76): 7.6px diameter
-    # - Sample 3 (211,55): 7.4px diameter
-    # Size range 4-12px captures 6-8px markers with tolerance
-    min_blob_size: int = 4      # Minimum player marker size
-    max_blob_size: int = 12     # Maximum player marker size (small circular dots)
-    min_blob_size_other: int = 4    # Red dots minimum
-    max_blob_size_other: int = 12   # Red dots maximum
+    # Blob filtering - 3-STAGE PIPELINE (Nov 26, 2025)
+    # After tight core detection + morphological expansion + circle fitting
+    # Core is ~6-8px, but after expansion (7x7 kernel, 2 iterations):
+    # - Expanded blob diameter: ~15-25px
+    # - This captures the full circular marker geometry
+    # Size filter applies to EXPANDED blobs, not original cores
+    min_blob_size: int = 10     # Minimum expanded marker size
+    max_blob_size: int = 30     # Maximum expanded marker size
+    min_blob_size_other: int = 10   # Red dots minimum (expanded)
+    max_blob_size_other: int = 30   # Red dots maximum (expanded)
     min_circularity: float = 0.50  # Relaxed to 0.50 for large yellow blobs (actual measured: 0.54-0.56)
     min_circularity_other: float = 0.50  # Relaxed to match player threshold
 
@@ -491,14 +492,23 @@ class MinimapObjectDetector:
         upper = np.array(hsv_upper, dtype=np.uint8)
         mask = cv2.inRange(hsv, lower, upper)
 
-        # Morphological operations to clean noise
-        # NOTE: Using ONLY MORPH_OPEN (no CLOSE) to avoid merging separate yellow blobs
-        # MORPH_CLOSE was merging the 3 separate yellow markers into one giant elongated blob
-        # which failed circularity and aspect ratio filters
-        # Using elliptical kernel to better preserve circular shapes
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # Remove noise only
+        # 3-STAGE PIPELINE FOR GEOMETRIC CENTER DETECTION
+        # Stage 1: Already done - tight HSV filter finds bright cores
 
+        # Stage 2: Morphological expansion to capture full circular marker
+        # First: Remove tiny noise
+        kernel_clean = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_clean)
+
+        # Second: Expand to capture full marker geometry (including dark rings)
+        kernel_expand = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.dilate(mask, kernel_expand, iterations=2)
+
+        # Third: Smooth boundaries into clean circles
+        kernel_smooth = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_smooth)
+
+        # Stage 3: Circle fitting will be done in _find_circular_blobs()
         return mask
     
     def _find_circular_blobs(self,
@@ -573,13 +583,20 @@ class MinimapObjectDetector:
                 )
                 continue
 
-            # Get centroid
-            M = cv2.moments(contour)
-            if M["m00"] == 0:
-                continue
-
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
+            # Stage 3: Geometric center via circle fitting (not moments centroid)
+            # This finds the true geometric center of the circular marker
+            if len(contour) >= 5:
+                # Use ellipse fitting for best geometric center
+                ellipse = cv2.fitEllipse(contour)
+                cx, cy = ellipse[0]  # Center of fitted ellipse
+                cx, cy = int(cx), int(cy)
+            else:
+                # Fallback to moments for very small contours (< 5 points)
+                M = cv2.moments(contour)
+                if M["m00"] == 0:
+                    continue
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
 
             # Sample HSV values at blob center for combined scoring
             if hsv_frame is not None:
