@@ -779,9 +779,34 @@ class CVAutoCommandHandler:
             raise
         except Exception as e:
             log.error(f"CV-AUTO loop error: {e}", exc_info=True)
-            await self._stop_cv_auto(f"Error: {str(e)}")
         finally:
-            log.info("CV-AUTO loop ended")
+            log.info("CV-AUTO loop ended, performing cleanup...")
+
+            # Stop hotkey watcher
+            await self._stop_cv_auto_hotkeys()
+
+            # Cleanup components
+            self._cv_auto_task = None
+            self._cv_auto_stop_event = None
+            self._navigator = None
+            self._pathfinder = None
+            self._port_handler = None
+            self._port_detector = None
+
+            # Reset state variables
+            self._loop_counter = 0
+            self._last_triggered_point = None
+            self._cv_auto_state = "idle"
+
+            # Return to BRIDGE mode
+            log.info("🔄 MODE TRANSITION: CV_AUTO → BRIDGE")
+            self.daemon.mode = "BRIDGE"
+            emit("MODE", mode="BRIDGE")
+            emit("CV_AUTO_STOPPED")
+
+            # Restart bridge runner
+            await self.daemon._ensure_runner_started()
+            log.info("✓ Returned to BRIDGE mode")
 
     async def _navigate_to_point(self, target_point):
         """
@@ -907,6 +932,8 @@ class CVAutoCommandHandler:
                 speed=self._speed,
                 jitter_time=self._jitter_time,
                 jitter_hold=self._jitter_hold,
+                min_hold_s=getattr(SETTINGS, "min_hold_s", 0.083),
+                min_repeat_same_key_s=getattr(SETTINGS, "min_repeat_same_key_s", 0.134),
                 loop=1,  # Play once (not False)
                 stop_event=self._cv_auto_stop_event,
                 ignore_keys=ignore_keys,           # ✅ From CV auto session settings
