@@ -1121,8 +1121,8 @@ class ClassBasedPathfinder(PathfindingStrategy):
             max_distance = 38
         elif movement_type == 'double_jump':
             # Double jump: 0.9s at small distances → 1.3s at large distances
-            min_wait = 0.9
-            max_wait = 1.3
+            min_wait = 1.0
+            max_wait = 1.5
             max_distance = 38  # Use Y-axis threshold as reference
         else:
             # Default wait time for unknown movement types

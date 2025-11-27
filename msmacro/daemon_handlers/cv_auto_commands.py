@@ -306,12 +306,12 @@ class CVAutoCommandHandler:
             log.error(f"Failed to initialize CV-AUTO components: {e}", exc_info=True)
             return {"error": f"Initialization failed: {str(e)}"}
 
-        # Pause bridge runner to block physical keyboard (like PLAY mode)
-        log.info("Pausing bridge runner to block physical keyboard during CV-AUTO...")
-        await self.daemon._pause_runner()
-
         # Create stop event
         self._cv_auto_stop_event = asyncio.Event()
+
+        # Set mode BEFORE starting bridge so it runs without grab
+        # This allows the CV_AUTO hotkey watcher to read keyboard events
+        self.daemon.mode = "CV_AUTO"
 
         # Start hotkey watcher for stop shortcut
         await self._start_cv_auto_hotkeys()
@@ -319,8 +319,7 @@ class CVAutoCommandHandler:
         # Start CV-AUTO loop
         self._cv_auto_task = asyncio.create_task(self._cv_auto_loop())
 
-        # Update daemon mode
-        self.daemon.mode = "CV_AUTO"
+        # Emit mode change event (mode already set above)
         emit("MODE", mode="CV_AUTO")
         emit("CV_AUTO_STARTED", map_name=map_config.name, total_points=len(departure_points))
 

@@ -182,7 +182,8 @@ class MacroDaemon:
                         await asyncio.sleep(5)
                         continue
                 
-                grab = (self.mode != "POSTRECORD")  # allow POSTRECORD hotkey watcher to read events
+                # Don't grab device for POSTRECORD or CV_AUTO - allows hotkey watcher to read events
+                grab = (self.mode not in ["POSTRECORD", "CV_AUTO"])
                 b = Bridge(
                     evdev_path=self.evdev_path,
                     hidg_path=getattr(SETTINGS, "hidg_path", "/dev/hidg0"),
