@@ -236,6 +236,7 @@ class Player:
 
         # 2) Apply keystroke ignore randomization
         ignore_usages = self._parse_ignore_keys(ignore_keys)
+        logger.debug(f"Parsed ignore_keys={ignore_keys} → ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
         if ignore_usages and ignore_tolerance > 0:
             original_count = len(scaled)
             filtered_scaled = []
@@ -249,11 +250,11 @@ class Player:
                     continue
                 filtered_scaled.append(a)
             scaled = filtered_scaled
-            print(f"🎲 Keystroke randomization: ignored {ignored_count}/{original_count} actions")
-            print(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
+            logger.info(f"🎲 Keystroke randomization: ignored {ignored_count}/{original_count} actions")
+            logger.info(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
         elif ignore_keys or ignore_tolerance > 0:
-            print(f"🎲 Keystroke randomization: no filtering applied")
-            print(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
+            logger.info(f"🎲 Keystroke randomization: no filtering applied")
+            logger.info(f"   ignore_keys={ignore_keys}, ignore_usages={ignore_usages}, tolerance={ignore_tolerance}")
 
         # 3) Jitter per keystroke (independent), with same-key gap enforcement
         #    - press jitter anchor: time since previous press of the same key; if none, 40ms anchor
