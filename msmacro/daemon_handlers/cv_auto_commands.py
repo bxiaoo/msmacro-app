@@ -309,11 +309,15 @@ class CVAutoCommandHandler:
         # Create stop event
         self._cv_auto_stop_event = asyncio.Event()
 
-        # Set mode BEFORE starting bridge so it runs without grab
-        # This allows the CV_AUTO hotkey watcher to read keyboard events
+        # CRITICAL: Pause bridge runner so hotkey watcher can receive events
+        # Without this, bridge consumes all keyboard events and hotkey watcher gets nothing
+        # This matches the working PLAY mode pattern
+        await self.daemon._pause_runner()
+
+        # Set mode for proper state tracking
         self.daemon.mode = "CV_AUTO"
 
-        # Start hotkey watcher for stop shortcut
+        # Start hotkey watcher for stop shortcut (now it will receive events)
         await self._start_cv_auto_hotkeys()
 
         # Start CV-AUTO loop
