@@ -81,7 +81,7 @@ class DetectorConfig:
     # - S range: 200-255 (TIGHT - only bright saturated pixels)
     # - V range: 200-255 (TIGHT - only bright pixels)
     # Detects small bright cores directly without expansion
-    player_hsv_lower: Tuple[int, int, int] = (25, 200, 200)  # TIGHT color detection
+    player_hsv_lower: Tuple[int, int, int] = (25, 150, 150)  # TIGHT color detection
     player_hsv_upper: Tuple[int, int, int] = (42, 255, 255)  # Greenish-yellow hue range
 
     # Other players detection (red points) - CALIBRATED VALUES
