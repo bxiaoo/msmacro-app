@@ -244,8 +244,9 @@ class MacroDaemon:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._runner_task
                 
-            # Add small delay to ensure device is fully released
-            await asyncio.sleep(0.05)
+            # Add delay to ensure device is fully released by kernel
+            # 200ms is sufficient for device ungrab to complete
+            await asyncio.sleep(0.2)
         self._runner_task = None
         log.debug("Bridge supervisor paused.")
 

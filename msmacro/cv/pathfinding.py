@@ -564,6 +564,33 @@ class ClassBasedPathfinder(PathfindingStrategy):
                 dy, target_point, hid_writer, position_getter
             )
 
+        # Both axes within MAX_TOLERANCE but check_hit() failed earlier
+        # This means departure point uses stricter tolerance or directional mode
+        # Perform fine adjustment movement toward target
+        if abs(dx) > 0 or abs(dy) > 0:
+            logger.debug(f"Fine adjustment needed: dx={dx}, dy={dy} (check_hit requires different criteria)")
+            if abs(dx) >= abs(dy) and dx != 0:
+                # Prioritize X movement if X diff is larger or equal
+                arrow_key = self.ARROW_RIGHT if dx > 0 else self.ARROW_LEFT
+                await self._press_key_timed(arrow_key, 0.08, hid_writer)
+            elif dy != 0:
+                # Otherwise move Y
+                arrow_key = self.ARROW_DOWN if dy > 0 else self.ARROW_UP
+                await self._press_key_timed(arrow_key, 0.08, hid_writer)
+
+            # Wait for movement to complete
+            await asyncio.sleep(0.3)
+
+            # Re-check position after fine adjustment
+            final_pos = await position_getter()
+            if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
+                logger.info("Fine adjustment successful - target reached")
+                return True
+
+            logger.debug("Fine adjustment made but target not yet reached")
+            return False
+
+        # Exactly at target coordinates (dx=0 and dy=0)
         return True
 
     async def _navigate_magician(
@@ -614,14 +641,43 @@ class ClassBasedPathfinder(PathfindingStrategy):
             logger.debug("X-axis aligned, now moving vertically")
             await self._move_vertical_magician(dy, hid_writer)
 
-        # Final position check (wait already done inside movement method)
-        final_pos = await position_getter()
-        if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
-            logger.info("Magician pathfinding: Target reached")
-            return True
+            # Final position check (wait already done inside movement method)
+            final_pos = await position_getter()
+            if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
+                logger.info("Magician pathfinding: Target reached")
+                return True
 
-        logger.warning("Magician pathfinding: Target not reached")
-        return False
+            logger.warning("Magician pathfinding: Target not reached after vertical movement")
+            return False
+
+        # Both axes within MAX_TOLERANCE but check_hit() failed earlier
+        # This means departure point uses stricter tolerance or directional mode
+        # Perform fine adjustment movement toward target
+        if abs(dx) > 0 or abs(dy) > 0:
+            logger.debug(f"Magician fine adjustment needed: dx={dx}, dy={dy} (check_hit requires different criteria)")
+            if abs(dx) >= abs(dy) and dx != 0:
+                # Prioritize X movement if X diff is larger or equal
+                arrow_key = self.ARROW_RIGHT if dx > 0 else self.ARROW_LEFT
+                await self._press_key_timed(arrow_key, 0.08, hid_writer)
+            elif dy != 0:
+                # Otherwise move Y
+                arrow_key = self.ARROW_DOWN if dy > 0 else self.ARROW_UP
+                await self._press_key_timed(arrow_key, 0.08, hid_writer)
+
+            # Wait for movement to complete
+            await asyncio.sleep(0.3)
+
+            # Re-check position after fine adjustment
+            final_pos = await position_getter()
+            if final_pos and target_point.check_hit(final_pos[0], final_pos[1]):
+                logger.info("Magician fine adjustment successful - target reached")
+                return True
+
+            logger.debug("Magician fine adjustment made but target not yet reached")
+            return False
+
+        # Exactly at target coordinates (dx=0 and dy=0)
+        return True
 
     # ========== Other Class Movement Methods ==========
 
