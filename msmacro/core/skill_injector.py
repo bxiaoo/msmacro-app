@@ -21,9 +21,13 @@ ARROW_RIGHT = 79
 SPACE_KEY = 44
 
 
+# Double-jump protection: minimum time between jumps to allow skill insertion
+DOUBLE_JUMP_WINDOW = 0.6  # seconds
+
+
 @dataclass
 class SkillState:
-    """Tracks state for an active skill."""
+    """Tracks time for an active skill."""
     config: SkillConfig
     last_used_time: float = 0.0
     is_casting: bool = False
@@ -75,6 +79,10 @@ class SkillInjector:
         # Global arrow key tracking (shared across all skills)
         self.last_arrow_direction: Optional[int] = None
         self.last_arrow_time: float = 0.0
+
+        # Double-jump protection tracking
+        self.last_jump_time: float = 0.0  # When space key was last pressed
+        self.in_double_jump_window: bool = False  # True if within double-jump protection window
 
         # CV Auto pathfinding mode tracking (cooldown freeze during navigation)
         self.is_pathfinding: bool = False  # True during pathfinding, False during rotation
@@ -158,6 +166,47 @@ class SkillInjector:
             self.last_arrow_direction = ARROW_RIGHT
             self.last_arrow_time = current_time
 
+    def update_jump_tracking(self, pressed_keys: List[int], current_time: float) -> None:
+        """
+        Track space key (jump) presses to detect double-jump sequences.
+
+        When two jumps occur within DOUBLE_JUMP_WINDOW (0.6s), skill injection
+        is blocked to avoid interrupting double-jump maneuvers.
+        """
+        if SPACE_KEY in pressed_keys:
+            # Space key is currently pressed
+            time_since_last_jump = current_time - self.last_jump_time
+
+            if self.last_jump_time > 0 and time_since_last_jump < DOUBLE_JUMP_WINDOW:
+                # Second jump detected within window - block skill injection
+                self.in_double_jump_window = True
+                logger.debug(
+                    f"🦘 Double-jump detected: {time_since_last_jump:.3f}s since last jump "
+                    f"(< {DOUBLE_JUMP_WINDOW}s window)"
+                )
+
+            # Update last jump time (only on new press, not while held)
+            # We detect new press by checking if last_jump_time is old enough
+            if time_since_last_jump > 0.05:  # Debounce: treat as new press if >50ms
+                self.last_jump_time = current_time
+        else:
+            # Space key not pressed - check if we should exit double-jump window
+            time_since_last_jump = current_time - self.last_jump_time
+            if time_since_last_jump >= DOUBLE_JUMP_WINDOW:
+                # Window expired, allow skill injection again
+                if self.in_double_jump_window:
+                    logger.debug("🦘 Double-jump window expired, skill injection allowed")
+                self.in_double_jump_window = False
+
+    def is_in_double_jump_window(self, current_time: float) -> bool:
+        """Check if currently in a double-jump protection window."""
+        # Also check elapsed time as a safety (in case tracking wasn't updated)
+        if self.last_jump_time > 0:
+            time_since_last_jump = current_time - self.last_jump_time
+            if time_since_last_jump < DOUBLE_JUMP_WINDOW:
+                return self.in_double_jump_window
+        return False
+
     # ---------- CV Auto Pathfinding Mode Management ----------
 
     def enter_pathfinding_mode(self, current_time: float):
@@ -200,6 +249,10 @@ class SkillInjector:
         # Reset arrow tracking
         self.last_arrow_direction = None
         self.last_arrow_time = 0.0
+
+        # Reset double-jump tracking
+        self.last_jump_time = 0.0
+        self.in_double_jump_window = False
 
         # Reset group state
         for group_id in self.group_casting_state:
@@ -581,6 +634,9 @@ class SkillInjector:
         # Update arrow key tracking
         self.update_arrow_key_tracking(pressed_keys, current_time)
 
+        # Update jump tracking for double-jump protection
+        self.update_jump_tracking(pressed_keys, current_time)
+
         # Update casting states
         self.update_casting_state(current_time)
 
@@ -602,6 +658,11 @@ class SkillInjector:
             # If in replacement mode, can inject anytime (skill will replace ignore_key)
             if skill_state.use_replacement_mode:
                 return self.cast_skill(skill_id, current_time)
+
+            # Double-jump protection: do not inject if two jumps occurred within 0.6s window
+            # This prevents skill insertion between rapid double-jump sequences
+            if self.is_in_double_jump_window(current_time):
+                continue
 
             # Otherwise, only inject if no other keys are pressed
             if len(pressed_keys) == 0:
