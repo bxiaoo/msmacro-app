@@ -1923,6 +1923,33 @@ async def api_cv_auto_start(request: web.Request):
     except Exception:
         body = {}
 
+    # Refresh skill data from disk to pick up any updated settings (cooldown, delay, etc.)
+    active_skills = body.get("active_skills", [])
+    if active_skills:
+        try:
+            from ..core.skills import SkillManager
+            skills_manager = SkillManager(SETTINGS.skills_dir)
+            all_skills_on_disk = {s["id"]: s for s in skills_manager.list_skills()}
+
+            refreshed_skills = []
+            for skill in active_skills:
+                skill_id = skill.get("id")
+                if skill_id and skill_id in all_skills_on_disk:
+                    # Use fresh data from disk, preserve isSelected from frontend
+                    fresh = all_skills_on_disk[skill_id].copy()
+                    fresh["isSelected"] = skill.get("isSelected", True)
+                    refreshed_skills.append(fresh)
+                    log.debug(f"🔄 Refreshed skill '{fresh.get('name')}' from disk")
+                else:
+                    # Skill not found on disk, keep original
+                    refreshed_skills.append(skill)
+
+            if refreshed_skills:
+                body["active_skills"] = refreshed_skills
+                log.info(f"🔄 Refreshed {len(refreshed_skills)} skills from disk")
+        except Exception as e:
+            log.warning(f"Failed to refresh skills from disk: {e}, using provided skills")
+
     log.info(f"Request params: {body}")
 
     try:

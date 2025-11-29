@@ -730,22 +730,18 @@ class MacroDaemon:
     # ---------- skill injector management ----------
 
     def _get_or_create_skill_injector(self, active_skills: Optional[List[Dict[str, Any]]]) -> Optional[SkillInjector]:
-        """Get or create persistent skill injector."""
+        """Get or create skill injector with provided skills.
+
+        Always creates a fresh SkillInjector to ensure updated skill settings
+        (cooldown, delay, etc.) are applied. Previous logic only recreated if
+        skill IDs changed, which missed property updates.
+        """
         if not active_skills:
             return None
 
-        # If we already have a skill injector with the same skills, reuse it
-        # Otherwise, create a new one (this preserves state across recordings)
-        if self._skill_injector is None:
-            self._skill_injector = SkillInjector(active_skills)
-        else:
-            # Check if skills list has changed
-            current_skill_ids = set(state.config.id for state in self._skill_injector.skills.values())
-            new_skill_ids = set(s.get('id') for s in active_skills if s.get('id'))
-
-            if current_skill_ids != new_skill_ids:
-                # Skills changed, create new injector
-                self._skill_injector = SkillInjector(active_skills)
+        # Always create fresh injector to pick up any updated skill settings
+        self._skill_injector = SkillInjector(active_skills)
+        log.info(f"Created fresh SkillInjector with {len(active_skills)} skills")
 
         return self._skill_injector
 

@@ -115,8 +115,16 @@ class CVAutoCommandHandler:
 
         log.info("✓ CV-AUTO not currently running")
 
-        # Try to get active CV Item first (new system)
+        # Force reload from disk to get latest settings (fixes stale data issue)
         cv_item_manager = get_cv_item_manager()
+        cv_item_manager.reload()
+        log.info("🔄 Reloaded CV Items from disk")
+
+        map_manager = get_map_manager()
+        map_manager.reload()
+        log.info("🔄 Reloaded Map Configs from disk")
+
+        # Try to get active CV Item (now with fresh data)
         active_cv_item = cv_item_manager.get_active_item()
 
         log.info(f"Active CV Item: {active_cv_item.name if active_cv_item else 'None'}")
