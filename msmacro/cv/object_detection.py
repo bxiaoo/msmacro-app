@@ -81,12 +81,13 @@ class DetectorConfig:
     # - S range: 200-255 (TIGHT - only bright saturated pixels)
     # - V range: 200-255 (TIGHT - only bright pixels)
     # Detects small bright cores directly without expansion
-    player_hsv_lower: Tuple[int, int, int] = (25, 150, 150)  # TIGHT color detection
+    player_hsv_lower: Tuple[int, int, int] = (25, 180, 180)  # TIGHT color detection
     player_hsv_upper: Tuple[int, int, int] = (42, 255, 255)  # Greenish-yellow hue range
 
     # Other players detection (red points) - CALIBRATED VALUES
     # Red wraps around in HSV, need two ranges
-    # Based on analysis of 20 calibration samples (Nov 9, 2025)
+    # Based on analysis of 29 annotation samples (Dec 2, 2025)
+    # Observed: H=0, S=255, V=238-245 (pure bright saturated red)
     other_player_hsv_ranges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = None
 
     # Blob filtering - TIGHT COLOR RANGE (S≥200, V≥200)
@@ -117,12 +118,13 @@ class DetectorConfig:
     def __post_init__(self):
         """Initialize default values."""
         if self.other_player_hsv_ranges is None:
-            # Calibrated red ranges (Nov 9, 2025 - Ground truth validation)
-            # Tightened based on actual red dots: H=7 (S=114,V=123) and H=168 (S=191,V=168)
-            # Filters out cyan/green/blue false positives (H=60-140)
+            # Calibrated red ranges (Dec 2, 2025 - Updated from 29 annotation samples)
+            # Observed at enemy dot centers: H=0, S=255, V=231-248 (bright saturated red)
+            # Enemy dots are ~4-5px diameter with circularity 0.82-0.91
+            # V_min=200 provides margin for edge pixels and varying brightness
             self.other_player_hsv_ranges = [
-                ((0, 100, 100), (10, 255, 255)),     # Lower red range (pure red only)
-                ((165, 100, 100), (179, 255, 255))   # Upper red range (H max is 179 in OpenCV)
+                ((0, 200, 200), (10, 255, 255)),     # Lower red range (pure bright red)
+                ((170, 200, 200), (179, 255, 255))   # Upper red range (H max is 179 in OpenCV)
             ]
 
 
