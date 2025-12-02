@@ -559,12 +559,13 @@ class CVCommandHandler:
             }
 
         # Reconstruct DetectionResult from dict
-        from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus
+        from msmacro.cv.object_detection import DetectionResult, PlayerPosition, OtherPlayersStatus, RuneStatus
 
         player_data = last_result_dict.get("player", {})
         other_players_data = last_result_dict.get("other_players", {})
+        rune_data = last_result_dict.get("rune", {})
 
-        # Reconstruct player positions
+        # Reconstruct player position
         player_pos = PlayerPosition(
             detected=player_data.get("detected", False),
             x=player_data.get("x", 0),
@@ -584,9 +585,18 @@ class CVCommandHandler:
             positions=other_positions
         )
 
+        # Reconstruct rune status
+        rune_status = RuneStatus(
+            detected=rune_data.get("detected", False),
+            x=rune_data.get("x", 0),
+            y=rune_data.get("y", 0),
+            confidence=rune_data.get("confidence", 0.0)
+        )
+
         result = DetectionResult(
             player=player_pos,
             other_players=other_players,
+            rune=rune_status,
             timestamp=last_result_dict.get("timestamp", 0.0)
         )
 
