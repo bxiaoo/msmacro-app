@@ -22,6 +22,56 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# ---------- Notification Queue ----------
+# In-memory queue for push notifications
+# Items are consumed by SSE clients
+from collections import deque
+import threading
+
+_notification_queue = deque(maxlen=100)  # Keep last 100 notifications
+_notification_lock = threading.Lock()
+_last_notification_id = 0
+
+
+def queue_notification(event: str, title: str, body: str, priority: str = "info"):
+    """
+    Add a notification to the queue for SSE clients to consume.
+
+    Args:
+        event: Event type (e.g., "rune_detected", "cv_auto_stopped")
+        title: Notification title
+        body: Notification body text
+        priority: "info", "warning", or "critical"
+    """
+    global _last_notification_id
+    with _notification_lock:
+        _last_notification_id += 1
+        notification = {
+            "id": _last_notification_id,
+            "event": event,
+            "title": title,
+            "body": body,
+            "priority": priority,
+            "timestamp": time.time()
+        }
+        _notification_queue.append(notification)
+        log.debug(f"Queued notification: {event} - {title}")
+
+
+def get_pending_notifications(since_id: int = 0):
+    """
+    Get all notifications since a given ID.
+
+    Args:
+        since_id: Return notifications with ID greater than this
+
+    Returns:
+        List of notification dictionaries
+    """
+    with _notification_lock:
+        return [n for n in _notification_queue if n["id"] > since_id]
+
+
 _frame_path_env = os.environ.get("MSMACRO_CV_FRAME_PATH", "/dev/shm/msmacro_cv_frame.jpg").strip()
 SHARED_FRAME_PATH = Path(_frame_path_env) if _frame_path_env else None
 _meta_path_env = os.environ.get("MSMACRO_CV_META_PATH", "").strip()
@@ -357,6 +407,7 @@ async def api_events(request: web.Request):
     
     last_mode = st.get("mode")
     last_files_msum = sum(int(f.get("mtime", 0)) for f in st.get("files", []))
+    last_notification_id = 0
 
     # Send initial state
     await send_event({"type": "mode", "mode": last_mode})
@@ -412,6 +463,22 @@ async def api_events(request: web.Request):
                         "state": cv_auto.get("state"),
                         "is_at_point": cv_auto.get("is_at_point")
                     })
+            except Exception:
+                pass
+
+            # Check for pending notifications
+            try:
+                pending = get_pending_notifications(last_notification_id)
+                for notification in pending:
+                    await send_event({
+                        "type": "notification",
+                        "event": notification["event"],
+                        "title": notification["title"],
+                        "body": notification["body"],
+                        "priority": notification["priority"],
+                        "timestamp": notification["timestamp"]
+                    })
+                    last_notification_id = notification["id"]
             except Exception:
                 pass
 

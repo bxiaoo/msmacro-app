@@ -335,6 +335,18 @@ class CVAutoCommandHandler:
         emit("MODE", mode="CV_AUTO")
         emit("CV_AUTO_STARTED", map_name=map_config.name, total_points=len(departure_points))
 
+        # Queue push notification
+        try:
+            from msmacro.web.handlers import queue_notification
+            queue_notification(
+                event="cv_auto_started",
+                title="CV-AUTO Started",
+                body=f"Running on map '{map_config.name}' with {len(departure_points)} points",
+                priority="info"
+            )
+        except Exception:
+            pass
+
         log.info("CV-AUTO mode started successfully")
         return {"ok": True}
 
@@ -411,6 +423,18 @@ class CVAutoCommandHandler:
 
         # Emit stopped event
         emit("CV_AUTO_STOPPED")
+
+        # Queue push notification
+        try:
+            from msmacro.web.handlers import queue_notification
+            queue_notification(
+                event="cv_auto_stopped",
+                title="CV-AUTO Stopped",
+                body="Automation has been stopped",
+                priority="info"
+            )
+        except Exception:
+            pass
 
         log.info("=" * 70)
         log.info("✅ CV-AUTO STOPPED SUCCESSFULLY")
@@ -649,6 +673,19 @@ class CVAutoCommandHandler:
                             log.info(f"   DEBUG: Exit triggered because {self._loop_counter} >= {self._loop}")
                             log.info(f"   Stopping CV-AUTO...")
                             log.info("=" * 70)
+
+                            # Queue success notification (separate from error)
+                            try:
+                                from msmacro.web.handlers import queue_notification
+                                queue_notification(
+                                    event="cv_auto_completed",
+                                    title="CV-AUTO Completed",
+                                    body=f"Finished {self._loop} loop cycles ({self._navigator.rotations_played_count} rotations)",
+                                    priority="high"
+                                )
+                            except Exception:
+                                pass
+
                             await self._stop_cv_auto(f"Completed {self._loop} loop cycles")
                             break
 
@@ -971,6 +1008,18 @@ class CVAutoCommandHandler:
         """
         log.warning(f"Stopping CV-AUTO: {reason}")
         emit("CV_AUTO_ERROR", reason=reason)
+
+        # Queue push notification for error/stop reason
+        try:
+            from msmacro.web.handlers import queue_notification
+            queue_notification(
+                event="cv_auto_error",
+                title="CV-AUTO Error",
+                body=reason,
+                priority="high"
+            )
+        except Exception:
+            pass
 
         if self._cv_auto_stop_event:
             self._cv_auto_stop_event.set()

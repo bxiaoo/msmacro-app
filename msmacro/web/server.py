@@ -87,6 +87,10 @@ INDEX_FILE = STATIC_DIR / "index.html"
 WEB_HOST = os.environ.get("MSMACRO_WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("MSMACRO_WEB_PORT", "8787"))
 
+# SSL/HTTPS Configuration (optional, for iOS PWA notifications)
+SSL_CERT = os.environ.get("MSMACRO_SSL_CERT", "")
+SSL_KEY = os.environ.get("MSMACRO_SSL_KEY", "")
+
 @web.middleware
 async def spa_fallback_mw(request: web.Request, handler):
     # API paths go to handlers
@@ -213,12 +217,46 @@ def make_app() -> web.Application:
 
     return app
 
+def _get_ssl_context():
+    """
+    Create SSL context if certificate and key files are configured.
+
+    Returns:
+        ssl.SSLContext if SSL is configured, None otherwise
+    """
+    if not SSL_CERT or not SSL_KEY:
+        return None
+
+    cert_path = Path(SSL_CERT).expanduser()
+    key_path = Path(SSL_KEY).expanduser()
+
+    if not cert_path.exists():
+        print(f"Warning: SSL certificate not found: {cert_path}")
+        return None
+    if not key_path.exists():
+        print(f"Warning: SSL key not found: {key_path}")
+        return None
+
+    import ssl
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(str(cert_path), str(key_path))
+    return ssl_context
+
+
 def main():
     app = make_app()
-    print(f"Starting MSMacro web server on {WEB_HOST}:{WEB_PORT}")
+    ssl_context = _get_ssl_context()
+
+    protocol = "https" if ssl_context else "http"
+    print(f"Starting MSMacro web server on {protocol}://{WEB_HOST}:{WEB_PORT}")
     print(f"Static dir: {STATIC_DIR}")
     print(f"Index file: {INDEX_FILE}")
-    web.run_app(app, host=WEB_HOST, port=WEB_PORT)
+    if ssl_context:
+        print(f"SSL enabled: cert={SSL_CERT}, key={SSL_KEY}")
+    else:
+        print("SSL disabled (set MSMACRO_SSL_CERT and MSMACRO_SSL_KEY for HTTPS)")
+
+    web.run_app(app, host=WEB_HOST, port=WEB_PORT, ssl_context=ssl_context)
 
 if __name__ == "__main__":
     main()

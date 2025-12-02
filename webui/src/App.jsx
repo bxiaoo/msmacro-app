@@ -15,6 +15,7 @@ import { CVItemList } from './components/cv/CVItemList.jsx'
 import { PlaySettingsModal } from './components/rotations/PlaySettingsModal.jsx'
 import { PostRecordingModal } from './components/rotations/PostRecordingModal.jsx'
 import { NewSkillModal } from './components/skills/NewSkillModal.jsx'
+import { NotificationManager } from './components/NotificationManager.jsx'
 
 export default function App(){
   const { executeAction, isPending } = useApiAction()
@@ -157,6 +158,23 @@ export default function App(){
         setCvAutoCurrentPoint(cvStatus.currentPoint || '')
         setCvAutoCurrentIndex(cvStatus.currentIndex || 0)
         setCvAutoIsAtPoint(cvStatus.isAtPoint || false)
+      },
+      // onNotification callback
+      (notification) => {
+        // Check if notifications are enabled by user
+        const enabled = localStorage.getItem('msmacro-notifications-enabled') === 'true'
+        if (!enabled) return
+
+        // Send notification via service worker
+        if (Notification.permission === 'granted' && navigator.serviceWorker?.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title: notification.title || 'MS Macro',
+            body: notification.body || '',
+            priority: notification.priority || 'info',
+            tag: `msmacro-${notification.event}`
+          })
+        }
       }
     )
 
@@ -532,10 +550,13 @@ export default function App(){
           />
         )}
         {activeTab === 'cv-items' && (
-          <CVItemList
-            cvAutoCurrentIndex={cvAutoCurrentIndex}
-            cvAutoIsAtPoint={cvAutoIsAtPoint}
-          />
+          <div className="space-y-4">
+            <NotificationManager />
+            <CVItemList
+              cvAutoCurrentIndex={cvAutoCurrentIndex}
+              cvAutoIsAtPoint={cvAutoIsAtPoint}
+            />
+          </div>
         )}
       </div>
 

@@ -100,6 +100,7 @@ class CVCapture:
         self._object_detection_enabled = False
         self._last_detection_result = None
         self._detection_lock = threading.Lock()
+        self._last_rune_detected = False  # Track rune state for edge detection
 
         # Immediate capture trigger (for config changes)
         self._immediate_capture_requested = threading.Event()
@@ -564,6 +565,22 @@ class CVCapture:
                                         emit("OBJECT_DETECTED", detection_result.to_dict())
                                     except Exception:
                                         pass  # Event emission failure shouldn't break capture
+
+                                    # Check for rune detection edge (transition to detected)
+                                    # Queue notification only when rune appears, not continuously
+                                    current_rune_detected = detection_result.rune.detected
+                                    if current_rune_detected and not self._last_rune_detected:
+                                        try:
+                                            from ..web.handlers import queue_notification
+                                            queue_notification(
+                                                event="rune_detected",
+                                                title="Rune Detected",
+                                                body=f"Rune found at ({detection_result.rune.x}, {detection_result.rune.y})",
+                                                priority="high"
+                                            )
+                                        except Exception:
+                                            pass  # Notification failure shouldn't break capture
+                                    self._last_rune_detected = current_rune_detected
                         except Exception as det_err:
                             logger.debug(f"Object detection failed: {det_err}")
 

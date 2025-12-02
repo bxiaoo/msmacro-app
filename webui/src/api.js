@@ -300,10 +300,11 @@ async function API(path, opts = {}) {
   
   // ---------- Real-time Events (SSE) ----------
   export class EventStream {
-    constructor(onMode, onFiles, onCVAutoStatus) {
+    constructor(onMode, onFiles, onCVAutoStatus, onNotification) {
       this.onMode = onMode;
       this.onFiles = onFiles;
       this.onCVAutoStatus = onCVAutoStatus;
+      this.onNotification = onNotification;
       this.source = null;
       this.reconnectTimer = null;
       this.closed = false;
@@ -346,6 +347,14 @@ async function API(path, opts = {}) {
                 playerPosition: data.player_position,
                 state: data.state,
                 isAtPoint: data.is_at_point
+              });
+            } else if (data.type === "notification" && this.onNotification) {
+              this.onNotification({
+                event: data.event,
+                title: data.title,
+                body: data.body,
+                priority: data.priority,
+                timestamp: data.timestamp
               });
             }
 
