@@ -54,10 +54,24 @@ class OtherPlayersStatus:
 
 
 @dataclass
+class RuneStatus:
+    """Rune detection status."""
+    detected: bool
+    x: int = 0  # X coordinate relative to minimap top-left
+    y: int = 0  # Y coordinate relative to minimap top-left
+    confidence: float = 0.0  # Circularity score (0-1)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
 class DetectionResult:
     """Complete detection result."""
     player: PlayerPosition
     other_players: OtherPlayersStatus
+    rune: RuneStatus
     timestamp: float  # Unix timestamp
 
     def to_dict(self) -> Dict[str, Any]:
@@ -65,6 +79,7 @@ class DetectionResult:
         return {
             "player": self.player.to_dict(),
             "other_players": self.other_players.to_dict(),
+            "rune": self.rune.to_dict(),
             "timestamp": self.timestamp
         }
 
@@ -97,8 +112,8 @@ class DetectorConfig:
     max_blob_size: int = 12     # Maximum bright core size
     min_blob_size_other: int = 4    # Red dots minimum
     max_blob_size_other: int = 12   # Red dots maximum
-    min_circularity: float = 0.50  # Relaxed to 0.50 for large yellow blobs (actual measured: 0.54-0.56)
-    min_circularity_other: float = 0.50  # Relaxed to match player threshold
+    min_circularity: float = 0.70  # Relaxed to 0.50 for large yellow blobs (actual measured: 0.54-0.56)
+    min_circularity_other: float = 0.70  # Relaxed to match player threshold
 
     # Aspect ratio filtering (NEW)
     # Player dots should be roughly circular (width ≈ height)
@@ -110,6 +125,15 @@ class DetectorConfig:
     # Contrast validation can cause false negatives in low-contrast scenes
     enable_contrast_validation: bool = False
     min_contrast_ratio: float = 1.15  # Blob must be 15% brighter (if enabled)
+
+    # Rune detection (pink/magenta diamond) - CALIBRATED VALUES
+    # Based on analysis of 3 samples (Dec 2, 2025)
+    # Observed: H=145, S=177-179, V=255 (bright magenta/pink diamond shape)
+    rune_hsv_lower: Tuple[int, int, int] = (130, 100, 200)
+    rune_hsv_upper: Tuple[int, int, int] = (160, 255, 255)
+    min_blob_size_rune: int = 4
+    max_blob_size_rune: int = 15
+    min_circularity_rune: float = 0.50  # Lower threshold for diamond shape
 
     # Temporal smoothing
     temporal_smoothing: bool = True
@@ -438,13 +462,15 @@ class MinimapObjectDetector:
         self._detection_count += 1
 
         try:
-            # Detect player and other players (each with appropriate size range)
+            # Detect player, other players, and rune
             player = self._detect_player(frame)
             other_players = self._detect_other_players(frame)
-            
+            rune = self._detect_rune(frame)
+
             result = DetectionResult(
                 player=player,
                 other_players=other_players,
+                rune=rune,
                 timestamp=time.time()
             )
         except Exception as e:
@@ -452,6 +478,7 @@ class MinimapObjectDetector:
             result = DetectionResult(
                 player=PlayerPosition(detected=False),
                 other_players=OtherPlayersStatus(detected=False),
+                rune=RuneStatus(detected=False),
                 timestamp=time.time()
             )
         finally:
@@ -773,7 +800,64 @@ class MinimapObjectDetector:
             count=len(unique_blobs),
             positions=positions
         )
-    
+
+    def _detect_rune(self, frame: np.ndarray) -> RuneStatus:
+        """
+        Detect pink/magenta diamond rune on minimap.
+
+        Rune appears as a bright magenta diamond shape. Detection uses
+        HSV color filtering similar to player detection.
+
+        Args:
+            frame: BGR minimap image
+
+        Returns:
+            RuneStatus with detected flag and coordinates
+        """
+        # Convert to HSV for color masking
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Create color mask for rune (magenta/pink)
+        mask = self._create_color_mask(
+            frame,
+            self.config.rune_hsv_lower,
+            self.config.rune_hsv_upper
+        )
+
+        # Find blobs with rune-specific parameters
+        blobs = self._find_circular_blobs(
+            mask,
+            frame=frame,
+            hsv_frame=hsv,
+            min_size=self.config.min_blob_size_rune,
+            max_size=self.config.max_blob_size_rune,
+            min_circularity=self.config.min_circularity_rune
+        )
+
+        if not blobs:
+            return RuneStatus(detected=False)
+
+        # Select blob with highest circularity (most diamond-like)
+        best_blob = max(blobs, key=lambda b: b['circularity'])
+        cx, cy = best_blob['center']
+
+        # Validate and clamp position
+        cx, cy, is_valid = self._validate_and_clamp_position(
+            cx, cy, frame.shape[:2], margin=2
+        )
+
+        if not is_valid:
+            logger.warning(
+                f"Rune position clamped | blob_center={best_blob['center']} → ({cx},{cy})"
+            )
+
+        return RuneStatus(
+            detected=True,
+            x=cx,
+            y=cy,
+            confidence=best_blob['circularity']
+        )
+
     def _deduplicate_blobs(self, blobs: List[Dict], distance_threshold: float = 5.0) -> List[Dict]:
         """
         Remove duplicate blobs that are close to each other.
@@ -889,6 +973,28 @@ class MinimapObjectDetector:
                 cv2.putText(vis, label,
                            (10, 20),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+            # Draw rune
+            if result.rune.detected:
+                x, y = result.rune.x, result.rune.y
+
+                # Validate coordinates are within frame bounds
+                if not (0 <= x < frame_width and 0 <= y < frame_height):
+                    logger.warning(
+                        f"Rune position ({x},{y}) out of frame bounds ({frame_width}x{frame_height}) - "
+                        f"skipping visualization"
+                    )
+                else:
+                    # Draw diamond marker (magenta color)
+                    cv2.drawMarker(vis, (x, y), (255, 0, 255),
+                                  markerType=cv2.MARKER_DIAMOND,
+                                  markerSize=12, thickness=2)
+
+                    # Draw label
+                    label = f"Rune ({x},{y}) {result.rune.confidence:.2f}"
+                    cv2.putText(vis, label,
+                               (x + 12, y - 12),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
 
             # Draw frame count
             cv2.putText(vis, f"Frame: {self._detection_count}",

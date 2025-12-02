@@ -1865,19 +1865,30 @@ async def api_departure_points_status(request: web.Request):
                 "points": []
             })
 
-        # Get current player position from daemon
+        # Get current player and rune position from daemon
         try:
             detection_result = await _daemon("object_detection_status")
             last_result = detection_result.get("last_result") or {}
+
+            # Player data
             player_data = last_result.get("player") or {}
             player_detected = player_data.get("detected", False)
             current_x = player_data.get("x", 0)
             current_y = player_data.get("y", 0)
+
+            # Rune data
+            rune_data = last_result.get("rune") or {}
+            rune_detected = rune_data.get("detected", False)
+            rune_x = rune_data.get("x", 0)
+            rune_y = rune_data.get("y", 0)
         except Exception as e:
-            log.warning(f"Failed to get player position: {e}")
+            log.warning(f"Failed to get detection status: {e}")
             player_detected = False
             current_x = 0
             current_y = 0
+            rune_detected = False
+            rune_x = 0
+            rune_y = 0
 
         # Check hit_departure for all points
         points_status = []
@@ -1889,6 +1900,8 @@ async def api_departure_points_status(request: web.Request):
         return _json({
             "player_detected": player_detected,
             "player_position": {"x": current_x, "y": current_y} if player_detected else None,
+            "rune_detected": rune_detected,
+            "rune_position": {"x": rune_x, "y": rune_y} if rune_detected else None,
             "active_map": config.name,
             "points": points_status
         })

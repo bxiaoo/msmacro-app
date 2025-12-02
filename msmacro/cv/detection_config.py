@@ -116,6 +116,20 @@ def save_config(config: DetectorConfig, metadata: Optional[Dict[str, Any]] = Non
         validation_errors.append(
             f"min_circularity_other must be 0.0-1.0 (got {config.min_circularity_other})"
         )
+    if not (0.0 <= config.min_circularity_rune <= 1.0):
+        validation_errors.append(
+            f"min_circularity_rune must be 0.0-1.0 (got {config.min_circularity_rune})"
+        )
+
+    # Validate rune HSV ranges
+    try:
+        _validate_hsv_range(
+            config.rune_hsv_lower,
+            config.rune_hsv_upper,
+            "rune"
+        )
+    except ValueError as e:
+        validation_errors.append(f"Rune HSV: {e}")
 
     # Validate smoothing alpha
     if not (0.0 <= config.smoothing_alpha <= 1.0):
@@ -151,6 +165,15 @@ def save_config(config: DetectorConfig, metadata: Optional[Dict[str, Any]] = Non
                 for lower, upper in config.other_player_hsv_ranges
             ],
             "circularity_min": config.min_circularity_other
+        },
+        "rune": {
+            "color_range": {
+                "hsv_lower": list(config.rune_hsv_lower),
+                "hsv_upper": list(config.rune_hsv_upper)
+            },
+            "blob_size_min": config.min_blob_size_rune,
+            "blob_size_max": config.max_blob_size_rune,
+            "circularity_min": config.min_circularity_rune
         },
         "temporal_smoothing": {
             "enabled": config.temporal_smoothing,
@@ -255,12 +278,23 @@ def _flatten_config(nested: Dict[str, Any]) -> Dict[str, Any]:
         flat["min_blob_size_other"] = other.get("blob_size_min", 4)
         flat["max_blob_size_other"] = other.get("blob_size_max", 18)
     
+    # Rune config
+    if "rune" in nested:
+        rune = nested["rune"]
+        if "color_range" in rune:
+            cr = rune["color_range"]
+            flat["rune_hsv_lower"] = tuple(cr.get("hsv_lower", (130, 100, 200)))
+            flat["rune_hsv_upper"] = tuple(cr.get("hsv_upper", (160, 255, 255)))
+        flat["min_blob_size_rune"] = rune.get("blob_size_min", 4)
+        flat["max_blob_size_rune"] = rune.get("blob_size_max", 15)
+        flat["min_circularity_rune"] = rune.get("circularity_min", 0.50)
+
     # Temporal smoothing
     if "temporal_smoothing" in nested:
         ts = nested["temporal_smoothing"]
         flat["temporal_smoothing"] = ts.get("enabled", True)
         flat["smoothing_alpha"] = ts.get("alpha", 0.3)
-    
+
     return flat
 
 
@@ -318,6 +352,11 @@ def _dict_to_config(config_dict: Dict[str, Any]) -> DetectorConfig:
         max_aspect_ratio=config_dict.get("max_aspect_ratio", 2.0),
         enable_contrast_validation=config_dict.get("enable_contrast_validation", False),
         min_contrast_ratio=config_dict.get("min_contrast_ratio", 1.15),
+        rune_hsv_lower=config_dict.get("rune_hsv_lower", (130, 100, 200)),
+        rune_hsv_upper=config_dict.get("rune_hsv_upper", (160, 255, 255)),
+        min_blob_size_rune=config_dict.get("min_blob_size_rune", 4),
+        max_blob_size_rune=config_dict.get("max_blob_size_rune", 15),
+        min_circularity_rune=config_dict.get("min_circularity_rune", 0.50),
         temporal_smoothing=config_dict.get("temporal_smoothing", True),
         smoothing_alpha=config_dict.get("smoothing_alpha", 0.3)
     )

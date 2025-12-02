@@ -23,6 +23,8 @@ export function CVItemDepartureStep({
 }) {
   const [playerPosition, setPlayerPosition] = useState(null)
   const [playerDetected, setPlayerDetected] = useState(false)
+  const [runePosition, setRunePosition] = useState(null)
+  const [runeDetected, setRuneDetected] = useState(false)
   const [livePreviewUrl, setLivePreviewUrl] = useState(null)
   const [expandedPoint, setExpandedPoint] = useState(null)
   const [mapConfig, setMapConfig] = useState(null)
@@ -153,6 +155,8 @@ export function CVItemDepartureStep({
         const status = await getDeparturePointsStatus()
         setPlayerPosition(status.player_position)
         setPlayerDetected(status.player_detected || false)
+        setRunePosition(status.rune_position)
+        setRuneDetected(status.rune_detected || false)
 
         // Update live preview URL with cache busting
         if (mapConfigName) {
@@ -273,6 +277,15 @@ export function CVItemDepartureStep({
         <div className="bg-emerald-200 border border-emerald-300 rounded px-3 py-2">
           <span className="font-semibold text-sm text-emerald-900">
             Player current position ({playerPosition.x}, {playerPosition.y})
+          </span>
+        </div>
+      )}
+
+      {/* Rune Position Badge */}
+      {runeDetected && runePosition && (
+        <div className="bg-fuchsia-200 border border-fuchsia-300 rounded px-3 py-2">
+          <span className="font-semibold text-sm text-fuchsia-900">
+            Rune position ({runePosition.x}, {runePosition.y})
           </span>
         </div>
       )}
