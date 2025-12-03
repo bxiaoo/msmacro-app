@@ -613,7 +613,8 @@ class SkillInjector:
         self,
         pressed_keys: List[int],
         current_time: float,
-        ignore_keys: Optional[List[int]] = None
+        ignore_keys: Optional[List[int]] = None,
+        time_until_next_release: Optional[float] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Check all skills and return injection info if any skill should be cast.
@@ -623,6 +624,9 @@ class SkillInjector:
             pressed_keys: Currently pressed HID usage IDs
             current_time: Current time
             ignore_keys: List of HID usage IDs that can be replaced by skills
+            time_until_next_release: Time (in timeline) until next key release event.
+                Used to prevent skill casting if a key release would fall within
+                the skill's freeze window.
 
         Returns:
             Skill cast info dict or None
@@ -649,11 +653,23 @@ class SkillInjector:
             if not self.can_inject_skill(skill_id, pressed_keys, current_time):
                 continue
 
-            # NEW: Check group casting order (additional cascade condition)
+            # Check group casting order (additional cascade condition)
             if not self._check_group_casting_order(skill_id, current_time):
                 continue
 
             skill_state = self.skills[skill_id]
+            config = skill_state.config
+
+            # FREEZE SAFETY CHECK: For frozen rotation skills, ensure no key release
+            # falls within the freeze window. This prevents skills from casting
+            # when they would cause key releases to be skipped.
+            if config.frozen_rotation_during_casting and time_until_next_release is not None:
+                # Estimate freeze duration: pre_pause + press + post_pause + skill_delay
+                # Using max values: 0.7 + 0.15 + 0.7 + skill_delay + 0.2
+                estimated_freeze = 0.7 + 0.15 + 0.7 + config.skill_delay + 0.2
+                if time_until_next_release < estimated_freeze:
+                    # A key release would fall within the freeze window - skip this skill
+                    continue
 
             # If in replacement mode, can inject anytime (skill will replace ignore_key)
             if skill_state.use_replacement_mode:

@@ -319,7 +319,7 @@ class Player:
             down_keys: set[int] = set()
             self.w.all_up()
 
-            for t, kind, usage in events:
+            for idx, (t, kind, usage) in enumerate(events):
                 wait = max(0.0, t - now)
 
                 if await self._sleep_or_stop(wait, stop_event):
@@ -331,7 +331,7 @@ class Player:
                     self.w.all_up()
                     return False
 
-                # Check for skill injection (only when no keys are pressed)
+                # Check for skill injection
                 if skill_injector:
                     current_time = time.time()
 
@@ -342,8 +342,29 @@ class Player:
                             logger.info("Stop event detected during frozen rotation")
                             self.w.all_up()
                             return False
-                        # Skip this event if rotation is frozen
+
+                        # Release all keys during frozen rotation to prevent stuck keys
+                        if down_keys or modmask:
+                            down_keys.clear()
+                            modmask = 0
+                            self.w.send(modmask, down_keys)
+
+                        # Wait out the remaining freeze time
+                        freeze_remaining = skill_injector.frozen_until - current_time
+                        if freeze_remaining > 0:
+                            if await self._sleep_or_stop(freeze_remaining, stop_event):
+                                self.w.all_up()
+                                return False
                         continue
+
+                    # Calculate time until next key release in timeline
+                    # This allows the skill injector to check if casting is safe
+                    time_until_next_release = None
+                    for future_idx in range(idx, len(events)):
+                        future_t, future_kind, _ = events[future_idx]
+                        if future_kind == "up":
+                            time_until_next_release = future_t - t
+                            break
 
                     # Check for skill injection when no keys are pressed
                     current_keys_list = list(down_keys)
@@ -352,7 +373,10 @@ class Player:
                     # Pass ignore_usages as list for skill replacement logic
                     ignore_keys_list = list(ignore_usages) if ignore_usages else None
                     skill_cast_info = skill_injector.check_and_inject_skills(
-                        current_keys_list, current_time, ignore_keys_list
+                        current_keys_list,
+                        current_time,
+                        ignore_keys_list,
+                        time_until_next_release=time_until_next_release
                     )
 
                     if skill_cast_info:
@@ -361,6 +385,13 @@ class Player:
                         pre_pause = skill_cast_info["pre_pause"]
                         post_pause = skill_cast_info["post_pause"]
                         press_duration = skill_cast_info["press_duration"]
+
+                        # Release all keys before skill cast to ensure clean state
+                        if down_keys or modmask:
+                            down_keys.clear()
+                            modmask = 0
+                            self.w.send(modmask, down_keys)
+                            await asyncio.sleep(0.01)  # Small gap for clean separation
 
                         # Pre-pause (for frozen rotation)
                         if pre_pause > 0:

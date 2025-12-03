@@ -12,6 +12,8 @@ Group=input
 Environment=PATH=/opt/msmacro-app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Environment=MSMACRO_RECDIR=/home/bxiao/.local/share/msmacro/records
 Environment=MSMACRO_SOCKET=/run/user/1000/msmacro.sock
+Environment=MSMACRO_SSL_CERT=/home/bxiao/.local/share/msmacro/ssl/server.crt
+Environment=MSMACRO_SSL_KEY=/home/bxiao/.local/share/msmacro/ssl/server.key
 ExecStart=/opt/msmacro-app/.venv/bin/python -m msmacro.web.server --host 0.0.0.0 --port 8787
 Restart=always
 RestartSec=1
