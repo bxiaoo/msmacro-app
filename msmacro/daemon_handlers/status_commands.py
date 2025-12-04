@@ -9,6 +9,16 @@ from typing import Dict, Any
 from ..utils.config import SETTINGS
 
 
+# Import cv_auto_handler lazily to avoid circular imports
+def _get_capture_instance():
+    """Lazily import CVCapture to avoid circular imports."""
+    try:
+        from ..cv.capture import get_capture_instance
+        return get_capture_instance()
+    except Exception:
+        return None
+
+
 class StatusCommandHandler:
     """Handler for status-related IPC commands."""
 
@@ -70,3 +80,52 @@ class StatusCommandHandler:
             "current_playing_file": self.daemon._current_playing_file,
         }
         return resp
+
+    async def combined_status(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get combined daemon status including object detection and CV-AUTO status.
+
+        This method consolidates multiple IPC calls into a single call to reduce
+        IPC overhead for the SSE event stream. Previously, the SSE handler made
+        3 separate IPC calls per iteration which was overwhelming the Pi.
+
+        Args:
+            msg: IPC message (unused for combined_status command)
+
+        Returns:
+            Dictionary containing:
+                - status: Standard daemon status (mode, files, etc.)
+                - object_detection: Object detection status and last result
+                - cv_auto: CV-AUTO mode status
+        """
+        # Get standard status
+        status_resp = await self.status(msg)
+
+        # Get object detection status
+        obj_det_resp = {"enabled": False, "last_result": None}
+        try:
+            capture = _get_capture_instance()
+            if capture:
+                obj_det_resp = {
+                    "enabled": capture._object_detection_enabled,
+                    "last_result": capture.get_last_detection_result()
+                }
+        except Exception:
+            pass
+
+        # Get CV-AUTO status (access via daemon's command dispatcher)
+        cv_auto_resp = {"enabled": False}
+        try:
+            # Access the cv_auto_handler through the dispatcher
+            from . import command_dispatcher
+            # Check if daemon has dispatcher initialized
+            if hasattr(self.daemon, '_dispatcher') and self.daemon._dispatcher:
+                cv_auto_resp = await self.daemon._dispatcher.cv_auto_handler.cv_auto_status(msg)
+        except Exception:
+            pass
+
+        return {
+            "status": status_resp,
+            "object_detection": obj_det_resp,
+            "cv_auto": cv_auto_resp
+        }

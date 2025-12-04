@@ -413,18 +413,40 @@ async def api_events(request: web.Request):
     await send_event({"type": "mode", "mode": last_mode})
     await send_event({"type": "files", "files": st.get("files", [])})
 
+    # Rate-limit notification delivery to prevent overwhelming iOS PWA
+    # Track last notification time per event type
+    last_notification_sent = {}
+    MIN_NOTIFICATION_INTERVAL = 2.0  # seconds per event type
+
+    # Track last known states to enable conditional polling
+    obj_det_was_enabled = False
+    cv_auto_was_enabled = False
+
     try:
         while True:
-            await asyncio.sleep(1.0)
-            
-            # Poll daemon status
+            # Reduced polling frequency from 1.0s to 2.0s to prevent IPC storm
+            # Each poll cycle creates IPC calls which can overwhelm Pi
+            await asyncio.sleep(2.0)
+
+            # OPTIMIZATION: Use combined_status to reduce IPC calls from 3 to 1
+            # This consolidates status, object_detection_status, and cv_auto_status
+            # into a single IPC round-trip, significantly reducing socket overhead
             try:
-                st = await _daemon("status")
+                combined = await _daemon("combined_status")
+                st = combined.get("status", {})
+                obj_det = combined.get("object_detection", {"enabled": False, "last_result": None})
+                cv_auto = combined.get("cv_auto", {"enabled": False})
             except Exception:
-                # Keep streaming heartbeats even if daemon is down
-                with contextlib.suppress(Exception):
-                    await resp.write(b": hb\n\n")
-                continue
+                # Fallback: try just basic status if combined_status not available
+                try:
+                    st = await _daemon("status")
+                    obj_det = {"enabled": False, "last_result": None}
+                    cv_auto = {"enabled": False}
+                except Exception:
+                    # Keep streaming heartbeats even if daemon is down
+                    with contextlib.suppress(Exception):
+                        await resp.write(b": hb\n\n")
+                    continue
 
             # Check for mode changes
             mode = st.get("mode")
@@ -439,45 +461,49 @@ async def api_events(request: web.Request):
                 last_files_msum = msum
                 await send_event({"type": "files", "files": files})
 
-            # Check for object detection updates
-            try:
-                obj_det = await _daemon("object_detection_status")
-                if obj_det.get("enabled") and obj_det.get("last_result"):
-                    await send_event({
-                        "type": "object_detection",
-                        "result": obj_det["last_result"]
-                    })
-            except Exception:
-                pass
+            # Process object detection updates from combined response
+            obj_det_was_enabled = obj_det.get("enabled", False)
+            if obj_det_was_enabled and obj_det.get("last_result"):
+                await send_event({
+                    "type": "object_detection",
+                    "result": obj_det["last_result"]
+                })
 
-            # Check for CV-AUTO status updates
-            try:
-                cv_auto = await _daemon("cv_auto_status")
-                if cv_auto.get("enabled"):
-                    await send_event({
-                        "type": "cv_auto_status",
-                        "current_index": cv_auto.get("current_point_index"),
-                        "current_point": cv_auto.get("current_point_name"),
-                        "total_points": cv_auto.get("total_points"),
-                        "player_position": cv_auto.get("player_position"),
-                        "state": cv_auto.get("state"),
-                        "is_at_point": cv_auto.get("is_at_point")
-                    })
-            except Exception:
-                pass
+            # Process CV-AUTO status updates from combined response
+            cv_auto_was_enabled = cv_auto.get("enabled", False)
+            if cv_auto_was_enabled:
+                await send_event({
+                    "type": "cv_auto_status",
+                    "current_index": cv_auto.get("current_point_index"),
+                    "current_point": cv_auto.get("current_point_name"),
+                    "total_points": cv_auto.get("total_points"),
+                    "player_position": cv_auto.get("player_position"),
+                    "state": cv_auto.get("state"),
+                    "is_at_point": cv_auto.get("is_at_point")
+                })
 
-            # Check for pending notifications
+            # Check for pending notifications with rate-limiting
+            # Prevents notification spam from overwhelming iOS PWA
             try:
                 pending = get_pending_notifications(last_notification_id)
+                now = time.time()
                 for notification in pending:
-                    await send_event({
-                        "type": "notification",
-                        "event": notification["event"],
-                        "title": notification["title"],
-                        "body": notification["body"],
-                        "priority": notification["priority"],
-                        "timestamp": notification["timestamp"]
-                    })
+                    event_type = notification["event"]
+                    last_sent = last_notification_sent.get(event_type, 0)
+
+                    # Rate-limit: only send if MIN_NOTIFICATION_INTERVAL has passed
+                    if now - last_sent >= MIN_NOTIFICATION_INTERVAL:
+                        await send_event({
+                            "type": "notification",
+                            "event": event_type,
+                            "title": notification["title"],
+                            "body": notification["body"],
+                            "priority": notification["priority"],
+                            "timestamp": notification["timestamp"]
+                        })
+                        last_notification_sent[event_type] = now
+
+                    # Always update last_notification_id to avoid re-processing
                     last_notification_id = notification["id"]
             except Exception:
                 pass

@@ -642,6 +642,13 @@ class CVCapture:
                     # Reset error counter on successful frame capture
                     consecutive_errors = 0
 
+                    # Periodic garbage collection to prevent memory buildup
+                    # Runs every 100 frames (~10 seconds at 10 FPS)
+                    # Critical on Raspberry Pi with limited RAM when CV-AUTO + notifications active
+                    if self._frames_captured % 100 == 0:
+                        import gc
+                        gc.collect()
+
                     # Capture at 10 FPS for responsive object detection (CV-AUTO needs fast updates)
                     # Original 30 FPS was wasting 240MB/sec on Raspberry Pi!
                     # BUT: Skip sleep if immediate capture was requested (e.g., after config change)

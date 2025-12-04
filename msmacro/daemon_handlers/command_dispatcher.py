@@ -64,9 +64,11 @@ class CommandDispatcher:
         """
         cmd = msg.get("cmd", "").strip()
 
-        # Status command
+        # Status commands
         if cmd == "status":
             return await self.status_handler.status(msg)
+        elif cmd == "combined_status":
+            return await self.status_handler.combined_status(msg)
 
         # File management commands
         elif cmd == "list":
