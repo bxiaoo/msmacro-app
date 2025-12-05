@@ -553,6 +553,13 @@ class CVAutoCommandHandler:
                     await self._stop_cv_auto("CV capture was stopped")
                     break
 
+                # CRITICAL: Check for screen blackout (minimap went dark)
+                # This indicates game crash, disconnect, or screen off
+                if capture._screen_blackout_active:
+                    log.warning("🚨 Screen blackout detected - emergency stop!")
+                    await self._stop_cv_auto("Screen blackout detected")
+                    break
+
                 result_dict = capture.get_last_detection_result()
                 if not result_dict:
                     # No detection result yet, wait and retry

@@ -102,6 +102,12 @@ class CVCapture:
         self._detection_lock = threading.Lock()
         self._last_rune_detected = False  # Track rune state for edge detection
 
+        # Other player detection with cooldown
+        self._last_other_player_notification_time = 0.0
+
+        # Screen blackout detection (critical)
+        self._screen_blackout_active = False
+
         # Immediate capture trigger (for config changes)
         self._immediate_capture_requested = threading.Event()
 
@@ -550,6 +556,44 @@ class CVCapture:
                     # Run object detection if enabled (only detects objects within the minimap region)
                     if self._object_detection_enabled and region_detected:
                         try:
+                            # CRITICAL: Check for black screen BEFORE running detection
+                            # If minimap goes black, it indicates game crash/disconnect
+                            try:
+                                from .region_analysis import is_black_region, Region
+                                minimap_region = Region(0, 0, raw_minimap_crop.shape[1], raw_minimap_crop.shape[0])
+                                is_black, black_info = is_black_region(raw_minimap_crop, minimap_region)
+
+                                if is_black:
+                                    # Only notify once per blackout event (edge-triggered)
+                                    if not self._screen_blackout_active:
+                                        self._screen_blackout_active = True
+                                        logger.warning(f"Screen blackout detected! avg_brightness={black_info.get('avg_brightness', 0):.1f}")
+                                        try:
+                                            from ..web.handlers import queue_notification
+                                            queue_notification(
+                                                event="screen_blackout",
+                                                title="⚠️ Screen Blackout",
+                                                body="Minimap went dark - stopping automation",
+                                                priority="critical"
+                                            )
+                                        except Exception:
+                                            pass
+                                        # Emit event for CV-AUTO to handle emergency stop
+                                        try:
+                                            from ..events import emit
+                                            emit("SCREEN_BLACKOUT", black_info=black_info)
+                                        except Exception:
+                                            pass
+                                    # Skip normal detection when screen is black
+                                    continue
+                                else:
+                                    # Reset blackout flag when screen recovers
+                                    if self._screen_blackout_active:
+                                        logger.info("Screen recovered from blackout")
+                                    self._screen_blackout_active = False
+                            except Exception as black_err:
+                                logger.debug(f"Black screen check failed: {black_err}")
+
                             with self._detection_lock:
                                 if self._object_detector:
                                     # Use the raw minimap crop we already extracted
@@ -581,6 +625,25 @@ class CVCapture:
                                         except Exception:
                                             pass  # Notification failure shouldn't break capture
                                     self._last_rune_detected = current_rune_detected
+
+                                    # Check for other players detection with cooldown
+                                    # Notify with 30-second cooldown to avoid spam
+                                    if detection_result.other_players.detected:
+                                        now = time.time()
+                                        cooldown = 30.0  # 30 seconds between notifications
+                                        if now - self._last_other_player_notification_time >= cooldown:
+                                            try:
+                                                from ..web.handlers import queue_notification
+                                                count = detection_result.other_players.count
+                                                queue_notification(
+                                                    event="other_player_detected",
+                                                    title="Other Player Detected",
+                                                    body=f"{count} player(s) detected on minimap",
+                                                    priority="high"
+                                                )
+                                                self._last_other_player_notification_time = now
+                                            except Exception:
+                                                pass  # Notification failure shouldn't break capture
                         except Exception as det_err:
                             logger.debug(f"Object detection failed: {det_err}")
 

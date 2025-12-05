@@ -168,6 +168,10 @@ class MacroDaemon:
         if self._runner_task and not self._runner_task.done():
             return
 
+        # Safety check: warn if starting bridge during CV_AUTO (indicates potential bug)
+        if self.mode == "CV_AUTO":
+            log.warning("⚠️ Bridge runner being started while in CV_AUTO mode - this should not happen")
+
         async def runner():
             while True:
                 # Always Work™ device discovery: ensure we have a valid keyboard before starting bridge
@@ -191,7 +195,7 @@ class MacroDaemon:
                     record_hotkey=getattr(SETTINGS, "record_hotkey", "LCTRL+R"),
                     grab=grab,
                 )
-                if self.mode != "POSTRECORD":
+                if self.mode not in ["POSTRECORD", "CV_AUTO"]:
                     self.mode = "BRIDGE"
                     emit("MODE", mode=self.mode)
                 log.debug("Bridge.run_bridge() starting… (grab=%s)", grab)

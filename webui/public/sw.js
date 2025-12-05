@@ -45,12 +45,22 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // 3-tier vibration patterns based on priority level:
+  // - critical: Long urgent pattern (screen blackout, emergency)
+  // - high: Medium alert (rune detected, other player detected)
+  // - info: Short gentle pulse (mode changes, status updates)
+  const vibrationPatterns = {
+    critical: [200, 100, 200, 100, 200, 100, 200],  // Long urgent: ━ ━ ━ ━
+    high: [200, 100, 200],                          // Medium alert: ━ ━
+    info: [100]                                      // Short pulse: ━
+  };
+
   const options = {
     body: data.body,
     icon: data.icon || '/icon-192.png',
     badge: data.badge || '/icon-192.png',
     tag: data.tag || 'msmacro-notification',
-    vibrate: data.priority === 'critical' ? [200, 100, 200, 100, 200] : [100, 50, 100],
+    vibrate: vibrationPatterns[data.priority] || vibrationPatterns.info,
     requireInteraction: data.priority === 'critical',
     data: {
       url: data.url || '/',
@@ -94,12 +104,19 @@ self.addEventListener('message', (event) => {
   if (event.data.type === 'SHOW_NOTIFICATION') {
     const { title, body, priority, tag } = event.data;
 
+    // 3-tier vibration patterns (same as push handler)
+    const vibrationPatterns = {
+      critical: [200, 100, 200, 100, 200, 100, 200],  // Long urgent
+      high: [200, 100, 200],                          // Medium alert
+      info: [100]                                      // Short pulse
+    };
+
     self.registration.showNotification(title || 'MS Macro', {
       body: body || '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       tag: tag || 'msmacro-' + Date.now(),
-      vibrate: priority === 'critical' ? [200, 100, 200, 100, 200] : [100, 50, 100],
+      vibrate: vibrationPatterns[priority] || vibrationPatterns.info,
       requireInteraction: priority === 'critical',
       data: {
         url: '/',
