@@ -219,6 +219,43 @@ class CVAutoCommandHandler:
 
         log.info(f"✓ Departure points configured: {len(departure_points)} points")
 
+        # Filter out non-existent rotation files from departure points
+        # This prevents selecting deleted rotations during CV AUTO playback
+        total_rotations = 0
+        valid_rotations = 0
+        skipped_rotations = 0
+
+        for point in departure_points:
+            valid_rotation_paths = []
+            for rotation_path in point.rotation_paths:
+                total_rotations += 1
+                # Resolve full path (same logic as _play_rotation)
+                if Path(rotation_path).is_absolute():
+                    full_path = Path(rotation_path)
+                else:
+                    full_path = SETTINGS.record_dir / rotation_path
+
+                if full_path.exists():
+                    valid_rotation_paths.append(rotation_path)
+                    valid_rotations += 1
+                else:
+                    skipped_rotations += 1
+                    log.warning(f"⚠️ Rotation file not found, skipping: {rotation_path}")
+
+            # Update point's rotation_paths with only valid ones
+            point.rotation_paths = valid_rotation_paths
+
+        log.info(f"✓ Rotation validation: {total_rotations} total, {valid_rotations} valid, {skipped_rotations} skipped")
+
+        # Check if any departure points have valid rotations
+        has_any_rotations = any(p.rotation_paths for p in departure_points)
+        if not has_any_rotations:
+            error_msg = "No valid rotation files found - all linked rotations may have been deleted"
+            log.error(f"❌ {error_msg}")
+            log.error("   Please check that rotation files exist and re-link them in the CV Item")
+            log.info("=" * 70)
+            return {"error": error_msg}
+
         # Check if object detection is running
         detector = get_detector()
         if not detector:

@@ -2038,6 +2038,7 @@ async def api_cv_auto_start(request: web.Request):
             all_skills_on_disk = {s["id"]: s for s in skills_manager.list_skills()}
 
             refreshed_skills = []
+            skipped_skills = 0
             for skill in active_skills:
                 skill_id = skill.get("id")
                 if skill_id and skill_id in all_skills_on_disk:
@@ -2047,11 +2048,14 @@ async def api_cv_auto_start(request: web.Request):
                     refreshed_skills.append(fresh)
                     log.debug(f"🔄 Refreshed skill '{fresh.get('name')}' from disk")
                 else:
-                    # Skill not found on disk, keep original
-                    refreshed_skills.append(skill)
+                    # Skill not found on disk (deleted), skip it
+                    skipped_skills += 1
+                    log.warning(f"⚠️ Skill '{skill.get('name', skill_id)}' not found on disk, skipping")
 
-            if refreshed_skills:
-                body["active_skills"] = refreshed_skills
+            body["active_skills"] = refreshed_skills
+            if skipped_skills > 0:
+                log.info(f"🔄 Skills: {len(refreshed_skills)} valid, {skipped_skills} skipped (deleted)")
+            elif refreshed_skills:
                 log.info(f"🔄 Refreshed {len(refreshed_skills)} skills from disk")
         except Exception as e:
             log.warning(f"Failed to refresh skills from disk: {e}, using provided skills")
