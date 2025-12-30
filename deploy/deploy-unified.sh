@@ -45,13 +45,15 @@ if [ $? -ne 0 ]; then
 fi
 echo "  OK - SSH connection established"
 
-# Stop and disable conflicting services
+# Stop, disable, and remove conflicting services
 echo ""
-echo "[3/8] Stopping conflicting services..."
+echo "[3/8] Removing conflicting services..."
 ssh $SSH_OPTS "$PI_HOST" 'sudo systemctl stop msmacro-bridge 2>/dev/null || true'
 ssh $SSH_OPTS "$PI_HOST" 'sudo systemctl disable msmacro-bridge 2>/dev/null || true'
+ssh $SSH_OPTS "$PI_HOST" 'sudo rm -f /etc/systemd/system/msmacro-bridge.service'
 ssh $SSH_OPTS "$PI_HOST" 'sudo systemctl stop msmacro 2>/dev/null || true'
-echo "  OK - Old services stopped"
+ssh $SSH_OPTS "$PI_HOST" 'sudo systemctl daemon-reload'
+echo "  OK - Old services stopped and msmacro-bridge.service removed"
 
 # Sync project code to Pi
 echo ""

@@ -62,6 +62,9 @@ class Bridge:
         self._down: Set[int] = set()
         self._suppress_codes: Set[int] = set()  # kernel key codes to suppress while a chord is armed
 
+        # Mode tracking for blocking passthrough during PLAYING/CV_AUTO
+        self._current_mode: str = "BRIDGE"
+
         # Event callback for Mac bridge integration
         self._event_callback = event_callback
 
@@ -80,6 +83,20 @@ class Bridge:
                 key = (ch.mod_ecode, ch.key_usage)
                 self._extras[key] = label
                 self._extra_armed[key] = False
+
+    # ---------------- mode management ----------------
+
+    def set_mode(self, mode: str) -> None:
+        """Set current mode. During PLAYING/CV_AUTO, keyboard passthrough is blocked."""
+        self._current_mode = mode
+
+    def _should_block_passthrough(self) -> bool:
+        """Check if keyboard passthrough to HID should be blocked.
+
+        Returns True during PLAYING or CV_AUTO modes when physical keyboard
+        should not interfere with injected keystrokes from Mac controller.
+        """
+        return self._current_mode in ("PLAYING", "CV_AUTO")
 
     # ---------------- helpers ----------------
 
@@ -110,7 +127,9 @@ class Bridge:
         return False, usage, is_down
 
     def _send(self):
-        self._hid.send(self._modmask, self._down)
+        """Send current key state to HID gadget (unless blocked by mode)."""
+        if not self._should_block_passthrough():
+            self._hid.send(self._modmask, self._down)
 
     # ---------------- live bridge ----------------
 

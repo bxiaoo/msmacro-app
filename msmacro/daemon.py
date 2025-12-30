@@ -130,6 +130,9 @@ class MacroDaemon:
         self._play_task: Optional[asyncio.Task] = None
         self._post_task: Optional[asyncio.Task] = None
 
+        # Track current bridge instance for mode updates
+        self._current_bridge: Optional[Any] = None
+
         self.rec_dir = Path(getattr(SETTINGS, "record_dir", "./records"))
         self.rec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -143,11 +146,21 @@ class MacroDaemon:
         # Initialize command dispatcher for IPC command routing
         self._dispatcher = CommandDispatcher(self)
 
+        # Initialize shared HID writer for Mac bridge injection
+        self._hid_writer = None
+        if HAS_HID_GADGET:
+            try:
+                self._hid_writer = HIDWriter(getattr(SETTINGS, "hidg_path", "/dev/hidg0"))
+                log.info("Shared HID writer initialized: %s", SETTINGS.hidg_path)
+            except Exception as e:
+                log.warning("HID writer not available: %s", e)
+
         # Initialize Mac bridge for network communication (if enabled)
         self._mac_bridge = None
         if MacBridge is not None and SETTINGS.mac_bridge_enabled:
             try:
                 self._mac_bridge = MacBridge(
+                    hid_writer=self._hid_writer,  # Pass shared HID writer for injection
                     mac_ip=SETTINGS.mac_ip,
                     udp_port=SETTINGS.mac_udp_port,
                     tcp_port=SETTINGS.mac_tcp_port,
@@ -210,9 +223,13 @@ class MacroDaemon:
     def _on_mac_mode_change(self, new_mode: str) -> None:
         """Handle mode change request from Mac controller."""
         log.info("Mode change requested from Mac: %s -> %s", self.mode, new_mode)
-        # Update mode (actual mode handling would need more logic)
         self.mode = new_mode
         emit("MODE", mode=self.mode)
+
+        # Update bridge mode to block/unblock physical keyboard passthrough
+        if self._current_bridge:
+            self._current_bridge.set_mode(new_mode)
+            log.debug("Bridge mode updated to: %s", new_mode)
 
     def _mac_event_callback(self, code: int, value: int, usage: int, modmask: int) -> None:
         """Forward keyboard event to Mac via UDP streaming."""
@@ -248,8 +265,8 @@ class MacroDaemon:
                         await asyncio.sleep(5)
                         continue
                 
-                # Don't grab device for POSTRECORD or CV_AUTO - allows hotkey watcher to read events
-                grab = (self.mode not in ["POSTRECORD", "CV_AUTO"])
+                # Don't grab device for POSTRECORD, CV_AUTO, or PLAYING - allows hotkey watcher to read events
+                grab = (self.mode not in ["POSTRECORD", "CV_AUTO", "PLAYING"])
                 b = Bridge(
                     evdev_path=self.evdev_path,
                     hidg_path=getattr(SETTINGS, "hidg_path", "/dev/hidg0"),
@@ -258,8 +275,13 @@ class MacroDaemon:
                     grab=grab,
                     event_callback=self._mac_event_callback if self._mac_bridge else None,
                 )
+                # Store reference and sync mode for Mac bridge integration
+                self._current_bridge = b
+                b.set_mode(self.mode)
+
                 if self.mode not in ["POSTRECORD", "CV_AUTO"]:
                     self.mode = "BRIDGE"
+                    b.set_mode(self.mode)  # Update bridge mode
                     emit("MODE", mode=self.mode)
                     self._notify_mac_mode()  # Notify Mac of mode change
                 log.debug("Bridge.run_bridge() starting… (grab=%s)", grab)
@@ -472,43 +494,32 @@ class MacroDaemon:
                 if val == 2:  # repeat
                     continue
 
-                if val == 1:
-                    log.debug("PLAY watcher: key DOWN code=%d", code)
-                elif val == 0:
-                    log.debug("PLAY watcher: key UP code=%d", code)
-                
-
                 if mod_ec is not None and key_ec is not None:
+                    # Track previous chord state
+                    prev_chord_active = mod_dn and key_dn
+
+                    # Update key states
                     if code == mod_ec:
-                        mod_dn = (val != 0)
-                        if mod_dn and key_dn: 
-                            armed = True
-                            log.debug("PLAY watcher: stop chord ARMED")
-                        if armed and not mod_dn and not key_dn:
-                            log.info("PLAY hotkey: STOP")
-                            log.debug("PLAY hotkey: Setting stop event (current mode=%s)", self.mode)
-                            if self._stop_event:
-                                self._stop_event.set()
-                                log.info("Stop event SET")
-                            break
-                            # with contextlib.suppress(Exception):
-                            #     self._stop_event.set()
-                            # break
+                        mod_dn = (val == 1)
                     elif code == key_ec:
-                        key_dn = (val != 0)
-                        if mod_dn and key_dn: 
-                            armed = True
-                            log.debug("PLAY watcher: stop chord ARMED")
-                        if armed and not mod_dn and not key_dn:
-                            log.info("PLAY hotkey: STOP")
-                            log.debug("PLAY hotkey: Setting stop event (current mode=%s)", self.mode)
-                            if self._stop_event:
-                                self._stop_event.set()
-                                log.info("Stop event SET")
-                            break
-                            # with contextlib.suppress(Exception):
-                            #     self._stop_event.set()
-                            # break
+                        key_dn = (val == 1)
+
+                    # Check current chord state
+                    curr_chord_active = mod_dn and key_dn
+
+                    # Arm on first full press (transition to active)
+                    if not armed and not prev_chord_active and curr_chord_active:
+                        armed = True
+                        log.debug("PLAY watcher: stop chord ARMED")
+
+                    # Fire on release edge: chord was armed, now released, key is part of chord
+                    if armed and not curr_chord_active and (code in (mod_ec, key_ec)) and (val == 0):
+                        log.info("PLAY hotkey: STOP detected")
+                        armed = False  # Disarm to prevent double-fire
+                        if self._stop_event:
+                            self._stop_event.set()
+                            log.info("Stop event SET")
+                        break
         except asyncio.CancelledError:
             log.debug("PLAY hotkeys watcher cancelled")
         except Exception:
