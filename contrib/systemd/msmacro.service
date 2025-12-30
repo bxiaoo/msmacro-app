@@ -1,8 +1,8 @@
 [Unit]
-Description=MS Macro daemon (auto bridge + control socket)
+Description=MSMacro Unified Service (daemon + Mac bridge)
 Requires=user-runtime-dir@1000.service
-After=systemd-udev-settle.service bluetooth.target pikb-gadget.service user-runtime-dir@1000.service
-Wants=systemd-udev-settle.service bluetooth.target pikb-gadget.service
+After=systemd-udev-settle.service bluetooth.target pikb-gadget.service user-runtime-dir@1000.service network-online.target
+Wants=systemd-udev-settle.service bluetooth.target pikb-gadget.service network-online.target
 
 [Service]
 Type=simple
@@ -10,9 +10,17 @@ WorkingDirectory=/opt/msmacro-app
 User=bxiao
 Group=input
 Environment=PATH=/opt/msmacro-app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=MSMACRO_LOGLEVEL=INFO
 Environment=MSMACRO_RECDIR=/home/bxiao/.local/share/msmacro/records
+Environment=MSMACRO_SKILLSDIR=/home/bxiao/.local/share/msmacro/skills
 Environment=MSMACRO_SOCKET=/run/user/1000/msmacro.sock
 Environment=MSMACRO_EVENTS=/run/user/1000/msmacro.events
+# Mac bridge network settings
+Environment=MSMACRO_MAC_BRIDGE_ENABLED=true
+Environment=MSMACRO_MAC_IP=10.0.0.1
+Environment=MSMACRO_MAC_UDP_PORT=5001
+Environment=MSMACRO_MAC_TCP_PORT=5000
+Environment=MSMACRO_MAC_EVENTS_PORT=5002
 ExecStartPre=/bin/sh -lc 'for i in $(seq 1 100); do [ -e /dev/hidg0 ] && exit 0; sleep 0.1; done; echo "hidg0 missing" >&2; exit 1'
 ExecStart=/opt/msmacro-app/.venv/bin/python -m msmacro daemon --device auto
 Restart=always

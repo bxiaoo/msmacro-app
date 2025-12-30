@@ -33,6 +33,12 @@ from .io.ipc import start_server
 from .cv import get_capture_instance, CVCaptureError
 from .daemon_handlers.command_dispatcher import CommandDispatcher
 
+# Mac bridge integration (optional, controlled by SETTINGS.mac_bridge_enabled)
+if SETTINGS.mac_bridge_enabled:
+    from .net import MacBridge
+else:
+    MacBridge = None
+
 # Import keyboard and HID modules (they handle platform dispatch internally)
 from .io.keyboard import find_keyboard_event, find_keyboard_with_retry, find_keyboard_event_safe
 from .io.hidio import HIDWriter
@@ -137,6 +143,25 @@ class MacroDaemon:
         # Initialize command dispatcher for IPC command routing
         self._dispatcher = CommandDispatcher(self)
 
+        # Initialize Mac bridge for network communication (if enabled)
+        self._mac_bridge = None
+        if MacBridge is not None and SETTINGS.mac_bridge_enabled:
+            try:
+                self._mac_bridge = MacBridge(
+                    mac_ip=SETTINGS.mac_ip,
+                    udp_port=SETTINGS.mac_udp_port,
+                    tcp_port=SETTINGS.mac_tcp_port,
+                    events_port=SETTINGS.mac_events_port,
+                    mode_callback=self._on_mac_mode_change,
+                )
+                log.info("Mac bridge initialized: %s:%d (UDP), %s:%d (TCP), events -> %s:%d",
+                         "0.0.0.0", SETTINGS.mac_udp_port,
+                         "0.0.0.0", SETTINGS.mac_tcp_port,
+                         SETTINGS.mac_ip, SETTINGS.mac_events_port)
+            except Exception as e:
+                log.error("Failed to initialize Mac bridge: %s", e)
+                self._mac_bridge = None
+
         log.info("Daemon init: keyboard=%s  record_dir=%s  skills_dir=%s",
                  self.evdev_path, self.rec_dir, skills_dir)
         log.info("Hotkeys: record=%s  stop=%s",
@@ -151,6 +176,15 @@ class MacroDaemon:
     async def start(self):
         log.info("Starting IPC server…")
         server = await start_server(getattr(SETTINGS, "socket_path", "/run/msmacro.sock"), self.handle)
+
+        # Start Mac bridge if enabled
+        if self._mac_bridge:
+            try:
+                await self._mac_bridge.start()
+                log.info("Mac bridge started")
+            except Exception as e:
+                log.error("Failed to start Mac bridge: %s", e)
+
         await self._ensure_runner_started()
         try:
             log.info("Daemon ready (mode=%s) — waiting.", self.mode)
@@ -158,9 +192,37 @@ class MacroDaemon:
         finally:
             log.info("Shutting down…")
             await self._pause_runner()
+
+            # Stop Mac bridge
+            if self._mac_bridge:
+                try:
+                    await self._mac_bridge.stop()
+                    log.info("Mac bridge stopped")
+                except Exception as e:
+                    log.error("Error stopping Mac bridge: %s", e)
+
             server.close()
             await server.wait_closed()
             log.info("Shutdown complete.")
+
+    # ---------- Mac bridge callbacks ----------
+
+    def _on_mac_mode_change(self, new_mode: str) -> None:
+        """Handle mode change request from Mac controller."""
+        log.info("Mode change requested from Mac: %s -> %s", self.mode, new_mode)
+        # Update mode (actual mode handling would need more logic)
+        self.mode = new_mode
+        emit("MODE", mode=self.mode)
+
+    def _mac_event_callback(self, code: int, value: int, usage: int, modmask: int) -> None:
+        """Forward keyboard event to Mac via UDP streaming."""
+        if self._mac_bridge:
+            self._mac_bridge.send_key_event(code, value, usage, modmask)
+
+    def _notify_mac_mode(self) -> None:
+        """Notify Mac bridge of current mode."""
+        if self._mac_bridge:
+            self._mac_bridge.set_mode(self.mode)
 
     # ---------- bridge supervisor ----------
 
@@ -194,10 +256,12 @@ class MacroDaemon:
                     stop_hotkey=getattr(SETTINGS, "stop_hotkey", "LCTRL+Q"),
                     record_hotkey=getattr(SETTINGS, "record_hotkey", "LCTRL+R"),
                     grab=grab,
+                    event_callback=self._mac_event_callback if self._mac_bridge else None,
                 )
                 if self.mode not in ["POSTRECORD", "CV_AUTO"]:
                     self.mode = "BRIDGE"
                     emit("MODE", mode=self.mode)
+                    self._notify_mac_mode()  # Notify Mac of mode change
                 log.debug("Bridge.run_bridge() starting… (grab=%s)", grab)
                 try:
                     result = await b.run_bridge()

@@ -5,13 +5,16 @@ import asyncio
 import contextlib
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional, Set, Tuple
+from typing import Callable, Dict, Optional, Set, Tuple
 
 from evdev import InputDevice, ecodes
 
 from ..io.hidio import HIDWriter
 from ..utils.keymap import parse_hotkey, usage_from_ecode, is_modifier, mod_bit
 from ..utils.events import emit  # if you don't use SSE events, you can comment out emit() calls
+
+# Type alias for event callback: (code, value, usage, modmask) -> None
+EventCallback = Callable[[int, int, int, int], None]
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,7 @@ class Bridge:
         record_hotkey: Optional[str] = None,
         grab: bool = True,
         extra_hotkeys: Optional[Dict[str, str]] = None,  # spec -> label
+        event_callback: Optional[EventCallback] = None,  # For Mac bridge UDP streaming
     ):
         self.evdev_path = evdev_path
         self.hidg_path = hidg_path
@@ -57,6 +61,9 @@ class Bridge:
         self._modmask: int = 0
         self._down: Set[int] = set()
         self._suppress_codes: Set[int] = set()  # kernel key codes to suppress while a chord is armed
+
+        # Event callback for Mac bridge integration
+        self._event_callback = event_callback
 
         # chords
         self._stop = _parse_chord(stop_hotkey)
@@ -132,6 +139,15 @@ class Bridge:
                 prev_rec = self._active(self._record) if self._record else False
 
                 is_mod, usage, is_down = self._update_state(code, val)
+
+                # Call event callback for Mac bridge streaming (always, even for suppressed keys)
+                if self._event_callback and val != 2:  # Skip repeat events
+                    cb_usage = usage_from_ecode(code) if is_mod else usage
+                    if cb_usage is not None:
+                        try:
+                            self._event_callback(code, val, cb_usage, self._modmask)
+                        except Exception:
+                            pass  # Don't let callback errors affect bridge operation
 
                 # arm chords on first full press (mod+key down)
                 curr_stop = self._active(self._stop)
